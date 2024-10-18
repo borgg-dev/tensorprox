@@ -23,16 +23,17 @@ from prompting.organic.organic_loop import start_organic
 from prompting.weight_setting.weight_setter import weight_setter
 
 NEURON_SAMPLE_SIZE = 100
-
+SCORING_QUEUE_LENGTH_THRESHOLD = 1
 
 class Validator(BaseValidatorNeuron):
     """Text prompt validator neuron."""
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, feature_queue = None):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
         start_organic(self.axon)
+        self.feature_queue = feature_queue  # Receive the queue from TrafficData
 
     async def run_step(self, k: int, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
         """Executes a single step of the agent, which consists of:
@@ -49,23 +50,28 @@ class Validator(BaseValidatorNeuron):
             timeout (float): The timeout for the queries.
             exclude (list, optional): The list of uids to exclude from the query. Defaults to [].
         """
-        while len(scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
+        while len(scoring_queue) > SCORING_QUEUE_LENGTH_THRESHOLD:
             logger.debug("Scoring queue is full. Waiting 1 second...")
             await asyncio.sleep(1)
         while len(mutable_globals.task_queue) == 0:
             logger.warning("No tasks in queue. Waiting 1 second...")
             await asyncio.sleep(1)
-        try:
-            # get task from the task queue
-            mutable_globals.task_queue: list[BaseTextTask]
-            task = mutable_globals.task_queue.pop(0)
 
-            # send the task to the miners and collect the responses
+        try:
+            # Fetch traffic data from the queue
+            traffic_data = await self.feature_queue.get()
+            logger.debug(f"Received traffic data: {traffic_data}")
+
+            # Create a task from the received traffic data
+            task = {'event':'Task','type': 'Inference', 'content': traffic_data} 
+
+            # Simulate sending task to miners and collecting responses
             with Timer() as timer:
                 response_event = await self.collect_responses(task=task)
-            logger.debug(f"Collected responses in {timer.elapsed_time:.2f} seconds")
 
-            # scoring_manager will score the responses as and when the correct model is loaded
+            logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
+
+            # scoring_manager will score the responses
             task_scorer.add_to_queue(
                 task=task,
                 response=response_event,

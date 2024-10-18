@@ -7,10 +7,10 @@ from pydantic import ConfigDict
 from loguru import logger
 from dataclasses import dataclass
 
-from prompting.tasks.base_task import BaseTextTask
+from Validator.traffic_data import TrafficData
 from prompting.tasks.task_registry import TaskRegistry
 from prompting.base.dendrite import DendriteResponseEvent
-from prompting.llms.model_manager import model_manager, model_scheduler
+from prompting.llms.model_manager import model_scheduler
 from prompting.utils.logging import RewardLoggingEvent, log_event
 from prompting import mutable_globals
 from prompting.datasets.base import DatasetEntry
@@ -20,17 +20,15 @@ import asyncio
 
 @dataclass
 class ScoringConfig:
-    task: BaseTextTask
+    task: TrafficData
     response: DendriteResponseEvent
     dataset_entry: DatasetEntry
     block: int
     step: int
     task_id: str
 
-
 class TaskScorer(AsyncLoopRunner):
     """The scoring manager maintains a queue of tasks & responses to score and then runs a scoring loop in a background thread.
-    This scoring loop will score the responses once the LLM needed is loaded in the model_manager and log the rewards.
     """
 
     is_running: bool = False
@@ -41,7 +39,7 @@ class TaskScorer(AsyncLoopRunner):
 
     def add_to_queue(
         self,
-        task: BaseTextTask,
+        task: TrafficData,
         response: DendriteResponseEvent,
         dataset_entry: DatasetEntry,
         block: int,
@@ -63,21 +61,16 @@ class TaskScorer(AsyncLoopRunner):
     async def run_step(self) -> RewardLoggingEvent:
         await asyncio.sleep(0.01)
         # Only score responses for which the model is loaded
-        scorable = [
-            scoring_config
-            for scoring_config in mutable_globals.scoring_queue
-            if (scoring_config.task.llm_model in model_manager.active_models.keys())
-            or (scoring_config.task.llm_model is None)
-        ]
-        if len(scorable) == 0:
+
+        if len(mutable_globals.scoring_queue) == 0:
             await asyncio.sleep(0.01)
             logger.debug("Nothing to score. Skipping scoring step.")
             # Run a model_scheduler step to load a new model as there are no more tasks to be scored
             await model_scheduler.run_step()
             await asyncio.sleep(5)
             return
-        mutable_globals.scoring_queue.remove(scorable[0])
-        scoring_config: ScoringConfig = scorable.pop(0)
+        mutable_globals.scoring_queue.remove(mutable_globals.scoring_queue[0])
+        scoring_config: ScoringConfig = mutable_globals.scoring_queue.pop(0)
 
         # here we generate the actual reference
         scoring_config.task.make_reference(
