@@ -1,29 +1,23 @@
 # ruff: noqa: E402
 import asyncio
 import time
-from prompting import settings
+from tensorprox import settings
 
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
 
 from loguru import logger
-from prompting.base.validator import BaseValidatorNeuron
-from prompting.base.forward import log_stream_results, handle_response
-from prompting.base.dendrite import DendriteResponseEvent, StreamPromptingSynapse
-from prompting.tasks.task_creation import task_loop
-from prompting.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from prompting.rewards.scoring import task_scorer
-from prompting.miner_availability.miner_availability import availability_checking_loop, miner_availabilities
-from prompting.llms.model_manager import model_scheduler
-from prompting.utils.timer import Timer
-from prompting.mutable_globals import scoring_queue
-from prompting import mutable_globals
-from prompting.tasks.base_task import BaseTextTask
-from prompting.organic.organic_loop import start_organic
-from prompting.weight_setting.weight_setter import weight_setter
-
-NEURON_SAMPLE_SIZE = 100
-SCORING_QUEUE_LENGTH_THRESHOLD = 1
+from tensorprox.base.validator import BaseValidatorNeuron
+from tensorprox.base.forward import log_stream_results, handle_response
+from tensorprox.base.dendrite import DendriteResponseEvent, StreamPromptingSynapse
+from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
+from tensorprox.rewards.scoring import task_scorer
+from tensorprox.miner_availability.miner_availability import availability_checking_loop, miner_availabilities
+from tensorprox.utils.timer import Timer
+from tensorprox import mutable_globals
+from tensorprox.mutable_globals import scoring_queue
+from tensorprox.weight_setting.weight_setter import weight_setter
+from tensorprox.tasks.base_task import BaseTask
 
 class Validator(BaseValidatorNeuron):
     """Text prompt validator neuron."""
@@ -32,7 +26,6 @@ class Validator(BaseValidatorNeuron):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
-        start_organic(self.axon)
         self.feature_queue = feature_queue  # Receive the queue from TrafficData
 
     async def run_step(self, k: int, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
@@ -50,7 +43,7 @@ class Validator(BaseValidatorNeuron):
             timeout (float): The timeout for the queries.
             exclude (list, optional): The list of uids to exclude from the query. Defaults to [].
         """
-        while len(scoring_queue) > SCORING_QUEUE_LENGTH_THRESHOLD:
+        while len(scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
             logger.debug("Scoring queue is full. Waiting 1 second...")
             await asyncio.sleep(1)
         while len(mutable_globals.task_queue) == 0:
@@ -62,8 +55,15 @@ class Validator(BaseValidatorNeuron):
             traffic_data = await self.feature_queue.get()
             logger.debug(f"Received traffic data: {traffic_data}")
 
-            # Create a task from the received traffic data
-            task = {'event':'Task','type': 'Inference', 'content': traffic_data} 
+            # Create a BaseTask from the received traffic data
+            base_task = BaseTask()
+
+            query, reference = base_task.generate_query_reference(traffic_data)
+
+            task = {
+                'query': query,
+                'reference': reference,
+            }
 
             # Simulate sending task to miners and collecting responses
             with Timer() as timer:
@@ -71,14 +71,13 @@ class Validator(BaseValidatorNeuron):
 
             logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
 
-            # scoring_manager will score the responses
+            # Scoring manager will score the responses
             task_scorer.add_to_queue(
                 task=task,
                 response=response_event,
-                dataset_entry=task.dataset_entry,
                 block=self.block,
                 step=self.step,
-                task_id=task.task_id,
+                task_id=base_task.task_id,  # Use task_id from BaseTask
             )
 
             # Log the step event.
@@ -87,7 +86,7 @@ class Validator(BaseValidatorNeuron):
                 step=self.step,
                 step_time=timer.elapsed_time,
                 response_event=response_event,
-                task_id=task.task_id,
+                task_id=base_task.task_id,
             )
 
         except Exception as ex:
@@ -96,9 +95,9 @@ class Validator(BaseValidatorNeuron):
                 error=str(ex),
             )
 
-    async def collect_responses(self, task: BaseTextTask) -> DendriteResponseEvent | None:
+    async def collect_responses(self, task: BaseTask) -> DendriteResponseEvent | None:
         # Get the list of uids and their axons to query for this step.
-        uids = miner_availabilities.get_available_miners(task=task, model=task.llm_model_id, k=NEURON_SAMPLE_SIZE)
+        uids = miner_availabilities.get_available_miners(task=task, k=settings.NEURON_SAMPLE_SIZE)
         logger.debug(f"🔍 Querying uids: {uids}")
         if len(uids) == 0:
             logger.debug("No available miners. Skipping step.")
@@ -109,9 +108,7 @@ class Validator(BaseValidatorNeuron):
         synapse = StreamPromptingSynapse(
             task_name=task.__class__.__name__,
             seed=task.seed,
-            target_model=task.llm_model_id,
-            roles=["user"],
-            messages=[task.query],
+            challenges=[task.query]
         )
         streams_responses = await settings.DENDRITE(
             axons=axons,
@@ -124,9 +121,10 @@ class Validator(BaseValidatorNeuron):
         # Prepare the task for handling stream responses
         stream_results = await handle_response(stream_results_dict=dict(zip(uids, streams_responses)))
         logger.debug(
-            f"Non-empty responses: {len([r.completion for r in stream_results if len(r.completion) > 0])}\n"
-            f"Empty responses: {len([r.completion for r in stream_results if len(r.completion) == 0])}"
+            f"Responses that are not None: {len([r.completion for r in stream_results if r.completion is not None])}\n"
+            f"Responses that are None: {len([r.completion for r in stream_results if r.completion is None])}"
         )
+
 
         log_stream_results(stream_results)
 
@@ -146,7 +144,7 @@ class Validator(BaseValidatorNeuron):
             # in run_step, a task is generated and sent to the miners
             async with self._lock:
                 event = await self.run_step(
-                    k=NEURON_SAMPLE_SIZE,
+                    k=settings.NEURON_SAMPLE_SIZE,
                     timeout=settings.NEURON_TIMEOUT,
                 )
 
@@ -184,13 +182,7 @@ class Validator(BaseValidatorNeuron):
             self.is_running = False
             logger.debug("Stopped")
 
-
 async def main():
-    # start rotating LLM models
-    asyncio.create_task(model_scheduler.start())
-
-    # start creating tasks
-    asyncio.create_task(task_loop.start())
 
     # will start checking the availability of miners at regular intervals
     asyncio.create_task(availability_checking_loop.start())
@@ -199,9 +191,7 @@ async def main():
 
     # start scoring tasks in separate loop
     asyncio.create_task(task_scorer.start())
-    # TODO: Think about whether we want to store the task queue locally in case of a crash
-    # TODO: Possibly run task scorer & model scheduler with a lock so I don't unload a model whilst it's generating
-    # TODO: Make weight setting happen as specific intervals as we load/unload models
+
     with Validator() as v:
         while True:
             logger.info(

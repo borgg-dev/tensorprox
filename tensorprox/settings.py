@@ -1,28 +1,32 @@
 import os
 from functools import cached_property
 from typing import Any, Literal, Optional
+
 import bittensor as bt
 import dotenv
 import torch
 from loguru import logger
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
-from utils.config import config
+
+from prompting.utils.config import config
 
 
 class Settings(BaseSettings):
     mode: Literal["miner", "validator", "mock"]
     MOCK: bool = False
     NO_BACKGROUND_THREAD: bool = True
+    SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 
     # W&B.
     WANDB_ON: bool = Field(True, env="WANDB_ON")
-    WANDB_ENTITY: Optional[str] = Field("data-deepmind", env="WANDB_ENTITY")
-    WANDB_PROJECT_NAME: Optional[str] = Field("TensorProx", env="WANDB_PROJECT_NAME")
+    WANDB_ENTITY: Optional[str] = Field("macrocosmos", env="WANDB_ENTITY")
+    WANDB_PROJECT_NAME: Optional[str] = Field("prompting-validators", env="WANDB_PROJECT_NAME")
     WANDB_RUN_STEP_LENGTH: int = Field(100, env="WANDB_RUN_STEP_LENGTH")
     WANDB_API_KEY: Optional[str] = Field(None, env="WANDB_API_KEY")
     WANDB_OFFLINE: bool = Field(False, env="WANDB_OFFLINE")
     WANDB_NOTES: str = Field("", env="WANDB_NOTES")
+    MAX_WANDB_DURATION: int = 24
 
     # Neuron.
     NEURON_EPOCH_LENGTH: int = Field(100, env="NEURON_EPOCH_LENGTH")
@@ -44,12 +48,28 @@ class Settings(BaseSettings):
     NEURON_QUERY_UNIQUE_IPS: bool = Field(False, env="NEURON_QUERY_UNIQUE_IPS")
     NEURON_FORWARD_MAX_TIME: int = Field(240, env="NEURON_FORWARD_MAX_TIME")
     NEURON_MAX_TOKENS: int = Field(512, env="NEURON_MAX_TOKENS")
-    REWARD_STEEPNESS: float = Field(0.5, env="STEEPNESS")
+    REWARD_STEEPNESS: float = Field(0.55, env="STEEPNESS")
 
+    # Organic.
+    ORGANIC_TIMEOUT: int = Field(30, env="ORGANIC_TIMEOUT")
+    ORGANIC_SAMPLE_SIZE: int = Field(5, env="ORGANIC_SAMPLE_SIZE")
+    ORGANIC_REUSE_RESPONSE_DISABLED: bool = Field(False, env="ORGANIC_REUSE_RESPONSE_DISABLED")
+    ORGANIC_REFERENCE_MAX_TOKENS: int = Field(1024, env="ORGANIC_REFERENCE_MAX_TOKENS")
+    ORGANIC_SYNTH_REWARD_SCALE: float = Field(1.0, env="ORGANIC_SYNTH_REWARD_SCALE")
+    ORGANIC_SET_WEIGHTS_ENABLED: bool = Field(True, env="ORGANIC_SET_WEIGHTS_ENABLED")
+    ORGANIC_DISABLED: bool = Field(False, env="ORGANIC_DISABLED")
+    ORGANIC_TRIGGER_FREQUENCY: int = Field(120, env="ORGANIC_TRIGGER_FREQUENCY")
+    ORGANIC_TRIGGER_FREQUENCY_MIN: int = Field(5, env="ORGANIC_TRIGGER_FREQUENCY_MIN")
+    ORGANIC_TRIGGER: str = Field("seconds", env="ORGANIC_TRIGGER")
+    ORGANIC_SCALING_FACTOR: int = Field(1, env="ORGANIC_SCALING_FACTOR")
+    TASK_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="TASK_QUEUE_LENGTH_THRESHOLD")
+    SCORING_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="SCORING_QUEUE_LENGTH_THRESHOLD")
+    HF_TOKEN: Optional[str] = Field(None, env="HF_TOKEN")
 
     # Additional Fields.
     NETUID: Optional[int] = Field(61, env="NETUID")
     TEST: bool = False
+    OPENAI_API_KEY: Optional[str] = Field(None, env="OPENAI_API_KEY")
     WALLET_NAME: Optional[str] = Field(None, env="WALLET_NAME")
     HOTKEY: Optional[str] = Field(None, env="HOTKEY")
     AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
@@ -58,7 +78,13 @@ class Settings(BaseSettings):
     )
     TEST_MINER_IDS: list[int] = Field([], env="TEST_MINER_IDS")
     SUBTENSOR_NETWORK: Optional[str] = Field(None, env="SUBTENSOR_NETWORK")
+    MAX_ALLOWED_VRAM_GB: int = Field(62, env="MAX_ALLOWED_VRAM_GB")
+    LLM_MAX_MODEL_LEN: int = Field(4096, env="LLM_MAX_MODEL_LEN")
+    NEURON_MODEL_ID_VALIDATOR: str = Field("hugging-quants/Meta-Llama-3.1-70B-Instruct-AWQ-INT4", env="LLM_MODEL")
     MINER_LLM_MODEL: Optional[str] = Field(None, env="MINER_LLM_MODEL")
+    LLM_MODEL_RAM: float = Field(70, env="LLM_MODEL_RAM")
+
+    model_config = {"frozen": True, "arbitrary_types_allowed": False}
 
     # Class variables for singleton.
     _instance: Optional["Settings"] = None

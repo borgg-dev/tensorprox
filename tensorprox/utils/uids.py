@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Literal
 import random
-from prompting.settings import settings
+from tensorprox.settings import settings
 from loguru import logger
 
 
