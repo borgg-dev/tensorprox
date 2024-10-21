@@ -7,22 +7,18 @@ from pydantic import ConfigDict
 from loguru import logger
 from dataclasses import dataclass
 
-from prompting.tasks.base_task import BaseTextTask
-from prompting.tasks.task_registry import TaskRegistry
-from prompting.base.dendrite import DendriteResponseEvent
-from prompting.llms.model_manager import model_manager, model_scheduler
-from prompting.utils.logging import RewardLoggingEvent, log_event
-from prompting import mutable_globals
-from prompting.datasets.base import DatasetEntry
-from prompting.base.loop_runner import AsyncLoopRunner
+from tensorprox.tasks.base_task import BaseTask
+from tensorprox.base.dendrite import DendriteResponseEvent
+from tensorprox.utils.logging import RewardLoggingEvent, log_event
+from tensorprox import mutable_globals
+from tensorprox.base.loop_runner import AsyncLoopRunner
 import asyncio
 
 
 @dataclass
 class ScoringConfig:
-    task: BaseTextTask
+    task: BaseTask
     response: DendriteResponseEvent
-    dataset_entry: DatasetEntry
     block: int
     step: int
     task_id: str
@@ -41,9 +37,8 @@ class TaskScorer(AsyncLoopRunner):
 
     def add_to_queue(
         self,
-        task: BaseTextTask,
+        task: BaseTask,
         response: DendriteResponseEvent,
-        dataset_entry: DatasetEntry,
         block: int,
         step: int,
         task_id: str,
@@ -53,7 +48,6 @@ class TaskScorer(AsyncLoopRunner):
             ScoringConfig(
                 task=task,
                 response=response,
-                dataset_entry=dataset_entry,
                 block=block,
                 step=step,
                 task_id=task_id,
@@ -66,14 +60,10 @@ class TaskScorer(AsyncLoopRunner):
         scorable = [
             scoring_config
             for scoring_config in mutable_globals.scoring_queue
-            if (scoring_config.task.llm_model in model_manager.active_models.keys())
-            or (scoring_config.task.llm_model is None)
         ]
         if len(scorable) == 0:
             await asyncio.sleep(0.01)
             logger.debug("Nothing to score. Skipping scoring step.")
-            # Run a model_scheduler step to load a new model as there are no more tasks to be scored
-            await model_scheduler.run_step()
             await asyncio.sleep(5)
             return
         mutable_globals.scoring_queue.remove(scorable[0])
@@ -85,7 +75,6 @@ class TaskScorer(AsyncLoopRunner):
         )
 
         # and there we then calculate the reward
-        reward_pipeline = TaskRegistry.get_task_reward(scoring_config.task)
         logger.debug(
             f"""{len(scoring_config.response.completions)} completions to score for task {scoring_config.task}"""
         )
@@ -93,7 +82,6 @@ class TaskScorer(AsyncLoopRunner):
             response_event=scoring_config.response,
             challenge=scoring_config.task.query,
             reference=scoring_config.task.reference,
-            model_id=scoring_config.task.llm_model,
             task=scoring_config.task,
         )
         mutable_globals.reward_events.append(reward_events)

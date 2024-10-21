@@ -10,11 +10,10 @@ from loguru import logger
 from pydantic import BaseModel, ConfigDict
 from wandb.wandb_run import Run
 
-import prompting
+import tensorprox
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.rewards.reward import WeightedRewardEvent
 from tensorprox.settings import settings
-from tensorprox.tasks.task_registry import TaskRegistry
 
 WANDB: Run
 
@@ -79,8 +78,7 @@ def init_wandb(reinit=False, neuron: Literal["validator", "miner"] = "validator"
     global WANDB
     tags = [
         f"Wallet: {settings.WALLET.hotkey.ss58_address}",
-        f"Version: {prompting.__version__}",
-        # str(prompting.__spec_version__),
+        f"Version: {tensorprox.__version__}",
         f"Netuid: {settings.NETUID}",
     ]
 
@@ -96,8 +94,7 @@ def init_wandb(reinit=False, neuron: Literal["validator", "miner"] = "validator"
     tags += custom_tags
 
     task_list = []
-    for task_config in TaskRegistry.task_configs:
-        task_list.append(task_config.task.__name__)
+
 
     wandb_config = {
         "HOTKEY_SS58": settings.WALLET.hotkey.ss58_address,

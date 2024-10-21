@@ -31,8 +31,6 @@ class BaseNeuron(ABC):
     def __init__(self, config=None):
         # self.config = self._config()
 
-        # If a gpu is required, set the device to cuda:N (e.g. cuda:0)
-        self.device = settings.NEURON_DEVICE
 
         # Check if the miner is registered on the Bittensor network before proceeding further.
         self.check_registered()

@@ -5,17 +5,14 @@ import os
 import asyncio
 import pandas as pd
 
-from tensorprox import __spec_version__
+from tensorprox import __version__
 from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids
 from tensorprox.utils.misc import ttl_get_block
 from tensorprox.base.loop_runner import AsyncLoopRunner
 from tensorprox import mutable_globals
 from tensorprox.rewards.reward import WeightedRewardEvent
-from tensorprox.tasks.task_registry import TaskRegistry, TaskConfig
-from tensorprox.tasks.inference import InferenceTask
 from tensorprox.utils.logging import WeightSetEvent, log_event
-from tensorprox.llms.model_zoo import ModelZoo
 
 PAST_WEIGHTS: list[np.ndarray] = []
 WEIGHTS_HISTORY_LENGTH = 24

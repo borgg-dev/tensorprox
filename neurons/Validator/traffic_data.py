@@ -1,6 +1,6 @@
-import asyncio
 import websockets
 import json
+import asyncio
 
 class TrafficData:
     def __init__(self, uri, feature_queue):
@@ -8,21 +8,25 @@ class TrafficData:
         self.feature_queue = feature_queue
 
     async def listen(self):
-        try:
-            async with websockets.connect(self.uri) as websocket:
-                print("Listening for messages...")
-                while True:
-                    message = await websocket.recv()
-                    await self.handle_message(message)
-        except Exception as e:
-            print(f"An error occurred: {e}")
+        while True:
+            try:
+                async with websockets.connect(self.uri) as websocket:
+                    print("Listening for messages...")
+                    while True:
+                        message = await websocket.recv()
+                        await self.handle_message(message)
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                await asyncio.sleep(1)  # Wait before attempting to reconnect
 
     async def handle_message(self, message):
         try:
             features = json.loads(message)
+            print(f"Received features: {features}")
             await self.feature_queue.put(features)  # Put features in the queue
         except json.JSONDecodeError:
             print(f"Received non-JSON message: {message}")
 
-    def start(self):
-        asyncio.get_event_loop().run_until_complete(self.listen())
+    async def start(self):
+        await self.listen()
+

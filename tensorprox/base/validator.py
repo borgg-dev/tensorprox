@@ -6,7 +6,6 @@ from traceback import print_exception
 
 import bittensor as bt
 import numpy as np
-import torch
 from loguru import logger
 
 from tensorprox.base.neuron import BaseNeuron
@@ -97,9 +96,7 @@ class BaseValidatorNeuron(BaseNeuron):
                 try:
                     task = self.loop.create_task(self.forward())
                     self.loop.run_until_complete(asyncio.wait_for(task, timeout=forward_timeout))
-                except torch.cuda.OutOfMemoryError as e:
-                    logger.error(f"Out of memory error: {e}")
-                    continue
+
                 except MaxRetryError as e:
                     logger.error(f"MaxRetryError: {e}")
                     continue

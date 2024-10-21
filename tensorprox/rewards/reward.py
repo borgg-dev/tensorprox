@@ -2,16 +2,16 @@ import numpy as np
 import time
 from typing import Literal, ClassVar
 from abc import ABC, abstractmethod
-from prompting.base.dendrite import DendriteResponseEvent
+from tensorprox.base.dendrite import DendriteResponseEvent
 from pydantic import BaseModel, ConfigDict
-from prompting.tasks.base_task import BaseTextTask
+from tensorprox.tasks.base_task import BaseTask
 
 RewardTypeLiteral = Literal["reward", "penalty"]
 
 
 class WeightedRewardEvent(BaseModel):
     weight: float
-    task: BaseTextTask
+    task: BaseTask
     reward_model_name: str
     rewards: list[float]
     rewards_normalized: list[float]
@@ -70,7 +70,7 @@ class BaseRewardModel(ABC, BaseModel):
         reference: str | None = None,
         challenge: str | None = None,
         reward_type: Literal["reward", "penalty"] = "reward",
-        task: BaseTextTask | None = None,
+        task: BaseTask | None = None,
         **kwargs,
     ) -> WeightedRewardEvent:
         t0 = time.time()
@@ -134,8 +134,7 @@ class BaseRewardConfig(ABC, BaseModel):
         response_event: DendriteResponseEvent,
         reference: str,
         challenge: str | None = None,
-        model_id: str | None = None,
-        task: BaseTextTask | None = None,
+        task: BaseTask | None = None,
     ) -> list[WeightedRewardEvent]:
         reward_events = []
         for weighted_reward in cls.reward_definitions:
@@ -145,7 +144,6 @@ class BaseRewardConfig(ABC, BaseModel):
                     response_event=response_event,
                     challenge=challenge,
                     reward_type="reward",
-                    model_id=model_id,
                     task=task,
                 ),
             )

@@ -1,17 +1,6 @@
-from importlib.metadata import version
-from loguru import logger
+# In tensorprox/__init__.py
 
-
-def _version_to_int(version_str: str) -> int:
-    version_split = version_str.split(".") + ["0", "0"]  # in case a verson doesn't have third element, e.g. 3.0
-    major = int(version_split[0])
-    minor = int(version_split[1])
-    patch = int(version_split[2])
-    return (10000 * major) + (100 * minor) + patch
-
-
-__version__ = version("tensorprox")
-# Used by W&B logging, which expects an integer version.
-__spec_version__ = _version_to_int(__version__)
-
-logger.info(f"Project version: {__version__}")
+# Instead of using:
+# __version__ = version("tensorprox")
+# You can simply define the version manually like this:
+__version__ = "0.1.0"  # Or whichever version you prefer
