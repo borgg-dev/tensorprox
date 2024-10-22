@@ -96,9 +96,9 @@ class Validator(BaseValidatorNeuron):
         # Get the list of uids and their axons to query for this step.
         uids = miner_availabilities.get_available_miners(task=task, k=NEURON_SAMPLE_SIZE)
         logger.debug(f"🔍 Querying uids: {uids}")
-        # if len(uids) == 0:
-        #     logger.debug("No available miners. Skipping step.")
-        #     return
+        if len(uids) == 0:
+            logger.debug("No available miners. Skipping step.")
+            return
         axons = [settings.METAGRAPH.axons[uid] for uid in uids]
 
 
@@ -118,8 +118,8 @@ class Validator(BaseValidatorNeuron):
         # Prepare the task for handling stream responses
         stream_results = await handle_response(stream_results_dict=dict(zip(uids, streams_responses)))
         logger.debug(
-            f"Responses that are not None: {len([r.completion for r in stream_results if r.completion is not None])}\n"
-            f"Responses that are None: {len([r.completion for r in stream_results if r.completion is None])}"
+            f"Responses that are not None: {len([r.prediction for r in stream_results if r.prediction is not None])}\n"
+            f"Responses that are None: {len([r.prediction for r in stream_results if r.prediction is None])}"
         )
 
 

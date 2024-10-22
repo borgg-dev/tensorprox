@@ -33,12 +33,12 @@ class TaskLoop(AsyncLoopRunner):
         try:
             task = BaseTask()
 
-            # # Check if miners are available
-            # if len(miner_availabilities.get_available_miners(task=task)) == 0:
-            #     logger.debug(
-            #         f"No available miners for Task: {task.__class__.__name__}. Skipping step."
-            #     )
-            #     return
+            # Check if miners are available
+            if len(miner_availabilities.get_available_miners(task=task)) == 0:
+                logger.debug(
+                    f"No available miners for Task: {task.__class__.__name__}. Skipping step."
+                )
+                return
 
             # Generate the query and reference for the task
             if not task.query:
