@@ -8,7 +8,7 @@
 
 ### The Incentivized Internet <!-- omit in toc -->
 
-[Discord](https://discord.gg/bittensor) • [Taostats] (https://taostats.io/)
+[Discord](https://discord.gg/bittensor) • [Taostats](https://taostats.io/) •
 
 </div>
 
