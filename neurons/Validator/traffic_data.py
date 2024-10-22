@@ -11,7 +11,7 @@ class TrafficData:
         while True:
             try:
                 async with websockets.connect(self.uri) as websocket:
-                    print("Listening for messages...")
+                    print("Listening on WebSocket : pulling features...")
                     while True:
                         message = await websocket.recv()
                         await self.handle_message(message)
@@ -22,7 +22,7 @@ class TrafficData:
     async def handle_message(self, message):
         try:
             features = json.loads(message)
-            print(f"Received features: {features}")
+            # print(f"Received features: {features}")
             await self.feature_queue.put(features)  # Put features in the queue
         except json.JSONDecodeError:
             print(f"Received non-JSON message: {message}")

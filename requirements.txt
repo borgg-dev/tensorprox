@@ -5,4 +5,5 @@ pydantic-settings==2.6.0
 wandb==0.18.5
 numpy==2.0.2
 pandas==2.2.3
+websockets
 

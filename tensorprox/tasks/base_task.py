@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from uuid import uuid4
 
 class BaseTask(BaseModel):
-    name: str | None = None
+    name: str = "DDOS Detection Challenge"
     query: dict | None = None  # Now a dictionary to store JSON inputs (traffic features)
     reference: int | None = None  # Now binary (0 or 1 for classification)
     task_id: str = Field(default_factory=lambda: str(uuid4()), allow_mutation=False)

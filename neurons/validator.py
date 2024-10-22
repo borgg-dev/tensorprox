@@ -16,24 +16,22 @@ from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.miner_availability.miner_availability import availability_checking_loop, miner_availabilities
 from tensorprox.utils.timer import Timer
-from tensorprox import mutable_globals
-from tensorprox.mutable_globals import scoring_queue
-from tensorprox.weight_setting.weight_setter import weight_setter
-from queue import Queue
-from neurons.Validator.traffic_data import TrafficData
-
+from tensorprox.mutable_globals import task_queue, scoring_queue, feature_queue
 from tensorprox.tasks.base_task import BaseTask
+from tensorprox.weight_setting.weight_setter import weight_setter
+from neurons.Validator.traffic_data import TrafficData
+from tensorprox.tasks.task_creation import task_loop
+
 
 NEURON_SAMPLE_SIZE = 100
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
     
-    def __init__(self, config=None, feature_queue = None):
+    def __init__(self, config=None):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
-        self.feature_queue = feature_queue  # Receive the queue from TrafficData
 
     async def run_step(self, k: int, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
         """Executes a single step of the agent, which consists of:
@@ -50,30 +48,19 @@ class Validator(BaseValidatorNeuron):
             timeout (float): The timeout for the queries.
             exclude (list, optional): The list of uids to exclude from the query. Defaults to [].
         """
+        
         while len(scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
             logger.debug("Scoring queue is full. Waiting 1 second...")
             await asyncio.sleep(1)
-        while len(mutable_globals.task_queue) == 0:
+        while len(task_queue) == 0:
             logger.warning("No tasks in queue. Waiting 1 second...")
             await asyncio.sleep(1)
 
         try:
-            # Fetch traffic data from the queue
-            traffic_data = await self.feature_queue.get()
-            logger.debug(f"Received traffic data: {traffic_data}")
+            
 
-            # Create a BaseTask from the received traffic data
-            base_task = BaseTask()
-
-
-
-            query, reference = base_task.generate_query_reference(traffic_data)
-
-            task = {
-                'query': query,
-                'reference': reference,
-            }
-
+            # get task from the task queue
+            task = task_queue.pop(0)
 
             # Simulate sending task to miners and collecting responses
             with Timer() as timer:
@@ -87,7 +74,7 @@ class Validator(BaseValidatorNeuron):
                 response=response_event,
                 block=self.block,
                 step=self.step,
-                task_id=base_task.task_id,  # Use task_id from BaseTask
+                task_id=task.task_id,  # Use task_id from BaseTask
             )
 
             # Log the step event.
@@ -96,7 +83,7 @@ class Validator(BaseValidatorNeuron):
                 step=self.step,
                 step_time=timer.elapsed_time,
                 response_event=response_event,
-                task_id=base_task.task_id,
+                task_id=task.task_id,
             )
 
         except Exception as ex:
@@ -109,15 +96,15 @@ class Validator(BaseValidatorNeuron):
         # Get the list of uids and their axons to query for this step.
         uids = miner_availabilities.get_available_miners(task=task, k=NEURON_SAMPLE_SIZE)
         logger.debug(f"🔍 Querying uids: {uids}")
-        if len(uids) == 0:
-            logger.debug("No available miners. Skipping step.")
-            return
+        # if len(uids) == 0:
+        #     logger.debug("No available miners. Skipping step.")
+        #     return
         axons = [settings.METAGRAPH.axons[uid] for uid in uids]
+
 
         # Directly call dendrite and process responses in parallel
         synapse = StreamPromptingSynapse(
             task_name=task.__class__.__name__,
-            seed=task.seed,
             challenges=[task.query]
         )
         streams_responses = await settings.DENDRITE(
@@ -193,7 +180,15 @@ class Validator(BaseValidatorNeuron):
             logger.debug("Stopped")
 
 
+
 async def main():
+
+    # Start the traffic listener
+    traffic_data_handler = TrafficData(uri="ws://20.150.222.31:8765", feature_queue=feature_queue)
+    asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
+    
+    # Add your run_system call here to ensure the WebSocket listener is started.
+    asyncio.create_task(task_loop.start())
 
     # will start checking the availability of miners at regular intervals
     asyncio.create_task(availability_checking_loop.start())
@@ -203,34 +198,24 @@ async def main():
     # start scoring tasks in separate loop
     asyncio.create_task(task_scorer.start())
 
-    # Initialize your feature_queue
-    feature_queue = Queue()
-    
-    # Create an instance of TrafficData
-    traffic_data = TrafficData(uri="ws://20.115.88.98:8765", feature_queue=feature_queue)
-    
-    # Start the traffic data listener
-    asyncio.create_task(traffic_data.listen())  # Create task for the listen coroutine
+    with Validator() as v:
+        while True:
+            logger.info(
+                f"Validator running:: network: {settings.SUBTENSOR.network} "
+                f"| block: {v.block} "
+                f"| step: {v.step} "
+                f"| uid: {v.uid} "
+                f"| last updated: {v.block - settings.METAGRAPH.last_update[v.uid]} "
+                f"| vtrust: {settings.METAGRAPH.validator_trust[v.uid]:.3f} "
+                f"| emission {settings.METAGRAPH.emission[v.uid]:.3f}"
+            )
+            time.sleep(5)
 
-    # Create an instance of Validator
-    validator = Validator(feature_queue=feature_queue)
-
-    while True:
-        await validator.run_step(k=1, timeout=5)  # Adjust as needed
-
-        logger.info(
-            f"Validator running:: network: {settings.SUBTENSOR.network} "
-            f"| block: {validator.block} "
-            f"| step: {validator.step} "
-            f"| uid: {validator.uid} "
-            f"| last updated: {validator.block - settings.METAGRAPH.last_update[validator.uid]} "
-            f"| vtrust: {settings.METAGRAPH.validator_trust[validator.uid]:.3f} "
-            f"| emission {settings.METAGRAPH.emission[validator.uid]:.3f}"
-        )
-
-        if validator.should_exit:
-            logger.warning("Ending validator...")
+            if v.should_exit:
+                logger.warning("Ending validator...")
 
 
+# The main function parses the configuration and runs the validator.
 if __name__ == "__main__":
     asyncio.run(main())
+    # will start rotating the different LLMs in/out of memory
