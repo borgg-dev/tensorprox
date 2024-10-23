@@ -19,18 +19,19 @@ async def process_stream(uid: int, async_iterator: Awaitable) -> SynapseStreamRe
     """Process a single response asynchronously."""
     synapse = None  # Initialize chunk with a default value
     exception = None
-    accumulated_chunks = []
-    accumulated_chunks_timings = []
+    predictions = []
     start_time = time.time()
 
     try:
-        async for chunk in async_iterator:  # most important loop, as this is where we acquire the final synapse.
-            if isinstance(chunk, str):
-                accumulated_chunks.append(chunk)
-                accumulated_chunks_timings.append(time.time() - start_time)
+        if not hasattr(async_iterator, '__aiter__'):
+            raise ValueError(f"The provided async_iterator is not an async iterable for uid {uid}.")
+
+        async for prediction in async_iterator:  # most important loop, as this is where we acquire the final synapse.
+            if isinstance(prediction, str):
+                predictions.append(prediction)
 
         # Assuming last chunk of async_iterator holds the last value yielded as a StreamingSynapse
-        synapse = chunk
+        synapse = prediction
         if synapse is None or not isinstance(synapse, StreamPromptingSynapse):
             raise ValueError(f"Something went wrong with miner uid {uid}, Synapse is not StreamPromptingSynapse.")
     except Exception as e:
@@ -38,13 +39,12 @@ async def process_stream(uid: int, async_iterator: Awaitable) -> SynapseStreamRe
         traceback_details = traceback.format_exc()
         logger.error(f"Error in generating reference or handling responses for uid {uid}: {e}\n{traceback_details}")
 
-        failed_synapse = StreamPromptingSynapse(roles=["user"], messages=["failure"], completion="")
+        failed_synapse = StreamPromptingSynapse(challenges=["failure"], prediction="")
 
         synapse = failed_synapse
     finally:
         return SynapseStreamResult(
-            accumulated_chunks=accumulated_chunks,
-            accumulated_chunks_timings=accumulated_chunks_timings,
+            predictions=predictions,
             synapse=synapse,
             uid=uid,
             exception=exception,
@@ -76,6 +76,8 @@ async def handle_response(stream_results_dict: Dict[int, Awaitable]) -> List[Syn
     return processed_stream_results
 
 
+
+
 @async_log
 async def generate_reference(task: BaseTask) -> str:
     loop = asyncio.get_running_loop()
@@ -84,22 +86,18 @@ async def generate_reference(task: BaseTask) -> str:
 
 
 def log_stream_results(stream_results: List[SynapseStreamResult]):
-
-    allowed_integers = {0, 1, 2, 3}  # Example: modify this set as needed
-
-    # Identify failed responses based on exceptions or None values
     failed_responses = [
         response for response in stream_results if response.exception is not None or response.synapse is None
     ]
-
-    # Check if responses are integers in the allowed set
-    valid_integer_responses = [
-        response for response in stream_results if response.exception is None and 
-        isinstance(response.synapse.prediction, int) and 
-        response.synapse.prediction in allowed_integers
+    empty_responses = [
+        response for response in stream_results if response.exception is None and response.synapse.prediction == ""
+    ]
+    non_empty_responses = [
+        response for response in stream_results if response.exception is None and response.synapse.prediction != ""
     ]
 
-    logger.debug(f"Total of valid integer responses: ({len(valid_integer_responses)})")
+    logger.debug(f"Total of non_empty responses: ({len(non_empty_responses)})")
+    logger.debug(f"Total of empty responses: ({len(empty_responses)})")
     logger.debug(f"Total of failed responses: ({len(failed_responses)})")
 
     for failed_response in failed_responses:

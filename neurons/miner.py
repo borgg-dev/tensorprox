@@ -19,12 +19,14 @@ from tensorprox.base.protocol import AvailabilitySynapse
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
 class Miner(BaseStreamMinerNeuron):
+
     should_exit: bool = False
+    prediction: str = ""
 
     def predict_model(self, challenges: list[dict]) -> dict:
         """Predicts the label for the input JSON object (challenge) for DDoS detection."""
         
-        return {"output": 0}
+        return '0'
             
         
     def forward(self, synapse: StreamPromptingSynapse) -> StreamPromptingSynapse:
@@ -41,24 +43,22 @@ class Miner(BaseStreamMinerNeuron):
 
             try:
                 
-                print('Synapse challenge :', synapse.challenges)
-                stream_response = self.predict_model(challenges=[synapse.challenges[0]])
+                self.prediction = self.predict_model(challenges=[synapse.challenges[0]])
 
-                prediction = stream_response.output
-
-                if not prediction:
+                if not self.prediction:
                     logger.info("model returned label with None")
-
 
                 if time.time() - init_time > timeout_threshold:
                     logger.debug("⏰ Timeout reached, stopping streaming")
                     timeout_reached = True
 
-                if prediction and not timeout_reached:  # Don't send the last buffer of data if timeout.
+                if self.prediction and not timeout_reached:  # Don't send the last buffer of data if timeout.
+                    
+                    synapse.prediction = self.prediction
                     await send(
                         {
                             "type": "http.response.body",
-                            "body": prediction,
+                            "body": self.prediction,
                             "more_body": False,
                         }
                     )
@@ -76,8 +76,11 @@ class Miner(BaseStreamMinerNeuron):
                     synapse=synapse,
                     timing=synapse_latency,
                     challenges=synapse.challenges,
-                    prediction = prediction
+                    prediction = self.prediction
                 )
+
+
+        synapse.prediction = self.prediction
 
         logger.debug(
             f"📧 Message received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}; \nForwarding synapse: {synapse}"

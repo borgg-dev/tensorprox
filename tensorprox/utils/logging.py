@@ -103,9 +103,7 @@ def init_wandb(reinit=False, neuron: Literal["validator", "miner"] = "validator"
         "TASKS": task_list,
     }
     
-    print('**************************************')
-    print(settings.WANDB_API_KEY)
-    print('*************************************')
+
     wandb.login(anonymous="allow", key=settings.WANDB_API_KEY, verify=True)
     logger.info(f"Logging in to wandb on entity: {settings.WANDB_ENTITY} and project: {settings.WANDB_PROJECT_NAME}")
     WANDB = wandb.init(
@@ -173,7 +171,7 @@ class RewardLoggingEvent(BaseEvent):
     response_event: DendriteResponseEvent
     reward_events: list[FScoreRewardEvent]
     task_id: str
-    reference: int
+    reference: str
     challenge: Dict[str, Any]
     task: str
 

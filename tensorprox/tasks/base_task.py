@@ -4,7 +4,7 @@ from uuid import uuid4
 class BaseTask(BaseModel):
     name: str = "DDOS Detection Challenge"
     query: dict | None = None  # Now a dictionary to store JSON inputs (traffic features)
-    reference: int | None = None  # Now binary (0 or 1 for classification)
+    reference: str | None = None  # Now binary (0 or 1 for classification)
     task_id: str = Field(default_factory=lambda: str(uuid4()), allow_mutation=False)
 
     def make_query(self, feature_data: dict, **kwargs) -> dict:
@@ -14,13 +14,13 @@ class BaseTask(BaseModel):
         self.query = feature_data_without_label
         return self.query
 
-    def make_reference(self, feature_data: dict) -> int:
+    def make_reference(self, feature_data: dict) -> str:
         """Generate the expected classification result"""
         #Extracts Label from input features and use it as reference
-        self.reference = feature_data.get('label', None) #default to None if label is missing
+        self.reference = feature_data.get('label', '') #default to None if label is missing
         return self.reference
 
-    def generate_query_reference(self, feature_data: dict) -> tuple[dict, int]:
+    def generate_query_reference(self, feature_data: dict) -> tuple[dict, str]:
         """Generates a query (traffic features) and reference (classification)"""
         self.make_query(feature_data=feature_data)
         self.make_reference(feature_data=feature_data)

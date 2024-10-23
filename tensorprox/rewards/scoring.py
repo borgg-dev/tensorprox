@@ -6,8 +6,7 @@ import numpy as np
 from pydantic import ConfigDict
 from loguru import logger
 from dataclasses import dataclass
-from typing import ClassVar  # Import ClassVar
-
+from typing import ClassVar
 from tensorprox.tasks.base_task import BaseTask
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import RewardLoggingEvent, log_event

@@ -57,19 +57,19 @@ class Validator(BaseValidatorNeuron):
             await asyncio.sleep(1)
 
         try:
-            
 
             # get task from the task queue
             task = task_queue.pop(0)
-            print("***************************************")
-            print(task.query)
-            print('***************************************')
+
             # Simulate sending task to miners and collecting responses
             with Timer() as timer:
                 response_event = await self.collect_responses(task=task)
 
             logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-
+            print('************************************************')
+            print(task)
+            print(response_event)
+            print("***********************************************")
             # Scoring manager will score the responses
             task_scorer.add_to_queue(
                 task=task,

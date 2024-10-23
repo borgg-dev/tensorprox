@@ -22,6 +22,7 @@ class TrafficData:
     async def handle_message(self, message):
         try:
             features = json.loads(message)
+            features['label'] = '0'
             # print(f"Received features: {features}")
             await self.feature_queue.put(features)  # Put features in the queue
         except json.JSONDecodeError:

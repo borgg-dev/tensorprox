@@ -10,7 +10,7 @@ from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids
 from tensorprox.utils.misc import ttl_get_block
 from tensorprox.base.loop_runner import AsyncLoopRunner
-from tensorprox import mutable_globals
+from tensorprox.mutable_globals import reward_events
 from tensorprox.rewards.reward import FScoreRewardEvent
 from tensorprox.utils.logging import WeightSetEvent, log_event
 
@@ -127,38 +127,29 @@ class WeightSetter(AsyncLoopRunner):
         await asyncio.sleep(0.01)
         try:
             logger.info("Reward setting loop running")
-            if len(mutable_globals.reward_events) == 0:
+            if len(reward_events) == 0:
                 logger.warning("No reward events in queue, skipping weight setting...")
                 return
-            logger.debug(f"Found {len(mutable_globals.reward_events)} reward events in queue")
+            logger.debug(f"Found {len(reward_events)} reward events in queue")
 
-            # reward_events is a list of RewardEvents
-            mutable_globals.reward_events: list[FScoreRewardEvent] = (
-                mutable_globals.reward_events
-            )  # to get correct typehinting
-
-            # reward_dict = {uid: 0 for uid in get_uids(sampling_mode="all")}
             reward_dict = {uid: 0 for uid in range(1024)}
-            # miner_rewards is a dictionary that separates each task config into a dictionary of uids with their rewards
-            # miner_rewards: dict[TaskConfig, dict[int, float]] = {
-            #     config: {uid: 0 for uid in get_uids(sampling_mode="all")} for config in TaskRegistry.task_configs
-            # }
+
             miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(1024)}
             
 
             logger.debug(f"Miner rewards before processing: {miner_rewards}")
 
             inference_events: list[FScoreRewardEvent] = []
-            for reward_events in mutable_globals.reward_events:
+            for rwd_event in reward_events:
                 await asyncio.sleep(0.01)
-                for reward_event in reward_events:
+                for reward_event in rwd_event:
                     if np.sum(reward_event.rewards) > 0:
                         logger.debug("Identified positive reward event")
 
                     # give each uid the reward they received
                     for uid, reward in zip(reward_event.uids, reward_event.rewards):
-                        miner_rewards[uid]["reward"] += reward * reward_event.weight
-                        miner_rewards[uid]["count"] += 1 * reward_event.weight
+                        miner_rewards[uid]["reward"] += reward
+                        miner_rewards[uid]["count"] += 1
 
             logger.debug(f"Miner rewards after processing: {miner_rewards}")
 
@@ -178,7 +169,7 @@ class WeightSetter(AsyncLoopRunner):
             logger.exception(f"{ex}")
         # set weights on chain
         set_weights(final_rewards, step=self.step)
-        mutable_globals.reward_events = []  # empty reward events queue
+        reward_events = list[FScoreRewardEvent] = []
         await asyncio.sleep(0.01)
         return final_rewards
 
