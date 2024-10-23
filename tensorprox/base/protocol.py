@@ -28,7 +28,7 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
     - `challenges` (List[dict]): These represent the actual prompts or messages in the prompting scenario. They are also
                               immutable to ensure consistent behavior during processing.
 
-    - `prediction` (bool): Stores the processed result of the streaming tokens. As tokens are streamed, decoded, and
+    - `prediction` (int): Stores the processed result of the streaming tokens. As tokens are streamed, decoded, and
                           processed, they are accumulated in the completion attribute. This represents the "final"
                           product or result of the streaming process.
 
@@ -50,10 +50,10 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
         allow_mutation=False,
     )
 
-    prediction: int = pydantic.Field(
+    prediction: str = pydantic.Field(
         "",
         title="Prediction",
-        description="Completion status of the current PromptingSynapse object. This attribute is mutable and can be updated.",
+        description="Prediction for the output class. This attribute is mutable and can be updated.",
     )
 
     async def process_streaming_response(self, response: StreamingResponse) -> AsyncIterator[str]:
@@ -74,7 +74,7 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
 
     def deserialize(self) -> str:
         """
-        Deserializes the response by returning the completion attribute.
+        Deserializes the response by returning the prediction attribute.
 
         Returns:
             str: The completion result.
@@ -108,6 +108,10 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
         def extract_info(prefix):
             return {key.split("_")[-1]: value for key, value in headers.items() if key.startswith(prefix)}
 
+        print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
+        print(self.challenges)
+        print('^^^^^^^^^^^^^^^^^^^^^^^^')
+        print(self.prediction)
         return {
             "name": headers.get("name", ""),
             "timeout": float(headers.get("timeout", 0)),

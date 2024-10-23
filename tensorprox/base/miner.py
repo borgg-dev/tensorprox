@@ -280,16 +280,14 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         self,
         synapse: StreamPromptingSynapse,
         timing: float,
-        messages: list[str],
-        accumulated_chunks: list[str] = [],
-        accumulated_chunks_timings: list[float] = [],
+        challenges: list[dict],
+        predictions: list[int] = [],
     ):
         dendrite_uid = settings.METAGRAPH.hotkeys.index(synapse.dendrite.hotkey)
         event = MinerLoggingEvent(
             epoch_time=timing,
-            messages=messages,
-            accumulated_chunks=accumulated_chunks,
-            accumulated_chunks_timings=accumulated_chunks_timings,
+            challenges=challenges,
+            predictions=predictions,
             validator_uid=dendrite_uid,
             validator_ip=synapse.dendrite.ip,
             validator_coldkey=settings.METAGRAPH.coldkeys[dendrite_uid],

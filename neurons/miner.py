@@ -40,12 +40,13 @@ class Miner(BaseStreamMinerNeuron):
             timeout_reached = False
 
             try:
-
+                
+                print('Synapse challenge :', synapse.challenges)
                 stream_response = self.predict_model(challenges=[synapse.challenges[0]])
 
-                label_output = stream_response.output
+                prediction = stream_response.output
 
-                if not label_output:
+                if not prediction:
                     logger.info("model returned label with None")
 
 
@@ -53,11 +54,11 @@ class Miner(BaseStreamMinerNeuron):
                     logger.debug("⏰ Timeout reached, stopping streaming")
                     timeout_reached = True
 
-                if stream_response and not timeout_reached:  # Don't send the last buffer of data if timeout.
+                if prediction and not timeout_reached:  # Don't send the last buffer of data if timeout.
                     await send(
                         {
                             "type": "http.response.body",
-                            "body": stream_response,
+                            "body": prediction,
                             "more_body": False,
                         }
                     )
@@ -75,7 +76,7 @@ class Miner(BaseStreamMinerNeuron):
                     synapse=synapse,
                     timing=synapse_latency,
                     challenges=synapse.challenges,
-                    stream_response = stream_response
+                    prediction = prediction
                 )
 
         logger.debug(

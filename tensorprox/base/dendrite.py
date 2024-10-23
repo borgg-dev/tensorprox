@@ -33,7 +33,7 @@ class DendriteResponseEvent(BaseModel):
     timeout: float
     stream_results: list[SynapseStreamResult]
     challenges: list[dict] = []
-    predictions: list[int] = []
+    predictions: list[str] = []
     status_messages: list[str] = []
     status_codes: list[int] = []
     stream_results_uids: list[int] = []
@@ -51,7 +51,6 @@ class DendriteResponseEvent(BaseModel):
             stream_result: SynapseStreamResult
 
             synapse = stream_result.synapse
-
             self.predictions.append(synapse.prediction)
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code

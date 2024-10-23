@@ -11,7 +11,7 @@ from tensorprox.utils.uids import get_uids
 from tensorprox.utils.misc import ttl_get_block
 from tensorprox.base.loop_runner import AsyncLoopRunner
 from tensorprox import mutable_globals
-from tensorprox.rewards.reward import WeightedRewardEvent
+from tensorprox.rewards.reward import FScoreRewardEvent
 from tensorprox.utils.logging import WeightSetEvent, log_event
 
 PAST_WEIGHTS: list[np.ndarray] = []
@@ -107,7 +107,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
         weights=uint_weights,
         wait_for_finalization=False,
         wait_for_inclusion=False,
-        version_key=__spec_version__,
+        version_key=__version__,
     )
 
     if result is True:
@@ -132,8 +132,8 @@ class WeightSetter(AsyncLoopRunner):
                 return
             logger.debug(f"Found {len(mutable_globals.reward_events)} reward events in queue")
 
-            # reward_events is a list of lists of WeightedRewardEvents - the 'sublists' each contain the multiple reward events for a single task
-            mutable_globals.reward_events: list[list[WeightedRewardEvent]] = (
+            # reward_events is a list of RewardEvents
+            mutable_globals.reward_events: list[FScoreRewardEvent] = (
                 mutable_globals.reward_events
             )  # to get correct typehinting
 
@@ -143,48 +143,30 @@ class WeightSetter(AsyncLoopRunner):
             # miner_rewards: dict[TaskConfig, dict[int, float]] = {
             #     config: {uid: 0 for uid in get_uids(sampling_mode="all")} for config in TaskRegistry.task_configs
             # }
-            miner_rewards: dict[TaskConfig, dict[int, float]] = {
-                config: {uid: {"reward": 0, "count": 0} for uid in range(1024)} for config in TaskRegistry.task_configs
-            }
+            miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(1024)}
+            
 
             logger.debug(f"Miner rewards before processing: {miner_rewards}")
 
-            inference_events: list[WeightedRewardEvent] = []
+            inference_events: list[FScoreRewardEvent] = []
             for reward_events in mutable_globals.reward_events:
                 await asyncio.sleep(0.01)
                 for reward_event in reward_events:
                     if np.sum(reward_event.rewards) > 0:
                         logger.debug("Identified positive reward event")
-                    task_config = TaskRegistry.get_task_config(reward_event.task)
-
-                    # inference task uses a different reward model
-                    if task_config.task == InferenceTask:
-                        inference_events.append(reward_event)
-                        continue
 
                     # give each uid the reward they received
                     for uid, reward in zip(reward_event.uids, reward_event.rewards):
-                        miner_rewards[task_config][uid]["reward"] += reward * reward_event.weight # TODO: Double check I actually average at the end
-                        miner_rewards[task_config][uid]["count"] += 1 * reward_event.weight # TODO: Double check I actually average at the end
+                        miner_rewards[uid]["reward"] += reward * reward_event.weight
+                        miner_rewards[uid]["count"] += 1 * reward_event.weight
 
             logger.debug(f"Miner rewards after processing: {miner_rewards}")
 
-            for inference_event in inference_events:
-                for uid, reward in zip(inference_event.uids, inference_event.rewards):
-                    llm_model = inference_event.task.llm_model_id
-
-                    model_specific_reward = ModelZoo.get_model_by_id(llm_model).reward if llm_model else 1
-                    miner_rewards[TaskRegistry.get_task_config(InferenceTask)][uid]["reward"] += reward * model_specific_reward # for inference 2x responses should mean 2x the reward
-
-            for task_config, rewards in miner_rewards.items():
+            for rewards in miner_rewards.items():
                 r = np.array([x["reward"]/max(1, x["count"]) for x in list(rewards.values())])
-                logger.debug(f"Rewards for task {task_config.task.__name__}: {r}")
+                logger.debug(f"Rewards: {r}")
                 u = np.array(list(rewards.keys()))
-                if task_config.task == InferenceTask:
-                    processed_rewards = r / max(1, (np.sum(r[r > 0]) + 1e-10))
-                else:
-                    processed_rewards = apply_reward_func(raw_rewards=r, p=settings.REWARD_STEEPNESS)
-                processed_rewards *= task_config.probability
+                processed_rewards = apply_reward_func(raw_rewards=r, p=settings.REWARD_STEEPNESS)
                 # update reward dict
                 for uid, reward in zip(u, processed_rewards):
                     reward_dict[uid] += reward

@@ -13,6 +13,8 @@ from pydantic_settings import BaseSettings
 from tensorprox.utils.config import config
 
 
+dotenv.load_dotenv()
+
 class Settings(BaseSettings):
     mode: Literal["miner", "validator", "mock"]
     MOCK: bool = False

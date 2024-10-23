@@ -6,6 +6,7 @@ import numpy as np
 from pydantic import ConfigDict
 from loguru import logger
 from dataclasses import dataclass
+from typing import ClassVar  # Import ClassVar
 
 from tensorprox.tasks.base_task import BaseTask
 from tensorprox.base.dendrite import DendriteResponseEvent
@@ -13,9 +14,7 @@ from tensorprox.utils.logging import RewardLoggingEvent, log_event
 from tensorprox.mutable_globals import scoring_queue, feature_queue, reward_events
 from tensorprox.base.loop_runner import AsyncLoopRunner
 import asyncio
-from tensorprox.rewards.reward import BaseRewardConfig
-
-
+from tensorprox.rewards.reward import BaseRewardConfig, FScoreRewardModel
 
 @dataclass
 class ScoringConfig:
@@ -24,6 +23,7 @@ class ScoringConfig:
     block: int
     step: int
     task_id: str
+    time_to_answer: float
 
 
 class TaskScorer(AsyncLoopRunner):
@@ -34,8 +34,9 @@ class TaskScorer(AsyncLoopRunner):
     is_running: bool = False
     thread: threading.Thread = None
     interval: int = 10
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=FScoreRewardModel())
+
 
     def add_to_queue(
         self,
@@ -44,6 +45,7 @@ class TaskScorer(AsyncLoopRunner):
         block: int,
         step: int,
         task_id: str,
+        time_to_answer: float,
     ) -> None:
         logger.debug(f"SCORING: Added to queue: {task.__class__.__name__} {task.task_id}")
         scoring_queue.append(
@@ -53,6 +55,7 @@ class TaskScorer(AsyncLoopRunner):
                 block=block,
                 step=step,
                 task_id=task_id,
+                time_to_answer=time_to_answer
             )
         )
 
@@ -80,11 +83,12 @@ class TaskScorer(AsyncLoopRunner):
         logger.debug(
             f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}"""
         )
-        rwd_events = BaseRewardConfig.apply(
+        rwd_events = self.base_reward_model.apply(
             response_event=scoring_config.response,
             challenge=scoring_config.task.query,
             reference=scoring_config.task.reference,
             task=scoring_config.task,
+            time_to_answer=scoring_config.time_to_answer
         )
         reward_events.append(rwd_events)
         logger.debug(
@@ -100,6 +104,7 @@ class TaskScorer(AsyncLoopRunner):
                 block=scoring_config.block,
                 step=scoring_config.step,
                 task_id=scoring_config.task_id,
+                time_to_answer=scoring_config.time_to_answer,
             )
         )
         logger.info("Adding scores to rewards_and_uids")

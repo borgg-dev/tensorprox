@@ -1,163 +1,76 @@
 import numpy as np
 import time
-from typing import Literal, ClassVar
-from abc import ABC, abstractmethod
-from tensorprox.base.dendrite import DendriteResponseEvent
+from typing import Any, Dict, ClassVar, Literal
 from pydantic import BaseModel, ConfigDict
+from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.tasks.base_task import BaseTask
 
-RewardTypeLiteral = Literal["reward", "penalty"]
 
-
-class WeightedRewardEvent(BaseModel):
-    weight: float
-    task: BaseTask
-    reward_model_name: str
-    rewards: list[float]
-    rewards_normalized: list[float]
-    timings: list[float]
-    reward_model_type: RewardTypeLiteral
+class FScoreRewardEvent(BaseModel):
+    score: float
+    penalty: float
     batch_time: float
-    uids: list[float]
-
-    threshold: float | None = None
-    extra_info: dict | None = None
-    reward_type: Literal["reward", "penalty"] = "reward"
+    task : BaseTask = None
+    extra_info: Dict[str, Any] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # implement custom asdict to return a dict with the same keys as the dataclass using the model name
     def asdict(self) -> dict:
         return {
-            f"{self.reward_model_name}_raw_{self.reward_model_type.value}": self.rewards,
-            f"{self.reward_model_name}_{self.reward_model_type.value}": self.rewards_normalized,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_timings": self.timings,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_batch_time": self.batch_time,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_threshold": self.threshold,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_extra_info": self.extra_info,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_uids": self.uids,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_task": self.task,
-            f"{self.reward_model_name}_{self.reward_model_type.value}_weight": self.weight,
+            "score": self.score,
+            "penalty": self.penalty,
+            "batch_time": self.batch_time,
+            "extra_info": self.extra_info,
         }
+        
 
+    
 
-class BatchRewardOutput(BaseModel):
-    rewards: np.ndarray
-    timings: np.ndarray
-    threshold: float | None = None
-    extra_info: dict = {}
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class FScoreRewardModel(BaseModel):
 
-    @property
-    def rewards_normalized(self) -> np.ndarray:
-        if self.rewards.shape != self.timings.shape:
-            raise ValueError(f"rewards.shape {self.rewards.shape} != timings.shape {self.timings.shape}")
-        if self.rewards.min() == self.rewards.max():
-            return np.array([1 / len(self.rewards)] * len(self.rewards))
-        return (self.rewards - self.rewards.min()) / (self.rewards.max() - self.rewards.min())
+    def reward(self, reference: str, response_event: DendriteResponseEvent) -> FScoreRewardEvent:
+        # Calculate the F-score (dummy implementation, replace with your logic)
+        predictions = response_event.predictions
+        true_positives = sum(1 for pred in predictions if pred == reference)  # Simplified calculation
+        total_predictions = len(predictions)
+        precision = true_positives / total_predictions if total_predictions > 0 else 0
+        recall = true_positives / 1  # Assume only one positive class for simplification
+        f_score = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
-
-class BaseRewardModel(ABC, BaseModel):
-    weight: float = 1.0
-
-    @abstractmethod
-    def reward(self, reference: str, response_event: DendriteResponseEvent) -> BatchRewardOutput:
-        raise NotImplementedError("You must implement the reward method")
-
-    def apply(
-        self,
-        response_event: DendriteResponseEvent,
-        reference: str | None = None,
-        challenge: str | None = None,
-        reward_type: Literal["reward", "penalty"] = "reward",
-        task: BaseTask | None = None,
-        **kwargs,
-    ) -> WeightedRewardEvent:
-        t0 = time.time()
-        comparator = reference if reward_type == "reward" else challenge
-        batch_rewards_output: BatchRewardOutput = self.reward(comparator, response_event)
-        batch_rewards_time = time.time() - t0
-
-        return WeightedRewardEvent(
-            weight=self.weight,
-            task=task,
-            reward_model_name=self.__class__.__name__,
-            rewards=batch_rewards_output.rewards,
-            rewards_normalized=batch_rewards_output.rewards_normalized,
-            reward_model_type=reward_type,
-            batch_time=batch_rewards_time,
-            threshold=batch_rewards_output.threshold,
-            timings=batch_rewards_output.timings,
-            extra_info=kwargs,
-            uids=response_event.uids,
+        return FScoreRewardEvent(
+            score=f_score,
+            penalty=0,  # Penalty will be applied later
+            batch_time=time.time(),
         )
 
-
-class WeightedRewardModel(BaseModel):
-    weight: float
-    reward_model: BaseRewardModel
-
-
-class BaseRewardConfig(ABC, BaseModel):
-    """This class takes in a dictionary of rewards and penalties that should be applied. On apply(),
-    it then applies all the reward models based on query & reference and returns the reward.
-
-    both reward_definition and penalty_definition must be a list of tuples of type:
-
-    weighting: RewardModel, e.g.
-
-    [ (0.2, RougeRewardModel), (0.8, CosineDistanceRewardModel) ]
-
-    Note that for all the rewards, the percentages must sum up to 1 (100%). For penalties,
-    this is not the case, e.g. you may want to only apply a single penalty very lightly
-    and weight it with <1.
-    """
-
-    reward_definitions: ClassVar[list[BaseRewardModel]]
-    penalty_definitions: ClassVar[list[BaseRewardModel]] = []
-
-    @classmethod
-    def sum_rewards(cls, reward_events: list[WeightedRewardEvent]) -> np.ndarray:
-        if not reward_events:
-            return 0
-        return np.sum([r.rewards * r.weight for r in reward_events], axis=0)
-
-    @classmethod
-    def final_rewards(cls, reward_events: list[WeightedRewardEvent]) -> list[float]:
-        penalty_events = [r for r in reward_events if r.reward_type == "penalty"]
-        reward_events = [r for r in reward_events if r.reward_type == "reward"]
-        return cls.sum_rewards(reward_events) - cls.sum_rewards(penalty_events)
+class BaseRewardConfig(BaseModel):
+    
+    reward_model: ClassVar[FScoreRewardModel] = FScoreRewardModel()
 
     @classmethod
     def apply(
         cls,
         response_event: DendriteResponseEvent,
         reference: str,
-        challenge: str | None = None,
-        task: BaseTask | None = None,
-    ) -> list[WeightedRewardEvent]:
-        reward_events = []
-        for weighted_reward in cls.reward_definitions:
-            reward_events.append(
-                weighted_reward.apply(
-                    reference=reference,
-                    response_event=response_event,
-                    challenge=challenge,
-                    reward_type="reward",
-                    task=task,
-                ),
-            )
+        challenge: Dict[str, Any],
+        task: BaseTask,
+        time_to_answer: float,
+    ) -> FScoreRewardEvent:
+        reward_model = cls.reward_model
+        if reward_model is None:
+            raise ValueError("reward_model has not been set.")
+        
+        reward_event = cls.reward_model.reward(reference, response_event)
+        
+        # Apply penalty based on time to answer
+        penalty = cls.calculate_penalty(time_to_answer)
+        reward_event.penalty = penalty
+        
+        return reward_event
 
-        if cls.penalty_definitions and not challenge:
-            raise Exception("You must be providing the challenge to apply penalties")
-
-        for weighted_reward in cls.penalty_definitions:
-            reward_events.append(
-                weighted_reward.apply(
-                    reference=challenge,
-                    response_event=response_event,
-                    reward_type="penalty",
-                    task=task,
-                ),
-            )
-        return reward_events
+    @staticmethod
+    def calculate_penalty(time_to_answer: float) -> float:
+        # Define your penalty logic based on time to answer
+        penalty = min(time_to_answer, 1)  # Example: penalize 1 for answers taking longer than 1 second
+        return penalty

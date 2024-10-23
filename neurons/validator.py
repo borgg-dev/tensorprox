@@ -61,7 +61,9 @@ class Validator(BaseValidatorNeuron):
 
             # get task from the task queue
             task = task_queue.pop(0)
-
+            print("***************************************")
+            print(task.query)
+            print('***************************************')
             # Simulate sending task to miners and collecting responses
             with Timer() as timer:
                 response_event = await self.collect_responses(task=task)
@@ -74,6 +76,7 @@ class Validator(BaseValidatorNeuron):
                 response=response_event,
                 block=self.block,
                 step=self.step,
+                time_to_answer=2,
                 task_id=task.task_id,  # Use task_id from BaseTask
             )
 
@@ -184,7 +187,7 @@ class Validator(BaseValidatorNeuron):
 async def main():
 
     # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://20.150.222.31:8765", feature_queue=feature_queue)
+    traffic_data_handler = TrafficData(uri="ws://20.150.216.120:8765", feature_queue=feature_queue)
     asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.
