@@ -187,7 +187,7 @@ class Validator(BaseValidatorNeuron):
 async def main():
 
     # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://20.150.216.120:8765", feature_queue=feature_queue)
+    traffic_data_handler = TrafficData(uri="ws://20.172.67.75:8765", feature_queue=feature_queue)
     asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.
