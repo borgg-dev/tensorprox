@@ -53,10 +53,11 @@ class Miner(BaseStreamMinerNeuron):
                     timeout_reached = True
 
                 if prediction and not timeout_reached:  # Don't send the last buffer of data if timeout.
+                    synapse.prediction = prediction
                     await send(
                         {
                             "type": "http.response.body",
-                            "body": prediction,
+                            "body": prediction.encode("utf-8"),
                             "more_body": False,
                         }
                     )
@@ -78,7 +79,7 @@ class Miner(BaseStreamMinerNeuron):
                 )
 
         logger.debug(
-            f"📧 Message received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}; \nForwarding synapse: {synapse}"
+            f"📧 Message received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}."
         )
         init_time = time.time()
         timeout_threshold = synapse.timeout

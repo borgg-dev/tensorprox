@@ -73,11 +73,6 @@ class TaskScorer(AsyncLoopRunner):
         scoring_queue.remove(scorable[0])
         scoring_config: ScoringConfig = scorable.pop(0)
         
-        # here we generate the actual reference
-        scoring_config.task.make_reference(
-            feature_data=scoring_config.task.query,
-        )
-
         # and there we then calculate the reward
         logger.debug(
             f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}"""
