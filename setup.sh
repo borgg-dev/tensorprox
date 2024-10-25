@@ -7,10 +7,10 @@ sudo apt update && sudo apt install python3-pip -y
 pip install -r requirements.txt
 
 # # Generate cold key using btcli
-# btcli w regen_coldkey --wallet.name borgg --mnemonic "actress dirt board drop envelope cricket link energy book case deal giant"
+# btcli w regen_coldkey --wallet.name borgg --mnemonic actress dirt board drop envelope cricket link energy book case deal giant
 
 # # Generate hot key using btcli
-# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey default --mnemonic "two oven toy elevator cargo certain bird connect sport tip soda rebel"
+# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey default --mnemonic two oven toy elevator cargo certain bird connect sport tip soda rebel
 
 # Install npm and pm2 for process management
 sudo apt install npm -y && sudo npm install -g pm2 

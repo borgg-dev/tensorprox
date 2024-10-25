@@ -109,18 +109,26 @@ class Validator(BaseValidatorNeuron):
             challenges=[task.query]
         )
 
-        responses = await settings.DENDRITE(
-            axons=axons,
-            synapse=synapse,
-            timeout=settings.NEURON_TIMEOUT,
-            deserialize=False,
-        )
-
+        # Store each synapse's response time
+        response_times = []
+        responses = []
+        
+        for uid, axon in zip(uids, axons):
+            with Timer() as timer:
+                response = await settings.DENDRITE(
+                    axons=[axon],
+                    synapse=synapse,
+                    timeout=settings.NEURON_TIMEOUT,
+                    deserialize=False,
+                )
+            response_times.append(timer.elapsed_time)  # Log the time taken for each synapse
+            responses.append(response[0])
 
         # Encapsulate the responses in a response event (dataclass)
         response_event = DendriteResponseEvent(
-            results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT
+            results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT, response_times=response_times
         )
+        logger.debug(f"Response times per synapse: {response_times}")
         return response_event
 
     async def forward(self):
@@ -176,7 +184,7 @@ class Validator(BaseValidatorNeuron):
 async def main():
 
     # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://51.89.117.111:8765", feature_queue=feature_queue)
+    traffic_data_handler = TrafficData(uri="ws://20.150.217.115:8765", feature_queue=feature_queue)
     asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.

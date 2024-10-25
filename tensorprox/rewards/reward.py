@@ -57,21 +57,14 @@ class BatchRewardOutput(BaseModel):
 class FScoreRewardModel(BaseModel):
 
     def reward(self, reference: str, response_event: DendriteResponseEvent) -> BatchRewardOutput:
-        # Dummy F-score calculation logic, should be replaced with actual logic
-        predictions = response_event.predictions
-        true_positives = sum(1 for pred in predictions if pred == reference)  # Simplified calculation
-        total_predictions = len(predictions)
-        precision = true_positives / total_predictions if total_predictions > 0 else 0
-        recall = true_positives / 1  # Assume only one positive class for simplification
-        f_score = (2 * precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
 
-        # Timing for batch processing
-        batch_time = time.time()
+        scores = [1 if prediction == reference else 0 for prediction in response_event.predictions]
+        timings = [t for t in response_event.timings]
 
         # Return BatchRewardOutput (handling multiple predictions and timings)
         return BatchRewardOutput(
-            rewards=np.array([f_score] * len(predictions)),  # Placeholder for rewards per prediction
-            timings=np.array([batch_time] * len(predictions)),  # Placeholder for timing per prediction
+            rewards=np.array(scores),
+            timings=np.array(timings)
         )
 
 
