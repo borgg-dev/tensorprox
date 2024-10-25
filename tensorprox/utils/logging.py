@@ -193,7 +193,7 @@ class RewardLoggingEvent(BaseEvent):
 class MinerLoggingEvent(BaseEvent):
     epoch_time: float
     challenges: int
-    predictions: int
+    prediction: int
     validator_uid: int
     validator_ip: str
     validator_coldkey: str

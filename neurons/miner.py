@@ -9,49 +9,43 @@ settings.settings = settings.Settings.load(mode="miner")
 settings = settings.settings
 import time
 from loguru import logger
-from tensorprox.base.miner import BaseStreamMinerNeuron
+from tensorprox.base.miner import BaseMinerNeuron
 from tensorprox.base.protocol import TensorProxSynapse
-from starlette.types import Send
 from tensorprox.utils.logging import ErrorLoggingEvent, log_event
 from tensorprox.base.protocol import AvailabilitySynapse
+from starlette.types import Send
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
-class Miner(BaseStreamMinerNeuron):
+class Miner(BaseMinerNeuron):
     should_exit: bool = False
 
-    def predict_model(self, challenges: list[dict]) -> str:
+    def generate_prediction(self, challenges: list[dict]) -> str:
         """Predicts the label for the input JSON object (challenge) for DDoS detection."""
         
         return "0"
             
         
     async def forward(self, synapse: TensorProxSynapse) -> TensorProxSynapse:
-        """The forward function predicts class output for a set of features and forward it to validator."""
+        """The forward function predicts class output for a set of features and forwards it to the validator."""
 
 
         logger.debug(f"Message received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
 
         try:
-            
-            print('Synapse challenge :', synapse.challenges)
-            prediction = self.predict_model(challenges=[synapse.challenges[0]])
+            # Generate prediction based on the first challenge
+            prediction = self.generate_prediction(challenges=[synapse.challenges[0]])
 
             if prediction:
-
                 synapse.prediction = prediction
-                await Send(
-                    {
-                        "type": "http.response.body",
-                        "body": prediction.encode("utf-8"),
-                        "more_body": False,
-                    }
-                )
 
-            else :
-
-                logger.info("model returned label with None")
-
+                await Send({ 
+                    "type": "http.response.body",
+                    "body": prediction.encode("utf-8"),
+                    "more_body": False,
+                })
+            else:
+                logger.info("Model returned label with None")
 
         except Exception as e:
             logger.exception(e)
@@ -59,9 +53,12 @@ class Miner(BaseStreamMinerNeuron):
             log_event(ErrorLoggingEvent(error=str(e)))
             if NEURON_STOP_ON_FORWARD_EXCEPTION:
                 self.should_exit = True
-    
+
+        logger.debug(f"Forwarding Synapse to validator {synapse.dendrite.hotkey}: {synapse}.")
+
         return synapse
 
+    
     def check_availability(self, synapse: AvailabilitySynapse) -> AvailabilitySynapse:
         """The check_availability function returns an AvailabilitySynapse which indicates
         which tasks and models this miner can handle."""

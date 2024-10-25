@@ -15,9 +15,9 @@ class DendriteResponseEvent(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode="after")
-    def process_stream_results(self) -> "DendriteResponseEvent":
+    def process_results(self) -> "DendriteResponseEvent":
         for uid, synapse in zip(self.uids, self.results):
-            
+            synapse : TensorProxSynapse
             prediction = synapse.prediction
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code

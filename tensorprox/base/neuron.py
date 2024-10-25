@@ -9,6 +9,7 @@ from tensorprox.utils.misc import ttl_get_block
 # from tensorprox import __spec_version__ as spec_version
 
 from tensorprox.settings import settings
+from starlette.types import Send
 
 
 class BaseNeuron(ABC):
@@ -41,7 +42,7 @@ class BaseNeuron(ABC):
         self.step = 0
 
     @abstractmethod
-    def forward(self, synapse: bt.Synapse) -> bt.Synapse: ...
+    def forward(self, synapse: bt.Synapse, send : Send) -> bt.Synapse: ...
 
     @abstractmethod
     def run(self): ...

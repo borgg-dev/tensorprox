@@ -12,14 +12,14 @@ from tensorprox.utils.logging import init_wandb, MinerLoggingEvent, log_event
 from tensorprox.base.protocol import AvailabilitySynapse
 
 
-class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
+class BaseMinerNeuron(BaseModel, BaseNeuron):
     """
     Base class for Bittensor miners.
     """
 
     step: int = 0
     # wallet: bt.wallet | None = None
-    streaming_axon: bt.axon | None = None
+    axon: bt.axon | None = None
     availability_axon: bt.axon | None = None
     # subtensor: bt.subtensor | None = None
     # metagraph: bt.metagraph | None = None
@@ -31,27 +31,27 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode="after")
-    def attach_axon(self) -> "BaseStreamMinerNeuron":
+    def attach_axon(self) -> "BaseMinerNeuron":
         # note that this initialization has to happen in the validator because the objects
         # are not picklable and because pydantic deepcopies things it breaks
 
-        self.streaming_axon = bt.axon(wallet=settings.WALLET, port=settings.AXON_PORT)
+        self.axon = bt.axon(wallet=settings.WALLET, port=settings.AXON_PORT)
 
         logger.info("Attaching axon")
-        self.streaming_axon.attach(
+        self.axon.attach(
             forward_fn=self.forward,
             blacklist_fn=self.blacklist,
             priority_fn=self.priority,
         )
-        self.streaming_axon.attach(
+        self.axon.attach(
             forward_fn=self.check_availability,
             blacklist_fn=self.availability_blacklist,
             priority_fn=self.availability_priority,
         )
 
         self.uid = settings.METAGRAPH.hotkeys.index(settings.WALLET.hotkey.ss58_address)
-        logger.info(f"Axon created: {self.streaming_axon}; miner uid: {self.uid}")
-        self.streaming_axon.serve(netuid=settings.NETUID, subtensor=settings.SUBTENSOR)
+        logger.info(f"Axon created: {self.axon}; miner uid: {self.uid}")
+        self.axon.serve(netuid=settings.NETUID, subtensor=settings.SUBTENSOR)
 
         if settings.WANDB_ON:
             init_wandb(neuron="miner")
@@ -88,10 +88,10 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
 
         # Serve passes the axon information to the network + netuid we are hosting on.
         # This will auto-update if the axon port of external ip have changed.
-        logger.info(f"Serving miner axon {self.streaming_axon} with netuid: {settings.NETUID}")
+        logger.info(f"Serving miner axon {self.axon} with netuid: {settings.NETUID}")
 
         # Start  starts the miner's axon, making it active on the network.
-        self.streaming_axon.start()
+        self.axon.start()
 
         logger.info(f"Miner starting at block: {settings.SUBTENSOR.get_current_block()}")
         last_update_block = 0
@@ -113,7 +113,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
 
         # If someone intentionally stops the miner, it'll safely terminate operations.
         except KeyboardInterrupt:
-            self.streaming_axon.stop()
+            self.axon.stop()
             logger.success("Miner killed by keyboard interrupt.")
             exit()
 
@@ -188,7 +188,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         cache, the subclass `forward` method is called.
 
         Args:
-            synapse (TensorProxSynapse): The incoming request object encapsulating the details of the request.
+            synapse (StreamPromptingSynapse): The incoming request object encapsulating the details of the request.
 
         Returns:
             TensorProxSynapse: The response object to be sent back in reply to the incoming request, essentially
@@ -202,8 +202,10 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
             is received, and it subsequently calls the `forward` method of the subclass.
         """
         self.step += 1
-        logger.info("Calling self.forward in BaseStreamMinerNeuron")
+        logger.info("Calling self.forward in BaseMinerNeuron")
         return self.forward(synapse=synapse)
+
+
 
     async def availability_blacklist(self, synapse: AvailabilitySynapse) -> Tuple[bool, str]:
         return False, "Not blacklisting"
@@ -281,13 +283,13 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         synapse: TensorProxSynapse,
         timing: float,
         challenges: list[dict],
-        predictions: list[int] = [],
+        prediction: str,
     ):
         dendrite_uid = settings.METAGRAPH.hotkeys.index(synapse.dendrite.hotkey)
         event = MinerLoggingEvent(
             epoch_time=timing,
             challenges=challenges,
-            predictions=predictions,
+            prediction=prediction,
             validator_uid=dendrite_uid,
             validator_ip=synapse.dendrite.ip,
             validator_coldkey=settings.METAGRAPH.coldkeys[dendrite_uid],
