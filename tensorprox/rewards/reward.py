@@ -9,40 +9,26 @@ RewardTypeLiteral = Literal["reward", "penalty"]
 
 class FScoreRewardEvent(BaseModel):
     task: BaseTask
-    reward_model_name: str
     rewards: list[float]
     rewards_normalized: list[float]
     timings: list[float]
-    reward_model_type: RewardTypeLiteral
-    batch_time: float
     uids: list[float]
-
-    threshold: float | None = None
-    extra_info: dict | None = None
-    reward_type: Literal["reward", "penalty"] = "reward"
-    penalty: float = 0.0  # Added to account for penalties
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def asdict(self) -> dict:
         # Return a dictionary representation of the object
         return {
-            f"{self.reward_model_name}_raw_{self.reward_model_type}": self.rewards,
-            f"{self.reward_model_name}_{self.reward_model_type}": self.rewards_normalized,
-            f"{self.reward_model_name}_{self.reward_model_type}_timings": self.timings,
-            f"{self.reward_model_name}_{self.reward_model_type}_batch_time": self.batch_time,
-            f"{self.reward_model_name}_{self.reward_model_type}_threshold": self.threshold,
-            f"{self.reward_model_name}_{self.reward_model_type}_extra_info": self.extra_info,
-            f"{self.reward_model_name}_{self.reward_model_type}_uids": self.uids,
-            f"{self.reward_model_name}_{self.reward_model_type}_penalty": self.penalty,
-            f"{self.reward_model_name}_{self.reward_model_type}_task": self.task,
+            "rewards": self.rewards,
+            "rewards_normalized": self.rewards_normalized,
+            "timings": self.timings,
+            "uids": self.uids,
+            "task": self.task,
         }
 
 class BatchRewardOutput(BaseModel):
     rewards: np.ndarray
     timings: np.ndarray
-    threshold: float | None = None
-    extra_info: dict = {}
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
@@ -56,17 +42,21 @@ class BatchRewardOutput(BaseModel):
 
 class FScoreRewardModel(BaseModel):
 
+    alpha: float = 0.1  # Decay rate parameter for exponential decrease
+
     def reward(self, reference: str, response_event: DendriteResponseEvent) -> BatchRewardOutput:
+        # Compute base scores (1 for match, 0 otherwise)
+        scores = np.array([1 if prediction == reference else 0 for prediction in response_event.predictions])
+        timings = np.array(response_event.timings)
 
-        scores = [1 if prediction == reference else 0 for prediction in response_event.predictions]
-        timings = [t for t in response_event.timings]
-
-        # Return BatchRewardOutput (handling multiple predictions and timings)
+        # Apply exponential decay based on timing, limiting the minimum to 0
+        decayed_scores = np.maximum(0, scores * np.exp(-self.alpha * timings))
+        
+        # Return BatchRewardOutput with decayed scores
         return BatchRewardOutput(
-            rewards=np.array(scores),
-            timings=np.array(timings)
+            rewards=decayed_scores,
+            timings=timings
         )
-
 
 class BaseRewardConfig(BaseModel):
 
@@ -77,30 +67,17 @@ class BaseRewardConfig(BaseModel):
         cls,
         response_event: DendriteResponseEvent,
         reference: str,
-        challenge: Dict[str, Any],
         task: BaseTask,
-        time_to_answer: float,
     ) -> FScoreRewardEvent:
+        
         # Get the reward output
         batch_rewards_output = cls.reward_model.reward(reference, response_event)
-
-        # Apply penalty based on time to answer (if needed)
-        penalty = cls.calculate_penalty(time_to_answer)
 
         # Return the FScoreRewardEvent using the BatchRewardOutput
         return FScoreRewardEvent(
             task=task,
-            reward_model_name=cls.reward_model.__class__.__name__,
             rewards=batch_rewards_output.rewards.tolist(),
             rewards_normalized=batch_rewards_output.rewards_normalized.tolist(),
             timings=batch_rewards_output.timings.tolist(),
-            reward_model_type="reward",
-            batch_time=batch_rewards_output.timings.mean(),
             uids=response_event.uids,
-            penalty=penalty
         )
-
-    @staticmethod
-    def calculate_penalty(time_to_answer: float) -> float:
-        # Penalty logic based on time to answer
-        return min(time_to_answer, 1.0)  # Penalize answers taking longer than 1 second

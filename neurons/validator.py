@@ -74,7 +74,6 @@ class Validator(BaseValidatorNeuron):
                 response=response_event,
                 block=self.block,
                 step=self.step,
-                time_to_answer=2,
                 task_id=task.task_id,  # Use task_id from BaseTask
             )
 
@@ -113,7 +112,7 @@ class Validator(BaseValidatorNeuron):
         response_times = []
         responses = []
         
-        for uid, axon in zip(uids, axons):
+        for axon in axons:
             with Timer() as timer:
                 response = await settings.DENDRITE(
                     axons=[axon],
@@ -128,7 +127,6 @@ class Validator(BaseValidatorNeuron):
         response_event = DendriteResponseEvent(
             results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT, response_times=response_times
         )
-        logger.debug(f"Response times per synapse: {response_times}")
         return response_event
 
     async def forward(self):

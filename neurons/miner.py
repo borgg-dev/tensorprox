@@ -13,7 +13,6 @@ from tensorprox.base.miner import BaseMinerNeuron
 from tensorprox.base.protocol import TensorProxSynapse
 from tensorprox.utils.logging import ErrorLoggingEvent, log_event
 from tensorprox.base.protocol import AvailabilitySynapse
-from starlette.types import Send
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
@@ -26,7 +25,7 @@ class Miner(BaseMinerNeuron):
         return "0"
             
         
-    async def forward(self, synapse: TensorProxSynapse) -> TensorProxSynapse:
+    def forward(self, synapse: TensorProxSynapse) -> TensorProxSynapse:
         """The forward function predicts class output for a set of features and forwards it to the validator."""
 
 
@@ -39,11 +38,6 @@ class Miner(BaseMinerNeuron):
             if prediction:
                 synapse.prediction = prediction
 
-                await Send({ 
-                    "type": "http.response.body",
-                    "body": prediction.encode("utf-8"),
-                    "more_body": False,
-                })
             else:
                 logger.info("Model returned label with None")
 
@@ -53,6 +47,7 @@ class Miner(BaseMinerNeuron):
             log_event(ErrorLoggingEvent(error=str(e)))
             if NEURON_STOP_ON_FORWARD_EXCEPTION:
                 self.should_exit = True
+
 
         logger.debug(f"Forwarding Synapse to validator {synapse.dendrite.hotkey}: {synapse}.")
 

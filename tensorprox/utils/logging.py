@@ -151,18 +151,18 @@ class ValidatorLoggingEvent(BaseEvent):
     model_config = ConfigDict(arbitrary_types_allowed=True, copy_on_model_validation=False)
 
     def __str__(self):
-        sample_completions = [completion for completion in self.response_event.completions if len(completion) > 0]
-        sample_completion = sample_completions[0] if sample_completions else "All completions are empty"
+        sample_predictions = [prediction for prediction in self.response_event.predictions if prediction != '']
+        sample_prediction = sample_predictions[0] if sample_predictions else "All predictions are empty"
         return f"""ValidatorLoggingEvent:
             Block: {self.block}
             Step: {self.step}
             Step Time: {self.step_time}
             forward_time: {self.forward_time}
             task_id: {self.task_id}
-            Number of total completions: {len(self.response_event.completions)}
-            Number of non-empty completions: {len(sample_completions)}
-            Completions: {sample_completions}
-            Sample completion: {sample_completion}"""
+            Number of total predictions: {len(self.response_event.predictions)}
+            Number of non-empty predictions: {len(sample_predictions)}
+            Predictions: {sample_predictions}
+            Sample prediction: {sample_prediction}"""
 
 
 class RewardLoggingEvent(BaseEvent):

@@ -22,7 +22,6 @@ class ScoringConfig:
     block: int
     step: int
     task_id: str
-    time_to_answer: float
 
 
 class TaskScorer(AsyncLoopRunner):
@@ -44,7 +43,6 @@ class TaskScorer(AsyncLoopRunner):
         block: int,
         step: int,
         task_id: str,
-        time_to_answer: float,
     ) -> None:
         logger.debug(f"SCORING: Added to queue: {task.__class__.__name__} {task.task_id}")
         scoring_queue.append(
@@ -54,22 +52,20 @@ class TaskScorer(AsyncLoopRunner):
                 block=block,
                 step=step,
                 task_id=task_id,
-                time_to_answer=time_to_answer
             )
         )
 
     async def run_step(self) -> RewardLoggingEvent:
+        
         await asyncio.sleep(0.01)
-        # Only score responses for which the model is loaded
-        scorable = [
-            scoring_config
-            for scoring_config in scoring_queue
-        ]
+        scorable = [scoring_config for scoring_config in scoring_queue]
+
         if len(scorable) == 0:
             await asyncio.sleep(0.01)
             logger.debug("Nothing to score. Skipping scoring step.")
             await asyncio.sleep(5)
             return
+        
         scoring_queue.remove(scorable[0])
         scoring_config: ScoringConfig = scorable.pop(0)
         
@@ -79,10 +75,8 @@ class TaskScorer(AsyncLoopRunner):
         )
         rwd_events = self.base_reward_model.apply(
             response_event=scoring_config.response,
-            challenge=scoring_config.task.query,
             reference=scoring_config.task.reference,
             task=scoring_config.task,
-            time_to_answer=scoring_config.time_to_answer
         )
         reward_events.append(rwd_events)
         logger.debug(
@@ -98,7 +92,6 @@ class TaskScorer(AsyncLoopRunner):
                 block=scoring_config.block,
                 step=scoring_config.step,
                 task_id=scoring_config.task_id,
-                time_to_answer=scoring_config.time_to_answer,
             )
         )
         logger.info("Adding scores to rewards_and_uids")
