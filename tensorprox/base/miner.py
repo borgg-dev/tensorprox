@@ -1,7 +1,7 @@
 import time
 import threading
 import bittensor as bt
-from tensorprox.base.protocol import StreamPromptingSynapse
+from tensorprox.base.protocol import TensorProxSynapse
 from tensorprox.base.neuron import BaseNeuron
 from traceback import print_exception
 from tensorprox.settings import settings
@@ -39,7 +39,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
 
         logger.info("Attaching axon")
         self.streaming_axon.attach(
-            forward_fn=self._forward,
+            forward_fn=self.forward,
             blacklist_fn=self.blacklist,
             priority_fn=self.priority,
         )
@@ -178,7 +178,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         # Sync the metagraph.
         settings.METAGRAPH.sync(subtensor=settings.SUBTENSOR)
 
-    def _forward(self, synapse: StreamPromptingSynapse) -> StreamPromptingSynapse:
+    def forward(self, synapse: TensorProxSynapse) -> TensorProxSynapse:
         """
         A wrapper method around the `forward` method that will be defined by the subclass.
 
@@ -188,10 +188,10 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         cache, the subclass `forward` method is called.
 
         Args:
-            synapse (StreamPromptingSynapse): The incoming request object encapsulating the details of the request.
+            synapse (TensorProxSynapse): The incoming request object encapsulating the details of the request.
 
         Returns:
-            StreamPromptingSynapse: The response object to be sent back in reply to the incoming request, essentially
+            TensorProxSynapse: The response object to be sent back in reply to the incoming request, essentially
             the filled synapse request object.
 
         Raises:
@@ -202,13 +202,13 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
             is received, and it subsequently calls the `forward` method of the subclass.
         """
         self.step += 1
-        logger.info("Calling self._forward in BaseStreamMinerNeuron")
+        logger.info("Calling self.forward in BaseStreamMinerNeuron")
         return self.forward(synapse=synapse)
 
     async def availability_blacklist(self, synapse: AvailabilitySynapse) -> Tuple[bool, str]:
         return False, "Not blacklisting"
 
-    async def blacklist(self, synapse: StreamPromptingSynapse) -> Tuple[bool, str]:
+    async def blacklist(self, synapse: TensorProxSynapse) -> Tuple[bool, str]:
         # WARNING: The typehint must remain Tuple[bool, str] to avoid runtime errors. YOU
         # CANNOT change to tuple[bool, str]!!!
         """
@@ -220,7 +220,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         requests before they are deserialized to avoid wasting resources on requests that will be ignored.
 
         Args:
-            synapse (StreamPromptingSynapse): A synapse object constructed from the headers of the incoming request.
+            synapse (TensorProxSynapse): A synapse object constructed from the headers of the incoming request.
 
         Returns:
             Tuple[bool, str]: A tuple containing a boolean indicating whether the synapse's hotkey is blacklisted,
@@ -251,7 +251,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
     async def availability_priority(self, synapse: AvailabilitySynapse) -> float:
         return 1.0
 
-    async def priority(self, synapse: StreamPromptingSynapse) -> float:
+    async def priority(self, synapse: TensorProxSynapse) -> float:
         """
         The priority function determines the order in which requests are handled. More valuable or higher-priority
         requests are processed before others. You should design your own priority mechanism with care.
@@ -259,7 +259,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
         This implementation assigns priority to incoming requests based on the calling entity's stake in the metagraph.
 
         Args:
-            synapse (StreamPromptingSynapse): The synapse object that contains metadata about the incoming request.
+            synapse (TensorProxSynapse): The synapse object that contains metadata about the incoming request.
 
         Returns:
             float: A priority score derived from the stake of the calling entity.
@@ -278,7 +278,7 @@ class BaseStreamMinerNeuron(BaseModel, BaseNeuron):
 
     def log_event(
         self,
-        synapse: StreamPromptingSynapse,
+        synapse: TensorProxSynapse,
         timing: float,
         challenges: list[dict],
         predictions: list[int] = [],

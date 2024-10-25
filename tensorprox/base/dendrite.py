@@ -1,12 +1,12 @@
 import numpy as np
-from tensorprox.base.protocol import StreamPromptingSynapse
+from tensorprox.base.protocol import TensorProxSynapse
 from pydantic import BaseModel, model_validator, ConfigDict
 
 
 class DendriteResponseEvent(BaseModel):
     uids: np.ndarray | list[float]
     timeout: float
-    results: list[StreamPromptingSynapse]
+    results: list[TensorProxSynapse]
     status_messages: list[str] = []
     status_codes: list[int] = []
     results_uids: list[int] = []
@@ -17,7 +17,7 @@ class DendriteResponseEvent(BaseModel):
     @model_validator(mode="after")
     def process_stream_results(self) -> "DendriteResponseEvent":
         for uid, synapse in zip(self.uids, self.results):
-
+            
             prediction = synapse.prediction
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code

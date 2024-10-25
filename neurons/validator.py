@@ -10,7 +10,7 @@ settings = settings.settings
 
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
-from tensorprox.base.dendrite import DendriteResponseEvent, StreamPromptingSynapse
+from tensorprox.base.dendrite import DendriteResponseEvent, TensorProxSynapse
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.miner_availability.miner_availability import availability_checking_loop, miner_availabilities
@@ -105,12 +105,12 @@ class Validator(BaseValidatorNeuron):
 
 
         # Directly call dendrite and process responses in parallel
-        synapse = StreamPromptingSynapse(
+        synapse = TensorProxSynapse(
             task_name=task.__class__.__name__,
             challenges=[task.query]
         )
 
-        async_responses_list = await settings.DENDRITE(
+        responses = await settings.DENDRITE(
             axons=axons,
             synapse=synapse,
             timeout=settings.NEURON_TIMEOUT,
@@ -118,11 +118,6 @@ class Validator(BaseValidatorNeuron):
             streaming=False,
         )
 
-       # Collect results from each async generator in async_responses_list
-        responses = []
-        for async_response in async_responses_list:
-            async for response in async_response:
-                responses.append(response)
 
         # Encapsulate the responses in a response event (dataclass)
         response_event = DendriteResponseEvent(

@@ -1,7 +1,6 @@
 import pydantic
 import bittensor as bt
-from typing import List, AsyncIterator
-from starlette.responses import StreamingResponse
+from typing import List
 
 class AvailabilitySynapse(bt.Synapse):
     """AvailabilitySynapse is a specialized implementation of the `Synapse` class used to allow miners to let validators know
@@ -10,13 +9,13 @@ class AvailabilitySynapse(bt.Synapse):
     task_availabilities: dict[str, bool]
 
 
-class StreamPromptingSynapse(bt.StreamingSynapse):
+class TensorProxSynapse(bt.Synapse):
     """
-    StreamPromptingSynapse is a specialized implementation of the `StreamingSynapse` tailored for prompting functionalities within
+    TensorProxSynapse is a specialized implementation of the `StreamingSynapse` tailored for prompting functionalities within
     the Bittensor network. This class is intended to interact with a streaming response that contains a sequence of tokens,
     which represent prompts or messages in a certain scenario.
 
-    As a developer, when using or extending the `StreamPromptingSynapse` class, you should be primarily focused on the structure
+    As a developer, when using or extending the `TensorProxSynapse` class, you should be primarily focused on the structure
     and behavior of the prompts you are working with. The class has been designed to seamlessly handle the streaming,
     decoding, and accumulation of tokens that represent these prompts.
 
@@ -32,14 +31,14 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
                           processed, they are accumulated in the completion attribute. This represents the "final"
                           product or result of the streaming process.
 
-    Note: While you can directly use the `StreamPromptingSynapse` class, it's designed to be extensible. Thus, you can create
+    Note: While you can directly use the `TensorProxSynapse` class, it's designed to be extensible. Thus, you can create
     subclasses to further customize behavior for specific prompting scenarios or requirements.
     """
 
     task_name: str = pydantic.Field(
         ...,
         title="Task",
-        description="The task for the current StreamPromptingSynapse object.",
+        description="The task for the current TensorProxSynapse object.",
         allow_mutation=False,
     )
 
@@ -56,20 +55,6 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
         description="Prediction for the output class. This attribute is mutable and can be updated.",
     )
 
-    async def process_streaming_response(self, response: StreamingResponse) -> AsyncIterator[str]:
-        """
-        `process_streaming_response` is an asynchronous method designed to process the incoming streaming response from the
-        Bittensor network. It's the heart of the StreamPromptingSynapse class, ensuring that streaming tokens, which represent
-        prompts or messages, are decoded and appropriately managed.
-
-        As the streaming response is consumed, the tokens are decoded from their 'utf-8' encoded format, split based on
-        newline characters, and concatenated into the `completion` attribute. This accumulation of decoded tokens in the
-        `completion` attribute allows for a continuous and coherent accumulation of the streaming content.
-
-        Args:
-            response: The streaming response object containing the content chunks to be processed. Each chunk in this
-                      response is expected to be a set of tokens that can be decoded and split into individual messages or prompts.
-        """
 
 
     def deserialize(self) -> str:
@@ -81,40 +66,4 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
         """
         return self.prediction
 
-    def extract_response_json(self, response: StreamingResponse) -> dict:
-        """
-        `extract_response_json` is a method that performs the crucial task of extracting pertinent JSON data from the given
-        response. The method is especially useful when you need a detailed insight into the streaming response's metadata
-        or when debugging response-related issues.
 
-        Beyond just extracting the JSON data, the method also processes and structures the data for easier consumption
-        and understanding. For instance, it extracts specific headers related to dendrite and axon, offering insights
-        about the Bittensor network's internal processes. The method ultimately returns a dictionary with a structured
-        view of the extracted data.
-
-        Args:
-            response: The response object from which to extract the JSON data. This object typically includes headers and
-                      content which can be used to glean insights about the response.
-
-        Returns:
-            dict: A structured dictionary containing:
-                - Basic response metadata such as name, timeout, total_size, and header_size.
-                - Dendrite and Axon related information extracted from headers.
-                - Roles and Messages pertaining to the current StreamPromptingSynapse instance.
-                - The accumulated completion.
-        """
-        headers = {k.decode("utf-8"): v.decode("utf-8") for k, v in response.__dict__["_raw_headers"]}
-
-        def extract_info(prefix):
-            return {key.split("_")[-1]: value for key, value in headers.items() if key.startswith(prefix)}
-
-        return {
-            "name": headers.get("name", ""),
-            "timeout": float(headers.get("timeout", 0)),
-            "total_size": int(headers.get("total_size", 0)),
-            "header_size": int(headers.get("header_size", 0)),
-            "dendrite": extract_info("bt_header_dendrite"),
-            "axon": extract_info("bt_header_axon"),
-            "challenges": self.challenges,
-            "prediction": self.prediction,
-        }
