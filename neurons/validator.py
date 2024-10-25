@@ -10,7 +10,6 @@ settings = settings.settings
 
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
-from tensorprox.base.forward import log_stream_results, handle_response
 from tensorprox.base.dendrite import DendriteResponseEvent, StreamPromptingSynapse
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
@@ -110,27 +109,24 @@ class Validator(BaseValidatorNeuron):
             task_name=task.__class__.__name__,
             challenges=[task.query]
         )
-        streams_responses = await settings.DENDRITE(
+
+        async_responses_list = await settings.DENDRITE(
             axons=axons,
             synapse=synapse,
             timeout=settings.NEURON_TIMEOUT,
             deserialize=False,
-            streaming=True,
+            streaming=False,
         )
 
-        # Prepare the task for handling stream responses
-        stream_results = await handle_response(stream_results_dict=dict(zip(uids, streams_responses)))
-        logger.debug(
-            f"Responses that are not None: {len([r.prediction for r in stream_results if r.prediction is not None])}\n"
-            f"Responses that are None: {len([r.prediction for r in stream_results if r.prediction is None])}"
-        )
-
-
-        log_stream_results(stream_results)
+       # Collect results from each async generator in async_responses_list
+        responses = []
+        for async_response in async_responses_list:
+            async for response in async_response:
+                responses.append(response)
 
         # Encapsulate the responses in a response event (dataclass)
         response_event = DendriteResponseEvent(
-            stream_results=stream_results, uids=uids, timeout=settings.NEURON_TIMEOUT
+            results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT
         )
         return response_event
 

@@ -108,10 +108,6 @@ class StreamPromptingSynapse(bt.StreamingSynapse):
         def extract_info(prefix):
             return {key.split("_")[-1]: value for key, value in headers.items() if key.startswith(prefix)}
 
-        print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
-        print(self.challenges)
-        print('^^^^^^^^^^^^^^^^^^^^^^^^')
-        print(self.prediction)
         return {
             "name": headers.get("name", ""),
             "timeout": float(headers.get("timeout", 0)),
