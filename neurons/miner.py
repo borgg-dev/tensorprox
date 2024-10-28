@@ -23,8 +23,7 @@ class Miner(BaseMinerNeuron):
         """Predicts the label for the input JSON object (challenge) for DDoS detection."""
         
         return "0"
-            
-        
+
     def forward(self, synapse: TensorProxSynapse) -> TensorProxSynapse:
         """The forward function predicts class output for a set of features and forwards it to the validator."""
 
@@ -52,6 +51,7 @@ class Miner(BaseMinerNeuron):
         logger.debug(f"Forwarding Synapse to validator {synapse.dendrite.hotkey}: {synapse}.")
 
         return synapse
+
 
     
     def check_availability(self, synapse: AvailabilitySynapse) -> AvailabilitySynapse:

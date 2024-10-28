@@ -2,14 +2,8 @@ import sys
 import bittensor as bt
 from loguru import logger
 from abc import ABC, abstractmethod
-
-# Sync calls set weights and also resyncs the metagraph.π
 from tensorprox.utils.misc import ttl_get_block
-
-# from tensorprox import __spec_version__ as spec_version
-
 from tensorprox.settings import settings
-from starlette.types import Send
 
 
 class BaseNeuron(ABC):

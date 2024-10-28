@@ -9,9 +9,9 @@ class BaseTask(BaseModel):
 
     def make_query(self, feature_data: dict, **kwargs) -> dict:
         """Use the input traffic feature data as the query, excluding the 'label'."""
-        # Remove the 'label' key from the feature_data if it exists
-        feature_data_without_label = {k: v for k, v in feature_data.items() if k != 'label'}
-        self.query = feature_data_without_label
+        # Remove the 'label' and 'used' flag from feature_data if it exists
+        feature_data_filtered = {k: v for k, v in feature_data.items() if k not in ['label', 'used']}
+        self.query = feature_data_filtered
         return self.query
 
     def make_reference(self, feature_data: dict) -> str:

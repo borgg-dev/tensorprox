@@ -169,16 +169,16 @@ class RewardLoggingEvent(BaseEvent):
     block: int
     step: int
     response_event: DendriteResponseEvent
-    reward_events: list[FScoreRewardEvent]
-    task_id: str
+    reward_event: FScoreRewardEvent
     reference: str
     challenge: Dict[str, Any]
+    task_id: str
     task: str
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __str__(self):
-        rewards = [r.rewards for r in self.reward_events]
+        rewards = self.reward_event.rewards
 
         return f"""RewardLoggingEvent:
             Rewards:

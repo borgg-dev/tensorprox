@@ -10,9 +10,8 @@ RewardTypeLiteral = Literal["reward", "penalty"]
 class FScoreRewardEvent(BaseModel):
     task: BaseTask
     rewards: list[float]
-    rewards_normalized: list[float]
     timings: list[float]
-    uids: list[float]
+    uids: list[int]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -20,7 +19,6 @@ class FScoreRewardEvent(BaseModel):
         # Return a dictionary representation of the object
         return {
             "rewards": self.rewards,
-            "rewards_normalized": self.rewards_normalized,
             "timings": self.timings,
             "uids": self.uids,
             "task": self.task,
@@ -31,18 +29,10 @@ class BatchRewardOutput(BaseModel):
     timings: np.ndarray
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    @property
-    def rewards_normalized(self) -> np.ndarray:
-        if self.rewards.shape != self.timings.shape:
-            raise ValueError(f"rewards.shape {self.rewards.shape} != timings.shape {self.timings.shape}")
-        if self.rewards.min() == self.rewards.max():
-            return np.array([1 / len(self.rewards)] * len(self.rewards))
-        return (self.rewards - self.rewards.min()) / (self.rewards.max() - self.rewards.min())
-
 
 class FScoreRewardModel(BaseModel):
 
-    alpha: float = 0.1  # Decay rate parameter for exponential decrease
+    alpha: float = 5.0  # Decay rate parameter for exponential decrease
 
     def reward(self, reference: str, response_event: DendriteResponseEvent) -> BatchRewardOutput:
         # Compute base scores (1 for match, 0 otherwise)
@@ -77,7 +67,6 @@ class BaseRewardConfig(BaseModel):
         return FScoreRewardEvent(
             task=task,
             rewards=batch_rewards_output.rewards.tolist(),
-            rewards_normalized=batch_rewards_output.rewards_normalized.tolist(),
             timings=batch_rewards_output.timings.tolist(),
             uids=response_event.uids,
         )
