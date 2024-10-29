@@ -10,7 +10,7 @@ from typing import ClassVar
 from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import RewardLoggingEvent, log_event
-from tensorprox import mutable_globals
+from tensorprox import global_vars
 from tensorprox.base.loop_runner import AsyncLoopRunner
 import asyncio
 from tensorprox.rewards.reward import BaseRewardConfig, DDoSDetectionRewardModel
@@ -46,7 +46,7 @@ class TaskScorer(AsyncLoopRunner):
 
         
         logger.debug(f"SCORING: Added to queue: {task.__class__.__name__} {task.task_id}")
-        mutable_globals.scoring_queue.append(
+        global_vars.scoring_queue.append(
             ScoringConfig(
                 task=task,
                 response=response,
@@ -60,7 +60,7 @@ class TaskScorer(AsyncLoopRunner):
     async def run_step(self) -> RewardLoggingEvent:
         
         await asyncio.sleep(0.01)
-        scorable = [scoring_config for scoring_config in mutable_globals.scoring_queue]
+        scorable = [scoring_config for scoring_config in global_vars.scoring_queue]
 
         if len(scorable) == 0:
             await asyncio.sleep(0.01)
@@ -68,7 +68,7 @@ class TaskScorer(AsyncLoopRunner):
             await asyncio.sleep(5)
             return
         
-        mutable_globals.scoring_queue.remove(scorable[0])
+        global_vars.scoring_queue.remove(scorable[0])
         scoring_config: ScoringConfig = scorable.pop(0)
         
         logger.debug(f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}""")
@@ -80,7 +80,7 @@ class TaskScorer(AsyncLoopRunner):
             task=scoring_config.task,
         )
 
-        mutable_globals.reward_events.append(reward_event)
+        global_vars.reward_events.append(reward_event)
 
         logger.debug(f"SCORING: Scored {scoring_config.task.__class__.__name__} {scoring_config.task.task_id} with reward")
 

@@ -7,10 +7,9 @@ import pandas as pd
 
 from tensorprox import __spec_version__
 from tensorprox.settings import settings
-from tensorprox.utils.uids import get_uids
 from tensorprox.utils.misc import ttl_get_block
 from tensorprox.base.loop_runner import AsyncLoopRunner
-from tensorprox import mutable_globals
+from tensorprox import global_vars
 from tensorprox.utils.logging import WeightSetEvent, log_event
 
 PAST_WEIGHTS: list[np.ndarray] = []
@@ -94,7 +93,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
 
 
 class WeightSetter(AsyncLoopRunner):
-    """The weight setter looks at RewardEvents in the mutable_globals.reward_events queue and sets the weights of the miners accordingly."""
+    """The weight setter looks at RewardEvents in the global_vars.reward_events queue and sets the weights of the miners accordingly."""
 
     sync: bool = True
     interval: int = 1440  #updating weights every 120 blocks
@@ -108,16 +107,16 @@ class WeightSetter(AsyncLoopRunner):
     
         try:
             logger.info("Reward setting loop running")
-            if not mutable_globals.reward_events or len(mutable_globals.reward_events) == 0:
+            if not global_vars.reward_events or len(global_vars.reward_events) == 0:
                 logger.warning("No reward events in queue, skipping weight setting...")
                 return
-            logger.debug(f"Found {len(mutable_globals.reward_events)} reward events in queue")
+            logger.debug(f"Found {len(global_vars.reward_events)} reward events in queue")
 
             reward_dict = {uid: 0 for uid in range(1024)}
 
             miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(1024)}
             
-            for reward_event in mutable_globals.reward_events:
+            for reward_event in global_vars.reward_events:
                 await asyncio.sleep(0.01)
                
                 if np.sum(reward_event.rewards) > 0:
@@ -143,7 +142,7 @@ class WeightSetter(AsyncLoopRunner):
             
         # set weights on chain
         set_weights(final_rewards, step=self.step)
-        mutable_globals.reward_events = []
+        global_vars.reward_events = []
         await asyncio.sleep(0.01)
         return final_rewards
 

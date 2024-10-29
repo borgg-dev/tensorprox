@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
 
     # Logging.
-    LOGGING_DONT_SAVE_EVENTS: bool = Field(True, env="LOGGING_DONT_SAVE_EVENTS")
+    LOGGING_DONT_SAVE_EVENTS: bool = Field(False, env="LOGGING_DONT_SAVE_EVENTS")
     LOG_WEIGHTS: bool = Field(True, env="LOG_WEIGHTS")
 
     # Neuron parameters.

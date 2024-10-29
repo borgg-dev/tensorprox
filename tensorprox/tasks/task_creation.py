@@ -1,7 +1,7 @@
 import threading
 import asyncio
 from tensorprox.base.loop_runner import AsyncLoopRunner
-from tensorprox.mutable_globals import task_queue, scoring_queue, feature_queue
+from tensorprox.global_vars import task_queue, scoring_queue, feature_queue
 from tensorprox.settings import settings
 from tensorprox.tasks.base_task import DDoSDetectionTask
 from loguru import logger

@@ -19,14 +19,11 @@ class DendriteResponseEvent(BaseModel):
     @model_validator(mode="after")
     def process_results(self) -> "DendriteResponseEvent":
 
-        self.status_messages = []
-        self.status_codes = []
-        self.results_uids = []
-        self.predictions = []
-        self.timings = []
+        if len(self.predictions) > 0:
+            return self
 
         for uid, synapse, timing in zip(self.uids, self.results, self.response_times):
-
+            synapse : TensorProxSynapse
             prediction = synapse.prediction
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code

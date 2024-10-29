@@ -14,7 +14,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent, TensorProxSynapse
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
-from tensorprox import mutable_globals
+from tensorprox import global_vars
 from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.rewards.weight_setter import weight_setter
 from neurons.Validator.traffic_data import TrafficData
@@ -45,17 +45,17 @@ class Validator(BaseValidatorNeuron):
             exclude (list, optional): The list of uids to exclude from the query. Defaults to [].
         """
         
-        while len(mutable_globals.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
+        while len(global_vars.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
             logger.debug("Scoring queue is full. Waiting 1 second...")
             await asyncio.sleep(1)
-        while len(mutable_globals.task_queue) == 0:
+        while len(global_vars.task_queue) == 0:
             logger.warning("No tasks in queue. Waiting 1 second...")
             await asyncio.sleep(1)
 
         try:
 
             # Get task from the task queue
-            task = mutable_globals.task_queue.pop(0)
+            task = global_vars.task_queue.pop(0)
 
             # Simulate ing task to miners and collecting responses
             with Timer() as timer:
@@ -90,6 +90,7 @@ class Validator(BaseValidatorNeuron):
             )
 
     async def collect_responses(self, task: DDoSDetectionTask) -> DendriteResponseEvent | None:
+        
         # Get the list of uids and their axons to query for this step.
         uids = settings.METAGRAPH.uids
         logger.debug(f"🔍 Querying uids: {uids}")
@@ -97,8 +98,6 @@ class Validator(BaseValidatorNeuron):
             logger.debug("No available miners. Skipping step.")
             return
         axons = [settings.METAGRAPH.axons[uid] for uid in uids]
-
-
 
         # Store each synapse's response time
         response_times = []
@@ -173,7 +172,7 @@ class Validator(BaseValidatorNeuron):
 async def main():
 
     # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=mutable_globals.feature_queue)
+    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=global_vars.feature_queue)
     asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.
