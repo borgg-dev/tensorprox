@@ -5,7 +5,7 @@ import os
 import asyncio
 import pandas as pd
 
-from tensorprox import __version__
+from tensorprox import __spec_version__
 from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids
 from tensorprox.utils.misc import ttl_get_block
@@ -84,7 +84,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
         weights=uint_weights,
         wait_for_finalization=False,
         wait_for_inclusion=False,
-        version_key=__version__,
+        version_key=__spec_version__,
     )
 
     if result is True:

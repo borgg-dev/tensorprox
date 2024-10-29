@@ -12,7 +12,7 @@ from tensorprox.base.neuron import BaseNeuron
 from tensorprox.settings import settings
 from tensorprox.utils.exceptions import MaxRetryError
 from tensorprox.utils.logging import init_wandb
-from tensorprox.rewards.reward import FScoreRewardEvent
+from tensorprox.rewards.reward import DDoSDetectionRewardEvent
 
 
 class BaseValidatorNeuron(BaseNeuron):
@@ -210,7 +210,7 @@ class BaseValidatorNeuron(BaseNeuron):
         # Update the hotkeys.
         self.hotkeys = copy.deepcopy(settings.METAGRAPH.hotkeys)
 
-    def update_scores(self, reward_events: list[FScoreRewardEvent]):
+    def update_scores(self, reward_events: list[DDoSDetectionRewardEvent]):
         """Performs exponential moving average on the scores based on the rewards received from the miners."""
         for r_event in reward_events:
             # Check if rewards contains NaN values.

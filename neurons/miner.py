@@ -50,6 +50,8 @@ class Miner(BaseMinerNeuron):
 
         logger.debug(f"Forwarding Synapse to validator {synapse.dendrite.hotkey}: {synapse}.")
 
+        self.step += 1
+
         return synapse
 
 
@@ -62,7 +64,7 @@ class Miner(BaseMinerNeuron):
         synapse.task_availabilities = {
             task: True
             for task, _ in synapse.task_availabilities.items()
-            if task == "BaseTask"
+            if task == "DDoSDetectionTask"
         }
         return synapse
 

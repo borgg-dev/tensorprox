@@ -7,17 +7,17 @@ from pydantic import ConfigDict
 from loguru import logger
 from dataclasses import dataclass
 from typing import ClassVar
-from tensorprox.tasks.base_task import BaseTask
+from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import RewardLoggingEvent, log_event
 from tensorprox import mutable_globals
 from tensorprox.base.loop_runner import AsyncLoopRunner
 import asyncio
-from tensorprox.rewards.reward import BaseRewardConfig, FScoreRewardModel
+from tensorprox.rewards.reward import BaseRewardConfig, DDoSDetectionRewardModel
 
 @dataclass
 class ScoringConfig:
-    task: BaseTask
+    task: DDoSDetectionTask
     response: DendriteResponseEvent
     block: int
     step: int
@@ -32,12 +32,12 @@ class TaskScorer(AsyncLoopRunner):
     thread: threading.Thread = None
     interval: int = 10
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=FScoreRewardModel())
+    base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=DDoSDetectionRewardModel())
 
 
     def add_to_queue(
         self,
-        task: BaseTask,
+        task: DDoSDetectionTask,
         response: DendriteResponseEvent,
         block: int,
         step: int,

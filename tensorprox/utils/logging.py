@@ -12,7 +12,7 @@ from wandb.wandb_run import Run
 
 import tensorprox
 from tensorprox.base.dendrite import DendriteResponseEvent
-from tensorprox.rewards.reward import FScoreRewardEvent
+from tensorprox.rewards.reward import DDoSDetectionRewardEvent
 from tensorprox.settings import settings
 
 WANDB: Run
@@ -169,7 +169,7 @@ class RewardLoggingEvent(BaseEvent):
     block: int
     step: int
     response_event: DendriteResponseEvent
-    reward_event: FScoreRewardEvent
+    reward_event: DDoSDetectionRewardEvent
     reference: str
     challenge: Dict[str, Any]
     task_id: str

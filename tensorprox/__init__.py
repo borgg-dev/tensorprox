@@ -1,6 +1,10 @@
-# In tensorprox/__init__.py
+def _version_to_int(version_str: str) -> int:
+    version_split = version_str.split(".") + ["0", "0"]
+    major = int(version_split[0])
+    minor = int(version_split[1])
+    patch = int(version_split[2])
+    return (10000 * major) + (100 * minor) + patch
 
-# Instead of using:
-# __version__ = version("tensorprox")
-# You can simply define the version manually like this:
-__version__ = "0.1.0"  # Or whichever version you prefer
+__version__ = "0.1.0" 
+
+__spec_version__ = _version_to_int(__version__)

@@ -3,12 +3,12 @@ import time
 from typing import Any, Dict, ClassVar, Literal
 from pydantic import BaseModel, ConfigDict
 from tensorprox.base.dendrite import DendriteResponseEvent
-from tensorprox.tasks.base_task import BaseTask
+from tensorprox.tasks.base_task import DDoSDetectionTask
 
 RewardTypeLiteral = Literal["reward", "penalty"]
 
-class FScoreRewardEvent(BaseModel):
-    task: BaseTask
+class DDoSDetectionRewardEvent(BaseModel):
+    task: DDoSDetectionTask
     rewards: list[float]
     timings: list[float]
     uids: list[int]
@@ -30,7 +30,7 @@ class BatchRewardOutput(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class FScoreRewardModel(BaseModel):
+class DDoSDetectionRewardModel(BaseModel):
 
     alpha: float = 5.0  # Decay rate parameter for exponential decrease
 
@@ -50,21 +50,21 @@ class FScoreRewardModel(BaseModel):
 
 class BaseRewardConfig(BaseModel):
 
-    reward_model: ClassVar[FScoreRewardModel] = FScoreRewardModel()
+    reward_model: ClassVar[DDoSDetectionRewardModel] = DDoSDetectionRewardModel()
 
     @classmethod
     def apply(
         cls,
         response_event: DendriteResponseEvent,
         reference: str,
-        task: BaseTask,
-    ) -> FScoreRewardEvent:
+        task: DDoSDetectionTask,
+    ) -> DDoSDetectionRewardEvent:
         
         # Get the reward output
         batch_rewards_output = cls.reward_model.reward(reference, response_event)
 
-        # Return the FScoreRewardEvent using the BatchRewardOutput
-        return FScoreRewardEvent(
+        # Return the DDoSDetectionRewardEvent using the BatchRewardOutput
+        return DDoSDetectionRewardEvent(
             task=task,
             rewards=batch_rewards_output.rewards.tolist(),
             timings=batch_rewards_output.timings.tolist(),

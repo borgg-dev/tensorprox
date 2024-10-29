@@ -15,7 +15,7 @@ from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.mutable_globals import task_queue, scoring_queue, feature_queue
-from tensorprox.tasks.base_task import BaseTask
+from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.rewards.weight_setter import weight_setter
 from neurons.Validator.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
@@ -73,7 +73,7 @@ class Validator(BaseValidatorNeuron):
                 response=response_event,
                 block=self.block,
                 step=self.step,
-                task_id=task.task_id,  # Use task_id from BaseTask
+                task_id=task.task_id,  # Use task_id from DDoSDetectionTask
             )
 
             # Log the step event.
@@ -91,7 +91,7 @@ class Validator(BaseValidatorNeuron):
                 error=str(ex),
             )
 
-    async def collect_responses(self, task: BaseTask) -> DendriteResponseEvent | None:
+    async def collect_responses(self, task: DDoSDetectionTask) -> DendriteResponseEvent | None:
         # Get the list of uids and their axons to query for this step.
         uids = settings.METAGRAPH.uids
         logger.debug(f"🔍 Querying uids: {uids}")

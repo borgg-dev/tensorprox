@@ -3,7 +3,7 @@ import asyncio
 from tensorprox.base.loop_runner import AsyncLoopRunner
 from tensorprox.mutable_globals import task_queue, scoring_queue, feature_queue
 from tensorprox.settings import settings
-from tensorprox.tasks.base_task import BaseTask
+from tensorprox.tasks.base_task import DDoSDetectionTask
 from loguru import logger
 from pydantic import ConfigDict
 
@@ -30,7 +30,7 @@ class TaskLoop(AsyncLoopRunner):
             return
 
         try:
-            task = BaseTask()
+            task = DDoSDetectionTask()
             
             # Generate the query and reference for the task
             if not task.query:

@@ -52,8 +52,7 @@ def get_random_uids(k: int | None = 10**6, exclude: list[int] = None, own_uid: i
     Notes:
         If `k` is larger than the number of available `uids`, set `k` to the number of available `uids`.
     """
-    if settings.TEST and settings.TEST_MINER_IDS:
-        return np.array(random.sample(settings.TEST_MINER_IDS, min(len(settings.TEST_MINER_IDS), k)))
+
     candidate_uids = []
     coldkeys = set()
     ips = set()
@@ -117,8 +116,7 @@ def get_uids(
     exclude: list[int] = [],
     own_uid: int | None = None,
 ) -> np.ndarray:
-    if settings.TEST and settings.TEST_MINER_IDS:
-        return random.sample(list(np.array(settings.TEST_MINER_IDS)), min(len(settings.TEST_MINER_IDS), k or 10**6))
+
     if sampling_mode == "random":
         return get_random_uids(k=k, exclude=exclude or [])
     if sampling_mode == "top_incentive":

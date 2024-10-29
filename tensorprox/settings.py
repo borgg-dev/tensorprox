@@ -62,7 +62,6 @@ class Settings(BaseSettings):
     WALLET_NAME: Optional[str] = Field(None, env="WALLET_NAME")
     HOTKEY: Optional[str] = Field(None, env="HOTKEY")
     AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
-    TEST_MINER_IDS: list[int] = Field([], env="TEST_MINER_IDS")
     SUBTENSOR_NETWORK: Optional[str] = Field(None, env="SUBTENSOR_NETWORK")
 
     # Class variables for singleton.
@@ -116,8 +115,7 @@ class Settings(BaseSettings):
         save_path = values.get("SAVE_PATH", "./storage")
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-        if values.get("TEST_MINER_IDS"):
-            values["TEST_MINER_IDS"] = str(values["TEST_MINER_IDS"]).split(",")
+
         return values
 
     @cached_property
