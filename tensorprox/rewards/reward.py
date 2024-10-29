@@ -16,7 +16,6 @@ class DDoSDetectionRewardEvent(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def asdict(self) -> dict:
-        # Return a dictionary representation of the object
         return {
             "rewards": self.rewards,
             "timings": self.timings,

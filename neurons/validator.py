@@ -17,7 +17,7 @@ from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
 from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.rewards.weight_setter import weight_setter
-from neurons.Validator.traffic_data import TrafficData
+from tensorprox.tasks.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 
 
