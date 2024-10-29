@@ -55,20 +55,6 @@ class Miner(BaseMinerNeuron):
         return synapse
 
 
-    
-    def check_availability(self, synapse: AvailabilitySynapse) -> AvailabilitySynapse:
-        """The check_availability function returns an AvailabilitySynapse which indicates
-        which tasks and models this miner can handle."""
-
-        logger.info(f"Checking availability of miner... {synapse}")
-        synapse.task_availabilities = {
-            task: True
-            for task, _ in synapse.task_availabilities.items()
-            if task == "DDoSDetectionTask"
-        }
-        return synapse
-
-
 if __name__ == "__main__":
     with Miner() as miner:
         while not miner.should_exit:

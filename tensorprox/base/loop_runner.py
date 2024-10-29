@@ -26,7 +26,7 @@ class AsyncLoopRunner(BaseModel, ABC):
 
 
     async def wait_for_next_execution(self, last_run_time):
-        """Wait until the next execution time, either synced or based on last run."""
+        """Wait until the next execution time based on last run."""
         current_time = datetime.datetime.now(datetime.timezone.utc)
         next_run = last_run_time + timedelta(seconds=self.interval)
         wait_time = (next_run - current_time).total_seconds()
@@ -35,7 +35,7 @@ class AsyncLoopRunner(BaseModel, ABC):
         return next_run
 
     async def run_loop(self):
-        """Run the loop periodically, optionally synchronizing across all instances."""
+        """Run the loop periodically."""
         last_run_time = datetime.datetime.now(datetime.timezone.utc)
         try:
             while self.running:

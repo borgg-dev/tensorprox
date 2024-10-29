@@ -43,11 +43,6 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
             blacklist_fn=self.blacklist,
             priority_fn=self.priority,
         )
-        self.axon.attach(
-            forward_fn=self.check_availability,
-            blacklist_fn=self.availability_blacklist,
-            priority_fn=self.availability_priority,
-        )
 
         self.uid = settings.METAGRAPH.hotkeys.index(settings.WALLET.hotkey.ss58_address)
         logger.info(f"Axon created: {self.axon}; miner uid: {self.uid}")
@@ -57,8 +52,6 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
             init_wandb(neuron="miner")
         return self
 
-    def check_availability(self, synapse: AvailabilitySynapse) -> AvailabilitySynapse:
-        raise NotImplementedError("Method check_availability must be implemented")
 
     def run(self):
         """

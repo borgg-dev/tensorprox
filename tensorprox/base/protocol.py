@@ -32,7 +32,7 @@ class TensorProxSynapse(bt.Synapse):
                           product or result of the streaming process.
 
     Note: While you can directly use the `TensorProxSynapse` class, it's designed to be extensible. Thus, you can create
-    subclasses to further customize behavior for specific prompting scenarios or requirements.
+    subclasses to further customize behavior for specific scenarios or requirements.
     """
 
     task_name: str = pydantic.Field(
@@ -62,7 +62,7 @@ class TensorProxSynapse(bt.Synapse):
         Deserializes the response by returning the prediction attribute.
 
         Returns:
-            str: The completion result.
+            str: The prediction result.
         """
         return self.prediction
 
