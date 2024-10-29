@@ -21,8 +21,6 @@ from neurons.Validator.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 
 
-NEURON_SAMPLE_SIZE = 100
-
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
     
@@ -31,7 +29,7 @@ class Validator(BaseValidatorNeuron):
         self.load_state()
         self._lock = asyncio.Lock()
 
-    async def run_step(self, k: int, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
+    async def run_step(self, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
         """Executes a single step of the agent, which consists of:
         - Getting a list of uids to query
         - Querying the network
@@ -73,7 +71,7 @@ class Validator(BaseValidatorNeuron):
                 response=response_event,
                 block=self.block,
                 step=self.step,
-                task_id=task.task_id,  # Use task_id from DDoSDetectionTask
+                task_id=task.task_id,
             )
 
             # Log the step event.
@@ -137,10 +135,7 @@ class Validator(BaseValidatorNeuron):
         with Timer() as timer:
             # in run_step, a task is generated and sent to the miners
             async with self._lock:
-                event = await self.run_step(
-                    k=NEURON_SAMPLE_SIZE,
-                    timeout=settings.NEURON_TIMEOUT,
-                )
+                event = await self.run_step(timeout=settings.NEURON_TIMEOUT)
 
         if not event:
             return

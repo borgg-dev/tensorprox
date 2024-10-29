@@ -284,5 +284,6 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
     def log_status(self):
         m = settings.METAGRAPH
         logger.info(
-            f"Miner running:: network: {settings.SUBTENSOR.network} | step: {self.step} | uid: {self.uid} | trust: {m.trust[self.uid]:.3f} | emission {m.emission[self.uid]:.3f}"
+            f"Miner running:: network: {settings.SUBTENSOR.network} | step: {self.step} | uid: {self.uid} | trust: {m.trust[self.uid]:.3f} 
+            | stake {m.stake[self.uid]:.3f} | emission {m.emission[self.uid]:.3f} | consensus {m.consensus[self.uid]:.3f} | incentive {m.incentive[self.uid]:.3f}"
         )
