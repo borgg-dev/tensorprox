@@ -10,11 +10,10 @@ from typing import ClassVar
 from tensorprox.tasks.base_task import BaseTask
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import RewardLoggingEvent, log_event
-from tensorprox.mutable_globals import scoring_queue, reward_events
+from tensorprox import mutable_globals
 from tensorprox.base.loop_runner import AsyncLoopRunner
 import asyncio
 from tensorprox.rewards.reward import BaseRewardConfig, FScoreRewardModel
-from threading import Lock
 
 @dataclass
 class ScoringConfig:
@@ -29,7 +28,6 @@ class TaskScorer(AsyncLoopRunner):
     """The scoring manager maintains a queue of tasks & responses to score and then runs a scoring loop in a background thread.
     This scoring loop will score the responses once the LLM needed is loaded in the model_manager and log the rewards.
     """
-    lock: ClassVar[Lock] = Lock()  # Add type annotation here
     is_running: bool = False
     thread: threading.Thread = None
     interval: int = 10
@@ -47,23 +45,22 @@ class TaskScorer(AsyncLoopRunner):
     ) -> None:
 
         
-        with self.lock:  # Ensures that only one thread can modify the queue at a time
-            logger.debug(f"SCORING: Added to queue: {task.__class__.__name__} {task.task_id}")
-            scoring_queue.append(
-                ScoringConfig(
-                    task=task,
-                    response=response,
-                    block=block,
-                    step=step,
-                    task_id=task_id,
-                )
+        logger.debug(f"SCORING: Added to queue: {task.__class__.__name__} {task.task_id}")
+        mutable_globals.scoring_queue.append(
+            ScoringConfig(
+                task=task,
+                response=response,
+                block=block,
+                step=step,
+                task_id=task_id,
             )
+        )
 
 
     async def run_step(self) -> RewardLoggingEvent:
         
         await asyncio.sleep(0.01)
-        scorable = [scoring_config for scoring_config in scoring_queue]
+        scorable = [scoring_config for scoring_config in mutable_globals.scoring_queue]
 
         if len(scorable) == 0:
             await asyncio.sleep(0.01)
@@ -71,12 +68,10 @@ class TaskScorer(AsyncLoopRunner):
             await asyncio.sleep(5)
             return
         
-        scoring_queue.remove(scorable[0])
+        mutable_globals.scoring_queue.remove(scorable[0])
         scoring_config: ScoringConfig = scorable.pop(0)
         
         logger.debug(f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}""")
-
-        logger.debug(f"""UIDS : {scoring_config.response.uids}""")  
 
         #Calculate the reward
         reward_event = self.base_reward_model.apply(
@@ -85,7 +80,7 @@ class TaskScorer(AsyncLoopRunner):
             task=scoring_config.task,
         )
 
-        reward_events.append(reward_event)
+        mutable_globals.reward_events.append(reward_event)
 
         logger.debug(f"SCORING: Scored {scoring_config.task.__class__.__name__} {scoring_config.task.task_id} with reward")
 

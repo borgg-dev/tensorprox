@@ -179,9 +179,11 @@ class RewardLoggingEvent(BaseEvent):
 
     def __str__(self):
         rewards = self.reward_event.rewards
-
+        uids = self.reward_event.uids
+        
         return f"""RewardLoggingEvent:
             Rewards:
+                Uids: {uids}
                 Rewards: {rewards}
                 Min: {np.min(rewards) if len(rewards) > 0 else None}
                 Max: {np.max(rewards) if len(rewards) > 0 else None}

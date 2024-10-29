@@ -13,11 +13,10 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, TensorProxSynapse
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
-from tensorprox.miner_availability.miner_availability import availability_checking_loop, miner_availabilities
 from tensorprox.utils.timer import Timer
 from tensorprox.mutable_globals import task_queue, scoring_queue, feature_queue
 from tensorprox.tasks.base_task import BaseTask
-from tensorprox.weight_setting.weight_setter import weight_setter
+from tensorprox.rewards.weight_setter import weight_setter
 from neurons.Validator.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 
@@ -94,7 +93,7 @@ class Validator(BaseValidatorNeuron):
 
     async def collect_responses(self, task: BaseTask) -> DendriteResponseEvent | None:
         # Get the list of uids and their axons to query for this step.
-        uids = miner_availabilities.get_available_miners(task=task, k=NEURON_SAMPLE_SIZE)
+        uids = settings.METAGRAPH.uids
         logger.debug(f"🔍 Querying uids: {uids}")
         if len(uids) == 0:
             logger.debug("No available miners. Skipping step.")
@@ -182,14 +181,11 @@ class Validator(BaseValidatorNeuron):
 async def main():
 
     # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://172.183.81.236:8768", feature_queue=feature_queue)
+    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=feature_queue)
     asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.
     asyncio.create_task(task_loop.start())
-
-    # will start checking the availability of miners at regular intervals
-    asyncio.create_task(availability_checking_loop.start())
 
     asyncio.create_task(weight_setter.start())
 

@@ -36,8 +36,8 @@ class Settings(BaseSettings):
 
 
     # Logging.
-    LOGGING_DONT_SAVE_EVENTS: bool = Field(False, env="LOGGING_DONT_SAVE_EVENTS")
-    LOG_WEIGHTS: bool = Field(False, env="LOG_WEIGHTS")
+    LOGGING_DONT_SAVE_EVENTS: bool = Field(True, env="LOGGING_DONT_SAVE_EVENTS")
+    LOG_WEIGHTS: bool = Field(True, env="LOG_WEIGHTS")
 
     # Neuron parameters.
     NEURON_TIMEOUT: int = Field(15, env="NEURON_TIMEOUT")

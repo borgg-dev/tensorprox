@@ -10,32 +10,16 @@ from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids
 from tensorprox.utils.misc import ttl_get_block
 from tensorprox.base.loop_runner import AsyncLoopRunner
-from tensorprox.mutable_globals import reward_events
-from tensorprox.rewards.reward import FScoreRewardEvent
+from tensorprox import mutable_globals
 from tensorprox.utils.logging import WeightSetEvent, log_event
 
 PAST_WEIGHTS: list[np.ndarray] = []
 WEIGHTS_HISTORY_LENGTH = 24
 
 
-def apply_reward_func(raw_rewards: np.ndarray, p=0.5):
-    """Apply the reward function to the raw rewards. P adjusts the steepness of the function - p = 0.5 leaves
-    the rewards unchanged, p < 0.5 makes the function more linear (at p=0 all miners with positives reward values get the same reward),
-    p > 0.5 makes the function more exponential (winner takes all).
-    """
-    exponent = (p**6.64385619) * 100  # 6.64385619 = ln(100)/ln(2) -> this way if p=0.5, the exponent is exatly 1
-    raw_rewards = np.array(raw_rewards) / max(1, (np.sum(raw_rewards[raw_rewards > 0]) + 1e-10))
-    positive_rewards = np.clip(raw_rewards, 1e-10, np.inf)
-    normalised_rewards = positive_rewards / np.max(positive_rewards)
-    post_func_rewards = normalised_rewards**exponent
-    all_rewards = post_func_rewards / (np.sum(post_func_rewards) + 1e-10)
-    all_rewards[raw_rewards <= 0] = raw_rewards[raw_rewards <= 0]
-    return all_rewards
-
-
 def set_weights(weights: np.ndarray, step: int = 0):
     """
-    Sets the validator weights to the metagraph hotkeys based on the scores it has received from the miners. The weights determine the trust and incentive level the validator assigns to miner nodes on the network.
+    Sets the validator weights to the metagraph hotkeys based on the scoring of the miners. The weights determine the trust and incentive level the validator assigns to miner nodes on the network.
     """
     log_event(WeightSetEvent(weight_set_event=list(weights)))
     # Check if self.scores contains any NaN values and log a warning if it does.
@@ -53,22 +37,15 @@ def set_weights(weights: np.ndarray, step: int = 0):
         averaged_weights = np.average(np.array(PAST_WEIGHTS), axis=0)
 
         # Process the raw weights to final_weights via subtensor limitations.
-        (
-            processed_weight_uids,
-            processed_weights,
-        ) = bt.utils.weight_utils.process_weights_for_netuid(
+        (processed_weight_uids, processed_weights) = bt.utils.weight_utils.process_weights_for_netuid(
             uids=settings.METAGRAPH.uids,
             weights=averaged_weights,
             netuid=settings.NETUID,
             subtensor=settings.SUBTENSOR,
-            metagraph=settings.METAGRAPH,
-        )
+            metagraph=settings.METAGRAPH)
 
         # Convert to uint16 weights and uids.
-        (
-            uint_uids,
-            uint_weights,
-        ) = bt.utils.weight_utils.convert_weights_and_uids_for_emit(uids=processed_weight_uids, weights=processed_weights)
+        (uint_uids,uint_weights) = bt.utils.weight_utils.convert_weights_and_uids_for_emit(uids=processed_weight_uids, weights=processed_weights)
         logger.debug("uint_weights", uint_weights)
         logger.debug("uint_uids", uint_uids)
     except Exception as ex:
@@ -117,59 +94,56 @@ def set_weights(weights: np.ndarray, step: int = 0):
 
 
 class WeightSetter(AsyncLoopRunner):
-    """The weight setter looks at RewardEvents in the reward_events queue and sets the weights of the miners accordingly."""
+    """The weight setter looks at RewardEvents in the mutable_globals.reward_events queue and sets the weights of the miners accordingly."""
 
     sync: bool = True
-    interval: int = 60*22  # set rewards every 20 minutes
-    # interval: int = 60
+    interval: int = 60*1
 
     async def run_step(self):
+        
         await asyncio.sleep(0.01)
+        
+        # Initialize final_rewards as None or a default array
+        final_rewards = np.zeros(1024, dtype=float)  # Assuming 1024 is the required length
+    
         try:
             logger.info("Reward setting loop running")
-            if len(reward_events) == 0:
+            if not mutable_globals.reward_events or len(mutable_globals.reward_events) == 0:
                 logger.warning("No reward events in queue, skipping weight setting...")
                 return
-            logger.debug(f"Found {len(reward_events)} reward events in queue")
+            logger.debug(f"Found {len(mutable_globals.reward_events)} reward events in queue")
 
             reward_dict = {uid: 0 for uid in range(1024)}
 
             miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(1024)}
             
-
-            logger.debug(f"Miner rewards before processing: {miner_rewards}")
-
-            inference_events: list[FScoreRewardEvent] = []
-            for rwd_event in reward_events:
+            for reward_event in mutable_globals.reward_events:
                 await asyncio.sleep(0.01)
-                for reward_event in rwd_event:
-                    if np.sum(reward_event.rewards) > 0:
-                        logger.debug("Identified positive reward event")
+               
+                if np.sum(reward_event.rewards) > 0:
+                    logger.debug("Identified positive reward event")
 
-                    # give each uid the reward they received
-                    for uid, reward in zip(reward_event.uids, reward_event.rewards):
-                        miner_rewards[uid]["reward"] += reward
-                        miner_rewards[uid]["count"] += 1
+                # give each uid the reward they received
+                for uid, reward in zip(reward_event.uids, reward_event.rewards):
+                    miner_rewards[uid]["reward"] += reward
+                    miner_rewards[uid]["count"] += 1
 
-            logger.debug(f"Miner rewards after processing: {miner_rewards}")
+            # logger.debug(f"Miner rewards after processing: {miner_rewards}")
 
-            for rewards in miner_rewards.items():
-                r = np.array([x["reward"]/max(1, x["count"]) for x in list(rewards.values())])
-                logger.debug(f"Rewards: {r}")
-                u = np.array(list(rewards.keys()))
-                processed_rewards = apply_reward_func(raw_rewards=r, p=settings.REWARD_STEEPNESS)
-                # update reward dict
-                for uid, reward in zip(u, processed_rewards):
-                    reward_dict[uid] += reward
+            # Calculate the average reward per UID
+            for uid, reward_data in miner_rewards.items():
+                reward_dict[uid] = reward_data["reward"] / max(1, reward_data["count"])
+                
             final_rewards = np.array(list(reward_dict.values())).astype(float)
             final_rewards[final_rewards < 0] = 0
             final_rewards /= np.sum(final_rewards) + 1e-10
             logger.debug(f"Final reward dict: {final_rewards}")
         except Exception as ex:
             logger.exception(f"{ex}")
+            
         # set weights on chain
         set_weights(final_rewards, step=self.step)
-        reward_events = list[FScoreRewardEvent] = []
+        mutable_globals.reward_events = []
         await asyncio.sleep(0.01)
         return final_rewards
 

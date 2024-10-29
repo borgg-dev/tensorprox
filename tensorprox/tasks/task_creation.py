@@ -6,7 +6,6 @@ from tensorprox.settings import settings
 from tensorprox.tasks.base_task import BaseTask
 from loguru import logger
 from pydantic import ConfigDict
-from tensorprox.miner_availability.miner_availability import miner_availabilities
 
 
 class TaskLoop(AsyncLoopRunner):
@@ -32,14 +31,7 @@ class TaskLoop(AsyncLoopRunner):
 
         try:
             task = BaseTask()
-
-            # Check if miners are available
-            if len(miner_availabilities.get_available_miners(task=task)) == 0:
-                logger.debug(
-                    f"No available miners for Task: {task.__class__.__name__}. Skipping step."
-                )
-                return
-
+            
             # Generate the query and reference for the task
             if not task.query:
                 logger.debug(f"Generating query for task: {task.__class__.__name__}.")
