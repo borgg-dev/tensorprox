@@ -14,7 +14,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent, TensorProxSynapse
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
-from tensorprox.mutable_globals import task_queue, scoring_queue, feature_queue
+from tensorprox import mutable_globals
 from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.rewards.weight_setter import weight_setter
 from neurons.Validator.traffic_data import TrafficData
@@ -45,17 +45,17 @@ class Validator(BaseValidatorNeuron):
             exclude (list, optional): The list of uids to exclude from the query. Defaults to [].
         """
         
-        while len(scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
+        while len(mutable_globals.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
             logger.debug("Scoring queue is full. Waiting 1 second...")
             await asyncio.sleep(1)
-        while len(task_queue) == 0:
+        while len(mutable_globals.task_queue) == 0:
             logger.warning("No tasks in queue. Waiting 1 second...")
             await asyncio.sleep(1)
 
         try:
 
             # Get task from the task queue
-            task = task_queue.pop(0)
+            task = mutable_globals.task_queue.pop(0)
 
             # Simulate ing task to miners and collecting responses
             with Timer() as timer:
@@ -99,24 +99,21 @@ class Validator(BaseValidatorNeuron):
         axons = [settings.METAGRAPH.axons[uid] for uid in uids]
 
 
-        # Directly call dendrite and process responses in parallel
-        synapse = TensorProxSynapse(
-            task_name=task.__class__.__name__,
-            challenges=[task.query]
-        )
 
         # Store each synapse's response time
         response_times = []
         responses = []
         
+        # Directly call dendrite and process responses in parallel
         for axon in axons:
             with Timer() as timer:
                 response = await settings.DENDRITE(
                     axons=[axon],
-                    synapse=synapse,
+                    synapse=TensorProxSynapse(task_name=task.__class__.__name__,challenges=[task.query]),
                     timeout=settings.NEURON_TIMEOUT,
                     deserialize=False,
                 )
+
             response_times.append(timer.elapsed_time)  # Log the time taken for each synapse
             responses.append(response[0])
 
@@ -176,7 +173,7 @@ class Validator(BaseValidatorNeuron):
 async def main():
 
     # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=feature_queue)
+    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=mutable_globals.feature_queue)
     asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.

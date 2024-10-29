@@ -30,15 +30,15 @@ class AsyncLoopRunner(BaseModel, ABC):
         """Get the current time from the time server with a timeout."""
         if not self.sync:
             time = datetime.datetime.now(datetime.timezone.utc)
-            logger.debug(f"Time: {time}")
+            # logger.debug(f"Time: {time}")
             return time
         try:
             async with aiohttp.ClientSession() as session:
-                logger.info("Waiting for response time")
+                # logger.info("Waiting for response time")
                 async with session.get(self.time_server_url, timeout=5) as response:
                     if response.status == 200:
                         data = await response.json()
-                        logger.info("Got response")
+                        # logger.info("Got response")
                         return datetime.datetime.fromisoformat(data["datetime"].replace("Z", "+00:00"))
                     else:
                         raise Exception(f"Failed to get server time. Status: {response.status}")
@@ -57,36 +57,36 @@ class AsyncLoopRunner(BaseModel, ABC):
     async def wait_for_next_execution(self, last_run_time):
         """Wait until the next execution time, either synced or based on last run."""
         current_time = await self.get_time()
-        logger.debug("Current time")
+        # logger.debug("Current time")
         if self.sync:
             next_run = self.next_sync_point(current_time)
         else:
             next_run = last_run_time + timedelta(seconds=self.interval)
-        logger.debug(f"Next run: {next_run}")
+        # logger.debug(f"Next run: {next_run}")
 
         wait_time = (next_run - current_time).total_seconds()
         if wait_time > 0:
-            logger.debug(
-                f"{self.name}: Waiting for {wait_time:.2f} seconds until next {'sync point' if self.sync else 'execution'}"
-            )
+            # logger.debug(
+            #     f"{self.name}: Waiting for {wait_time:.2f} seconds until next {'sync point' if self.sync else 'execution'}"
+            # )
             await asyncio.sleep(wait_time)
         return next_run
 
     async def run_loop(self):
         """Run the loop periodically, optionally synchronizing across all instances."""
-        logger.debug(f"Starting loop {self.__class__.__name__}; running: {self.running}")
+        # logger.debug(f"Starting loop {self.__class__.__name__}; running: {self.running}")
 
         last_run_time = await self.get_time()
-        logger.debug(f"Got time of last run: {last_run_time}")
+        # logger.debug(f"Got time of last run: {last_run_time}")
         try:
             while self.running:
-                logger.debug("Waiting...")
+                # logger.debug("Waiting...")
                 next_run = await self.wait_for_next_execution(last_run_time)
-                logger.debug("Wait ended")
+                # logger.debug("Wait ended")
                 try:
                     await self.run_step()
                     self.step += 1
-                    logger.debug(f"{self.name}: Step {self.step} completed at {next_run}")
+                    # logger.debug(f"{self.name}: Step {self.step} completed at {next_run}")
                     last_run_time = next_run
                 except Exception as ex:
                     logger.exception(f"Error in loop iteration: {ex}")
@@ -96,7 +96,7 @@ class AsyncLoopRunner(BaseModel, ABC):
             logger.error(f"Fatal error in loop: {e}")
         finally:
             self.running = False
-            logger.info("Loop has been cleaned up.")
+            # logger.info("Loop has been cleaned up.")
         logger.debug("Exiting run_loop")
 
     async def start(self):
@@ -105,7 +105,7 @@ class AsyncLoopRunner(BaseModel, ABC):
             logger.warning("Loop is already running.")
             return
         self.running = True
-        logger.debug(f"{self.name}: Starting loop with {'synchronized' if self.sync else 'non-synchronized'} mode")
+        # logger.debug(f"{self.name}: Starting loop with {'synchronized' if self.sync else 'non-synchronized'} mode")
         self._task = asyncio.create_task(self.run_loop())
 
     async def stop(self):
