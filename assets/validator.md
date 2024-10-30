@@ -11,13 +11,19 @@
 
 ## Installation
 
-```bash
-# Update system packages and install Python pip
-sudo apt update && sudo apt install python3-pip -y
+Update system packages and install Python pip
 
-# Install npm and pm2 for process management
+```bash
+sudo apt update && sudo apt install python3-pip -y
+```
+
+Install npm and pm2 for process management
+
+```bash
 sudo apt install npm -y && sudo npm install -g pm2 
 ```
+
+Clone the repository and isntall the required pip dependencies
 
 ```bash
 git clone https://github.com/borgg-dev/tensorprox.git
@@ -27,7 +33,7 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Before running a validator, you will need to create a .env.validator environment file. It is necessary for you to provide the following 
+Before running a validator, you will need to create a .env.validator environment file. It is necessary for you to provide the following :
 
 ```text
 NETUID= #[234, X]
