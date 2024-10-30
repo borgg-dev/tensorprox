@@ -23,7 +23,7 @@ Install npm and pm2 for process management
 sudo apt install npm -y && sudo npm install -g pm2 
 ```
 
-Clone the repository and isntall the required pip dependencies
+Clone the repository and install the required pip dependencies
 
 ```bash
 git clone https://github.com/borgg-dev/tensorprox.git
