@@ -22,7 +22,7 @@ class DendriteResponseEvent(BaseModel):
 
         for synapse in self.results:
 
-            prediction = synapse.prediction
+            prediction = synapse.prediction.strip()
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code
 

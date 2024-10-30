@@ -22,7 +22,7 @@ class Miner(BaseMinerNeuron):
     def generate_prediction(self, challenges: list[dict]) -> str:
         """Predicts the label for the input JSON object (challenge) for DDoS detection."""
         
-        return "BENIGN"
+        return "BENIGN "
 
     def forward(self, synapse: TensorProxSynapse) -> TensorProxSynapse:
         """The forward function predicts class output for a set of features and forwards it to the validator."""
