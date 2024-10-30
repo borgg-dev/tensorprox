@@ -3,7 +3,7 @@ from typing import Literal
 import random
 from tensorprox.settings import settings
 from loguru import logger
-
+import re
 
 def check_uid_availability(
     uid: int,
@@ -124,3 +124,15 @@ def get_uids(
         return get_top_incentive_uids(k=k, vpermit_tao_limit=vpermit_tao_limit, own_uid=own_uid)
     if sampling_mode == "all":
         return [uid for uid in settings.METAGRAPH.uids if (uid != own_uid and check_uid_availability(uid))]
+
+def extract_axons_ips(uids: list[int] = [])  -> tuple[list, list]:
+    axons = [settings.METAGRAPH.axons[uid] for uid in uids]
+    # Regular expression to match an IP address pattern
+    ip_pattern = re.compile(r'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})')
+
+    # List comprehension with conditional extraction of IP addresses
+    ips = [
+        match.group(1) if (match := ip_pattern.search(axon.ip_str())) else "0.0.0.0"
+        for axon in axons
+    ]
+    return axons, ips

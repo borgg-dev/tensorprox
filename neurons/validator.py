@@ -19,7 +19,7 @@ from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.rewards.weight_setter import weight_setter
 from tensorprox.tasks.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
-
+from tensorprox.utils.uids import extract_axons_ips
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
@@ -89,6 +89,8 @@ class Validator(BaseValidatorNeuron):
                 error=str(ex),
             )
 
+
+    
     async def collect_responses(self, task: DDoSDetectionTask) -> DendriteResponseEvent | None:
         
         # Get the list of uids and their axons to query for this step.
@@ -97,7 +99,8 @@ class Validator(BaseValidatorNeuron):
         if len(uids) == 0:
             logger.debug("No available miners. Skipping step.")
             return
-        axons = [settings.METAGRAPH.axons[uid] for uid in uids]
+
+        axons, ip_addresses = extract_axons_ips(uids)
 
         # Store each synapse's response time
         response_times = []
@@ -106,6 +109,7 @@ class Validator(BaseValidatorNeuron):
         # Directly call dendrite and process responses in parallel
         for axon in axons:
             with Timer() as timer:
+
                 response = await settings.DENDRITE(
                     axons=[axon],
                     synapse=TensorProxSynapse(task_name=task.__class__.__name__,challenges=[task.query]),
@@ -118,7 +122,7 @@ class Validator(BaseValidatorNeuron):
 
         # Encapsulate the responses in a response event (dataclass)
         response_event = DendriteResponseEvent(
-            results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT, response_times=response_times
+            results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT, response_times=response_times, ip_addresses=ip_addresses
         )
         return response_event
 

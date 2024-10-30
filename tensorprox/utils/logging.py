@@ -82,8 +82,7 @@ def init_wandb(reinit=False, neuron: Literal["validator", "miner"] = "validator"
         f"Netuid: {settings.NETUID}",
     ]
 
-    if settings.MOCK:
-        tags.append("Mock")
+
     if settings.NEURON_DISABLE_SET_WEIGHTS:
         tags.append("disable_set_weights")
         tags += [
@@ -94,7 +93,6 @@ def init_wandb(reinit=False, neuron: Literal["validator", "miner"] = "validator"
     tags += custom_tags
 
     task_list = []
-
 
     wandb_config = {
         "HOTKEY_SS58": settings.WALLET.hotkey.ss58_address,

@@ -7,4 +7,8 @@ numpy==2.0.2
 pandas==2.2.3
 websockets
 requests==2.31.0
-
+psutil
+asyncio
+pymongo
+pyopenssl==24.2.1
+geoip2==4.8.0

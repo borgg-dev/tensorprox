@@ -16,8 +16,7 @@ from tensorprox.utils.config import config
 dotenv.load_dotenv()
 
 class Settings(BaseSettings):
-    mode: Literal["miner", "validator", "mock"]
-    MOCK: bool = False
+    mode: Literal["miner", "validator"]
     NO_BACKGROUND_THREAD: bool = True
     SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 
@@ -42,8 +41,6 @@ class Settings(BaseSettings):
     # Neuron parameters.
     NEURON_TIMEOUT: int = Field(15, env="NEURON_TIMEOUT")
     NEURON_DISABLE_SET_WEIGHTS: bool = Field(False, env="NEURON_DISABLE_SET_WEIGHTS")
-    NEURON_MOVING_AVERAGE_ALPHA: float = Field(0.1, env="NEURON_MOVING_AVERAGE_ALPHA")
-    NEURON_DECAY_ALPHA: float = Field(0.001, env="NEURON_DECAY_ALPHA")
     NEURON_AXON_OFF: bool = Field(False, env="NEURON_AXON_OFF")
     NEURON_VPERMIT_TAO_LIMIT: int = Field(10, env="NEURON_VPERMIT_TAO_LIMIT")
     NEURON_QUERY_UNIQUE_COLDKEYS: bool = Field(False, env="NEURON_QUERY_UNIQUE_COLDKEYS")
@@ -55,8 +52,7 @@ class Settings(BaseSettings):
     SCORING_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="SCORING_QUEUE_LENGTH_THRESHOLD")
     
     # Additional Fields.
-    NETUID: Optional[int] = Field(61, env="NETUID")
-    TEST: bool = False
+    NETUID: Optional[int] = Field(234, env="NETUID")
     WALLET_NAME: Optional[str] = Field(None, env="WALLET_NAME")
     HOTKEY: Optional[str] = Field(None, env="HOTKEY")
     AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
@@ -67,14 +63,12 @@ class Settings(BaseSettings):
     _instance_mode: Optional[str] = None
 
     @classmethod
-    def load_env_file(cls, mode: Literal["miner", "validator", "mock"]):
+    def load_env_file(cls, mode: Literal["miner", "validator"]):
         """Load the appropriate .env file based on the mode."""
         if mode == "miner":
             dotenv_file = ".env.miner"
         elif mode == "validator":
             dotenv_file = ".env.validator"
-        elif mode == "mock":
-            dotenv_file = None
         else:
             raise ValueError(f"Invalid mode: {mode}")
 
@@ -86,7 +80,7 @@ class Settings(BaseSettings):
                 )
 
     @classmethod
-    def load(cls, mode: Literal["miner", "validator", "mock"]) -> "Settings":
+    def load(cls, mode: Literal["miner", "validator"]) -> "Settings":
         """Load or retrieve the Settings instance based on the mode."""
         if cls._instance is not None and cls._instance_mode == mode:
             return cls._instance
@@ -99,15 +93,10 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     def complete_settings(cls, values: dict[str, Any]) -> dict[str, Any]:
         mode = values["mode"]
-        netuid = values.get("NETUID", 61)
+        netuid = values.get("NETUID", 234)
         if netuid is None:
             raise ValueError("NETUID must be specified")
-        values["TEST"] = netuid != 1
 
-        if mode == "mock":
-            values["MOCK"] = True
-            logger.info("Running in mock mode. Bittensor objects will not be initialized.")
-            return values
 
         # Ensure SAVE_PATH exists.
         save_path = values.get("SAVE_PATH", "./storage")
