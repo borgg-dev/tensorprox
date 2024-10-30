@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 ## Configuration
 
-Before running a miner, you will need to create a .env.miner environment file. It is necessary for you to provide the following 
+Before running a miner, you will need to create a .env.miner environment file. It is necessary for you to provide the following :
 
 ```text
 NETUID= #[234, X]
@@ -46,10 +46,14 @@ After creating the above environment file, run
 pm2 start "python3 neurons/miner.py" --name miner
 ```
 
-```bash
-pm2 list #ensure that your instance is running
-```
+Check if the instance is correctly running
 
 ```bash
-pm2 logs miner #check miner's logs
+pm2 list 
+```
+
+To see logs
+
+```bash
+pm2 logs miner
 ```

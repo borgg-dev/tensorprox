@@ -46,10 +46,14 @@ After creating the above environment file, run
 pm2 start "python3 neurons/validator.py" --name validator
 ```
 
-```bash
-pm2 list #ensure that your instance is running
-```
+Check if the instance is correctly running
 
 ```bash
-pm2 logs validator #check validator's logs
+pm2 list
+```
+
+To see logs
+
+```bash
+pm2 logs validator
 ```
