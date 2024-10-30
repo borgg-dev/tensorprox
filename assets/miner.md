@@ -41,7 +41,7 @@ SUBTENSOR_NETWORK= #The network name [test, main, local]
 SUBTENSOR_CHAIN_ENDPOINT= #The chain endpoint [test if running on test, main if running on main, custom endpoint if running on local] 
 WALLET_NAME= #Name of your wallet(coldkey) 
 MINER_HOTKEY= #Name of your hotkey associated with above wallet
-MINER_AXON_PORT= #Number of the open tcp port
+MINER_AXON_PORT= #TCP Port Number. The port must be open
 ```
 
 ## Running
