@@ -28,7 +28,7 @@ class Miner(BaseMinerNeuron):
         """The forward function predicts class output for a set of features and forwards it to the validator."""
 
 
-        logger.debug(f"Message received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
+        logger.debug(f"📧 Challenge received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
 
         try:
             # Generate prediction based on the first challenge
@@ -48,7 +48,7 @@ class Miner(BaseMinerNeuron):
                 self.should_exit = True
 
 
-        logger.debug(f"Forwarding Synapse to validator {synapse.dendrite.hotkey}: {synapse}.")
+        logger.debug(f"⏩ Forwarding synapse with prediction to validator {synapse.dendrite.hotkey}: {synapse}.")
 
         self.step += 1
 

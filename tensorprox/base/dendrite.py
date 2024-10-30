@@ -1,7 +1,7 @@
 import numpy as np
 from tensorprox.base.protocol import TensorProxSynapse
 from pydantic import BaseModel, model_validator, ConfigDict
-
+from tensorprox import (labels,)
 
 class DendriteResponseEvent(BaseModel):
     uids: np.ndarray | list[float]
@@ -26,7 +26,7 @@ class DendriteResponseEvent(BaseModel):
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code
 
-            if prediction == "" and status_code == 200:
+            if prediction not in labels and status_code == 200:
                 status_code = 204
 
             self.predictions.append(prediction)

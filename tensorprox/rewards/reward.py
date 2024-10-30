@@ -8,6 +8,7 @@ class DDoSDetectionRewardEvent(BaseModel):
     task: DDoSDetectionTask
     rewards: list[float]
     timings: list[float]
+    adjusted_timings: list[float]
     uids: list[int]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -23,13 +24,14 @@ class DDoSDetectionRewardEvent(BaseModel):
 class BatchRewardOutput(BaseModel):
     rewards: np.ndarray
     timings: np.ndarray
+    adjusted_timings: np.ndarray
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class DDoSDetectionRewardModel(BaseModel):
 
     alpha: float = 5.0  # Decay rate parameter for exponential decrease
-    latency_speed: float = 200000 #5ms latency per 1000km : this is an estimation assuming machines have the same capabilities
+    transmission_speed: float = 200000 #5ms latency per 1000km
 
     def reward(self, reference: str, response_event: DendriteResponseEvent) -> BatchRewardOutput:
 
@@ -38,8 +40,8 @@ class DDoSDetectionRewardModel(BaseModel):
         timings = np.array(response_event.response_times)
         distances = np.array(response_event.distances)
 
-        #adjust timing based on the distance to validator machine
-        adjusted_timings = np.array([t - d/self.latency_speed for t, d in zip(timings, distances)])
+        #Adjust timing based on the distance to validator machine
+        adjusted_timings = np.array([t - d/self.transmission_speed for t, d in zip(timings, distances)])
 
 
         # Apply exponential decay based on combined decay factors, limiting the minimum to 0
@@ -49,7 +51,8 @@ class DDoSDetectionRewardModel(BaseModel):
         # Return BatchRewardOutput with decayed scores
         return BatchRewardOutput(
             rewards=decayed_scores,
-            timings=timings
+            timings=timings,
+            adjusted_timings=adjusted_timings
         )
 
 class BaseRewardConfig(BaseModel):
@@ -72,5 +75,6 @@ class BaseRewardConfig(BaseModel):
             task=task,
             rewards=batch_rewards_output.rewards.tolist(),
             timings=batch_rewards_output.timings.tolist(),
+            adjusted_timings=batch_rewards_output.adjusted_timings.tolist(),
             uids=response_event.uids,
         )

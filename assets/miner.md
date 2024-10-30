@@ -12,6 +12,13 @@
 ## Installation
 
 ```bash
+# Update system packages and install Python pip
+sudo apt update && sudo apt install python3-pip -y
+# Install npm and pm2 for process management
+sudo apt install npm -y && sudo npm install -g pm2 
+```
+
+```bash
 git clone https://github.com/borgg-dev/tensorprox.git
 cd tensorprox
 pip install -r requirements.txt
@@ -29,16 +36,6 @@ WALLET_NAME= #Name of your wallet(coldkey)
 MINER_HOTKEY= #Name of your hotkey associated with above wallet
 MINER_AXON_PORT= #Number of the open tcp port
 ```
-## Testnet - RECOMMENDED
-We highly recommend that you run your miners on testnet before deploying on main. This is give you an opportunity to debug your systems, and ensure that you will not lose valuable immunity time. The SNX testnet is **netuid 234**.
-
-In order to run on testnet, you will need to go through the same hotkey registration proceure as on main, but using **testtao**. You will need to ask for some in the community discord if you do not have any.
-
-Then, simply set test=True in your .env file and execute all other steps as before.
-
-Then post in the Subnet 1 channel on discord so we can activate a validator for your miner to respond to.
-
-You can use wandb to see how successful your miner would be on mainnet, an example notebook is pinned in the channel.
 
 ## Running
 
@@ -46,4 +43,6 @@ After creating the above environment file, run
 
 ```bash
 pm2 start "python3 neurons/miner.py" --name miner
+pm2 list #ensure that your instance is running
+pm2 logs miner #check logs
 ```

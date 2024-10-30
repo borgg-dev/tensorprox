@@ -8,3 +8,5 @@ def _version_to_int(version_str: str) -> int:
 __version__ = "0.1.0" 
 
 __spec_version__ = _version_to_int(__version__)
+
+labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]

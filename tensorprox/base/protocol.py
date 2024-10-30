@@ -11,8 +11,8 @@ class AvailabilitySynapse(bt.Synapse):
 
 class TensorProxSynapse(bt.Synapse):
     """
-    TensorProxSynapse is a specialized implementation of the `StreamingSynapse` tailored for prompting functionalities within
-    the Bittensor network. This class is intended to interact with a streaming response that contains a sequence of tokens,
+    TensorProxSynapse is a specialized implementation of the `Synapse`. 
+    This class is intended to interact with a streaming response that contains a sequence of tokens,
     which represent prompts or messages in a certain scenario.
 
     As a developer, when using or extending the `TensorProxSynapse` class, you should be primarily focused on the structure

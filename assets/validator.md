@@ -11,6 +11,12 @@
 
 ## Installation
 
+```bash
+# Update system packages and install Python pip
+sudo apt update && sudo apt install python3-pip -y
+# Install npm and pm2 for process management
+sudo apt install npm -y && sudo npm install -g pm2 
+```
 
 ```bash
 git clone https://github.com/borgg-dev/tensorprox.git
@@ -37,5 +43,7 @@ After creating the above environment file, run
 
 ```bash
 pm2 start "python3 neurons/validator.py" --name validator
+pm2 list #ensure that your instance is running
+pm2 logs miner #check logs
 ```
 

@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     TASK_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="TASK_QUEUE_LENGTH_THRESHOLD")
     SCORING_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="SCORING_QUEUE_LENGTH_THRESHOLD")
-    
+
     # Additional Fields.
     NETUID: Optional[int] = Field(234, env="NETUID")
     WALLET_NAME: Optional[str] = Field(None, env="WALLET_NAME")
