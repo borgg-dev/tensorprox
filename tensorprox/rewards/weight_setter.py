@@ -95,7 +95,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
 class WeightSetter(AsyncLoopRunner):
     """The weight setter looks at RewardEvents in the global_vars.reward_events queue and sets the weights of the miners accordingly."""
 
-    interval: int = 60  #updating weights every 110 blocks
+    interval: int = 1440 #updating weights every 120 blocks
 
     async def run_step(self):
         

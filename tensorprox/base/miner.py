@@ -35,7 +35,7 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
         # note that this initialization has to happen in the validator because the objects
         # are not picklable and because pydantic deepcopies things it breaks
 
-        self.axon = bt.axon(wallet=settings.WALLET, port=settings.AXON_PORT)
+        self.axon = bt.axon(wallet=settings.WALLET, port=settings.MINER_AXON_PORT)
 
         logger.info("Attaching axon")
         self.axon.attach(

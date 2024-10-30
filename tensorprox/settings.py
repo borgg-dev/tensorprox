@@ -54,8 +54,10 @@ class Settings(BaseSettings):
     # Additional Fields.
     NETUID: Optional[int] = Field(234, env="NETUID")
     WALLET_NAME: Optional[str] = Field(None, env="WALLET_NAME")
-    HOTKEY: Optional[str] = Field(None, env="HOTKEY")
-    AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
+    VALIDATOR_HOTKEY: Optional[str] = Field(None, env="HOTKEY")
+    VALIDATOR_AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
+    MINER_HOTKEY: Optional[str] = Field(None, env="HOTKEY")
+    MINER_AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
     SUBTENSOR_NETWORK: Optional[str] = Field(None, env="SUBTENSOR_NETWORK")
 
     # Class variables for singleton.
@@ -108,7 +110,12 @@ class Settings(BaseSettings):
     @cached_property
     def WALLET(self) -> bt.wallet:
         wallet_name = self.WALLET_NAME or config().wallet.name
-        hotkey = self.HOTKEY or config().wallet.hotkey
+
+        if self.VALIDATOR_HOTKEY :
+            HOTKEY = self.VALIDATOR_HOTKEY
+        elif self.MINER_HOTKEY :
+            HOTKEY = self.MINER_HOTKEY
+        hotkey = HOTKEY or config().wallet.hotkey
         logger.info(f"Instantiating wallet with name: {wallet_name}, hotkey: {hotkey}")
         return bt.wallet(name=wallet_name, hotkey=hotkey)
 
