@@ -20,7 +20,8 @@ from tensorprox.rewards.weight_setter import weight_setter
 from tensorprox.tasks.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 from tensorprox.utils.uids import extract_axons_ips
-
+from tensorprox.utils.utils import get_location_from_maxmind, get_my_public_ip, haversine_distance
+        
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
     
@@ -90,9 +91,10 @@ class Validator(BaseValidatorNeuron):
             )
 
 
-    
     async def collect_responses(self, task: DDoSDetectionTask) -> DendriteResponseEvent | None:
         
+        avg_distance = 3500
+
         # Get the list of uids and their axons to query for this step.
         uids = settings.METAGRAPH.uids
         logger.debug(f"🔍 Querying uids: {uids}")
@@ -101,6 +103,23 @@ class Validator(BaseValidatorNeuron):
             return
 
         axons, ip_addresses = extract_axons_ips(uids)
+
+        miners_locations = [get_location_from_maxmind(ip) for ip in ip_addresses]
+        local_ip = get_my_public_ip()
+        local_location = get_location_from_maxmind(local_ip)
+
+        if local_location :
+
+            local_lat, local_lon = local_location['latitude'], local_location['longitude']
+
+            # Calculate distances
+            distances = [
+                haversine_distance(local_lat, local_lon, loc['latitude'], loc['longitude']) 
+                if loc else avg_distance for loc in miners_locations
+            ]
+
+        else :
+            distances = [avg_distance]*len(miners_locations)
 
         # Store each synapse's response time
         response_times = []
@@ -120,10 +139,11 @@ class Validator(BaseValidatorNeuron):
             response_times.append(timer.elapsed_time)  # Log the time taken for each synapse
             responses.append(response[0])
 
-        # Encapsulate the responses in a response event (dataclass)
+        # Encapsulate the responses in a response event
         response_event = DendriteResponseEvent(
-            results=responses, uids=uids, timeout=settings.NEURON_TIMEOUT, response_times=response_times, ip_addresses=ip_addresses
+            results=responses, uids=uids, response_times=response_times, distances=distances
         )
+
         return response_event
 
     async def forward(self):

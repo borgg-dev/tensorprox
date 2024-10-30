@@ -5,16 +5,12 @@ from pydantic import BaseModel, model_validator, ConfigDict
 
 class DendriteResponseEvent(BaseModel):
     uids: np.ndarray | list[float]
-    timeout: float
     results: list[TensorProxSynapse]
     response_times: list[float]
-    ip_addresses: list[str]
+    distances: list[float]
     status_messages: list[str] = []
     status_codes: list[int] = []
-    results_uids: list[int] = []
     predictions: list[str] = []
-    timings: list[float] = []
-    ips: list[str] = []
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -24,8 +20,8 @@ class DendriteResponseEvent(BaseModel):
         if len(self.predictions) > 0:
             return self
 
-        for uid, synapse, timing, ip in zip(self.uids, self.results, self.response_times, self.ip_addresses):
-            synapse : TensorProxSynapse
+        for synapse in self.results:
+
             prediction = synapse.prediction
             self.status_messages.append(synapse.dendrite.status_message)
             status_code = synapse.dendrite.status_code
@@ -35,8 +31,5 @@ class DendriteResponseEvent(BaseModel):
 
             self.predictions.append(prediction)
             self.status_codes.append(status_code)
-            self.results_uids.append(uid)
-            self.timings.append(timing)
-            self.ips.append(ip)
 
         return self
