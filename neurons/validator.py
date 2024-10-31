@@ -31,19 +31,14 @@ class Validator(BaseValidatorNeuron):
         self._lock = asyncio.Lock()
 
     async def run_step(self, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
-        """Executes a single step of the agent, which consists of:
-        - Getting a list of uids to query
-        - Querying the network
-        - Rewarding the network
-        - Updating the scores
-        - Logging the event
+        """Runs a single step for the validation :
+        1. Get Task from the task queue
+        2. Get list of UIDS from the Metagraph and  query the network with the corresponding synapse
+        3. Get back responses and reward the network
+        4. Update scores
         Args:
-            agent (HumanAgent): The agent to run the step for.
-            roles (List[str]): The roles for the synapse.
-            messages (List[str]): The messages for the synapse.
-            k (int): The number of uids to query.
+            challenges (List[dict]): The input features for the synapse.
             timeout (float): The timeout for the queries.
-            exclude (list, optional): The list of uids to exclude from the query. Defaults to [].
         """
         
         while len(global_vars.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
@@ -63,9 +58,8 @@ class Validator(BaseValidatorNeuron):
                 response_event = await self.collect_responses(task=task)
 
             logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-            print('************************************************')
-            print(response_event)
-            print("***********************************************")
+            logger.debug(response_event)
+            
             # Scoring manager will score the responses
             task_scorer.add_to_queue(
                 task=task,
@@ -147,10 +141,6 @@ class Validator(BaseValidatorNeuron):
         return response_event
 
     async def forward(self):
-        """
-        Encapsulates a full conversation between the validator and miners. Contains one or more rounds of request-response.
-
-        """
         logger.info("🚀 Starting forward loop...")
         with Timer() as timer:
             # in run_step, a task is generated and sent to the miners
@@ -168,7 +158,6 @@ class Validator(BaseValidatorNeuron):
             self.run()
         else:
             self.run_in_background_thread()
-
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -224,7 +213,6 @@ async def main():
                 logger.warning("Ending validator...")
 
 
-# The main function parses the configuration and runs the validator.
+#Main function which runs the validator.
 if __name__ == "__main__":
     asyncio.run(main())
-    # will start rotating the different LLMs in/out of memory

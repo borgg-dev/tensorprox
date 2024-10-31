@@ -21,15 +21,12 @@ class TensorProxSynapse(bt.Synapse):
 
     Attributes:
 
-    - `task_name` (str): These represent the actual prompts or messages in the prompting scenario. They are also
-                            immutable to ensure consistent behavior during processing.
+    - `task_name` (str): Name of the task sent to miners. Immutable.
+        For now we only process one task type => DDoSDetectionTask
 
-    - `challenges` (List[dict]): These represent the actual prompts or messages in the prompting scenario. They are also
-                              immutable to ensure consistent behavior during processing.
+    - `challenges` (List[dict]): These represent the actual input features in the DDoS Detection scenario. Immutable.
 
-    - `prediction` (int): Stores the processed result of the streaming tokens. As tokens are streamed, decoded, and
-                          processed, they are accumulated in the completion attribute. This represents the "final"
-                          product or result of the streaming process.
+    - `prediction` (int): Stores the result of the output label predicted by miners.
 
     Note: While you can directly use the `TensorProxSynapse` class, it's designed to be extensible. Thus, you can create
     subclasses to further customize behavior for specific scenarios or requirements.

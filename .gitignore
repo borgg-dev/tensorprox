@@ -1,2 +1,4 @@
 wandb
 .vscode
+tp/
+weights.csv

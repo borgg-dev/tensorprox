@@ -14,6 +14,8 @@ class DendriteResponseEvent(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+
+    #Process and structure miner's responses
     @model_validator(mode="after")
     def process_results(self) -> "DendriteResponseEvent":
 
