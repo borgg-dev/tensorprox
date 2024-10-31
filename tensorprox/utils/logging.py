@@ -166,18 +166,22 @@ class ValidatorLoggingEvent(BaseEvent):
 class RewardLoggingEvent(BaseEvent):
     block: int
     step: int
-    response_event: DendriteResponseEvent
-    reward_event: DDoSDetectionRewardEvent
     reference: str
     challenge: Dict[str, Any]
     task_id: str
     task: str
+    uids: list[int]
+    rewards: list[float]
+    timings: list[float]
+    adjusted_timings: list[float]
+    status_codes: list[int]
+    status_messages: list[str]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def __str__(self):
-        rewards = self.reward_event.rewards
-        uids = self.reward_event.uids
+        rewards = self.rewards
+        uids = self.uids
         
         return f"""RewardLoggingEvent:
             Rewards:

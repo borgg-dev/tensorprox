@@ -1,22 +1,22 @@
 #!/bin/bash
 
-# Update system packages and install Python pip/venv
-sudo apt update && sudo apt install python3-pip -y && apt install python3-venv -y
+# # Update system packages and install Python pip/venv
+# sudo apt update && sudo apt install python3-pip -y && apt install python3-venv -y
 
-# Install npm and pm2 for process management
-sudo apt install npm -y && sudo npm install -g pm2 
+# # Install npm and pm2 for process management
+# sudo apt install npm -y && sudo npm install -g pm2 
 
-#Activate virtual env
-python3 -m venv tp && source tp/bin/activate
+# #Activate virtual env
+# python3 -m venv tp && source tp/bin/activate
 
-# Install Python dependencies from requirements.txt
-pip install -r requirements.txt
+# # Install Python dependencies from requirements.txt
+# pip install -r requirements.txt
 
-# Generate cold key using btcli
-btcli w regen_coldkey --wallet.name borgg --mnemonic actress dirt board drop envelope cricket link energy book case deal giant
+# # Generate cold key using btcli
+# btcli w regen_coldkey --wallet.name borgg --mnemonic actress dirt board drop envelope cricket link energy book case deal giant
 
-# Generate hot key using btcli
-btcli w regen_hotkey --wallet.name borgg --wallet.hotkey default --mnemonic two oven toy elevator cargo certain bird connect sport tip soda rebel
+# # Generate hot key using btcli
+# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey default --mnemonic two oven toy elevator cargo certain bird connect sport tip soda rebel
 
 
 pm2 kill && pm2 flush

@@ -87,12 +87,17 @@ class TaskScorer(AsyncLoopRunner):
         log_event(RewardLoggingEvent(
             block=scoring_config.block,
             step=scoring_config.step,
-            response_event=scoring_config.response,
-            reward_event=reward_event,
             reference=scoring_config.task.reference,
             challenge=scoring_config.task.query,
             task_id=scoring_config.task_id,
-            task=scoring_config.task.name
+            task=scoring_config.task.name,
+            uids=reward_event.uids,
+            rewards=reward_event.rewards,
+            timings = reward_event.timings,
+            adjusted_timings=reward_event.adjusted_timings,
+            status_codes=scoring_config.response.status_codes,
+            status_messages=scoring_config.response.status_messages,
+
         ))
 
         await asyncio.sleep(0.01)
