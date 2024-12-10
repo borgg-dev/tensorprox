@@ -1,14 +1,42 @@
 import pydantic
 import bittensor as bt
-from typing import List
+from typing import List, Dict
 
 class AvailabilitySynapse(bt.Synapse):
-    """AvailabilitySynapse is a specialized implementation of the `Synapse` class used to allow miners to let validators know
-    about their status/availability to server certain tasks"""
+    """
+    Synapse for miners to report machine availability and corresponding IPs.
 
-    task_availabilities: dict[str, bool]
+    Attributes:
+    - machine_availabilities (Dict[str, str]): A dictionary where the keys are machine names and the values are their IP addresses. This is mutable and will be populated by the miners.
+    """
+    machine_availabilities: Dict[str, str] = pydantic.Field(
+        default_factory=dict,
+        title="Machine's Availabilities",
+        description="A dictionary where keys are machine names and values are IP addresses. Miners populate this field.",
+    )
 
+    def serialize(self) -> dict:
+        """
+        Serializes the `AvailabilitySynapse` into a dictionary.
 
+        Returns:
+            dict: Serialized representation of machine availabilities.
+        """
+        return {"machine_availabilities": self.machine_availabilities}
+
+    @classmethod
+    def deserialize(cls, data: dict) -> "AvailabilitySynapse":
+        """
+        Deserializes a dictionary into an `AvailabilitySynapse`.
+
+        Args:
+            data (dict): The dictionary containing machine data.
+
+        Returns:
+            AvailabilitySynapse: An instance of the AvailabilitySynapse.
+        """
+        return cls(machine_availabilities=data.get("machine_availabilities", {}))
+    
 class TensorProxSynapse(bt.Synapse):
     """
     TensorProxSynapse is a specialized implementation of the `Synapse`. 
