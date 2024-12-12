@@ -74,6 +74,7 @@ class Validator(BaseValidatorNeuron):
             # in run_step, a task is generated and sent to the miners
             async with self._lock:
                 event = await self.run_step(timeout=settings.NEURON_TIMEOUT)
+                
 
         if not event:
             return
@@ -107,7 +108,6 @@ class Validator(BaseValidatorNeuron):
             self.thread.join(5)
             self.is_running = False
             logger.debug("Stopped")
-
 
 
 async def main():

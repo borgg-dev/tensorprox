@@ -92,36 +92,6 @@ async def query_availabilities(uids: List[int]) -> List[PingSynapse]:
         return []
     
 
-# class CheckMinerAvailability(AsyncLoopRunner):
-#     """Checks miner availability every 5 minutes."""
-#     interval: int = 300  # 5 minutes
-#     uids: List[int] = settings.TEST_MINER_IDS or get_uids(sampling_mode="all")
-#     current_index: int = 0
-#     uids_per_step: int = 10
-
-#     async def run_step(self):
-#         """Query miner availability."""
-#         start_index = self.current_index
-#         end_index = min(start_index + self.uids_per_step, len(self.uids))
-#         uids_to_query = self.uids[start_index:end_index]
-#         if self.step == 0:
-#             uids_to_query = self.uids
-
-#         logger.info(f"Querying availability for UIDs: {uids_to_query}")
-
-#         responses: List[PingSynapse] = await query_availabilities(
-#             uids=uids_to_query, 
-#             machine_config=machine_config,
-#         )
-
-#         for response, uid in zip(responses, uids_to_query):
-#             miner_availabilities.miners[uid] = response
-
-#         logger.debug("Updated miner availabilities.")
-#         self.current_index = end_index if end_index < len(self.uids) else 0
-#         await asyncio.sleep(0.1)
-
 
 # Start availability checking
 miner_availabilities = MinerAvailabilities()
-# availability_checking_loop = CheckMinerAvailability()

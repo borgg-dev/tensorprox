@@ -18,7 +18,6 @@ from cryptography.hazmat.primitives import serialization
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
-
 def generate_ssh_key_pair():
     """
     Generates a random RSA SSH key pair and returns the public key as a string.
