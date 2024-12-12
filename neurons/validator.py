@@ -4,14 +4,17 @@ sys.path.append("/home/azureuser/tensorprox/")
 import asyncio
 import time
 from tensorprox import settings
-
+import os
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
 
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
-from tensorprox.base.dendrite import DendriteResponseEvent, TensorProxSynapse
+from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
+from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
+from tensorprox.miner_availability.miner_availability import query_availabilities
+
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -21,7 +24,8 @@ from tensorprox.tasks.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 from tensorprox.utils.uids import extract_axons_ips
 from tensorprox.utils.utils import get_location_from_maxmind, get_my_public_ip, haversine_distance
-        
+
+
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
     
@@ -41,42 +45,21 @@ class Validator(BaseValidatorNeuron):
             timeout (float): The timeout for the queries.
         """
         
-        while len(global_vars.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
-            logger.debug("Scoring queue is full. Waiting 1 second...")
-            await asyncio.sleep(1)
-        while len(global_vars.task_queue) == 0:
-            logger.warning("No tasks in queue. Waiting 1 second...")
-            await asyncio.sleep(1)
-
         try:
 
-            # Get task from the task queue
-            task = global_vars.task_queue.pop(0)
-
-            # Simulate ing task to miners and collecting responses
+            #Ping miners to check if they are ready for the challenge
             with Timer() as timer:
-                response_event = await self.collect_responses(task=task)
+                uids = settings.METAGRAPH.uids
+                responses = await query_availabilities(uids=uids)
 
             logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-            logger.debug(response_event)
-            
-            # Scoring manager will score the responses
-            task_scorer.add_to_queue(
-                task=task,
-                response=response_event,
-                block=self.block,
-                step=self.step,
-                task_id=task.task_id,
-            )
+            logger.debug(responses)
 
-            # Log the step event.
-            return ValidatorLoggingEvent(
-                block=self.block,
-                step=self.step,
-                step_time=timer.elapsed_time,
-                response_event=response_event,
-                task_id=task.task_id,
-            )
+            # Encapsulate the responses in a response event
+            response_event = DendriteResponseEvent(results=responses, uids=uids)
+
+            return response_event
+
 
         except Exception as ex:
             logger.exception(ex)
@@ -84,61 +67,6 @@ class Validator(BaseValidatorNeuron):
                 error=str(ex),
             )
 
-
-    async def collect_responses(self, task: DDoSDetectionTask) -> DendriteResponseEvent | None:
-        
-        avg_distance = 3500
-
-        # Get the list of uids and their axons to query for this step.
-        uids = settings.METAGRAPH.uids
-        logger.debug(f"🔍 Querying uids: {uids}")
-        if len(uids) == 0:
-            logger.debug("No available miners. Skipping step.")
-            return
-
-        axons, ip_addresses = extract_axons_ips(uids)
-
-        miners_locations = [get_location_from_maxmind(ip) for ip in ip_addresses]
-        local_ip = get_my_public_ip()
-        local_location = get_location_from_maxmind(local_ip)
-
-        if local_location :
-
-            local_lat, local_lon = local_location['latitude'], local_location['longitude']
-
-            # Calculate distances
-            distances = [
-                haversine_distance(local_lat, local_lon, loc['latitude'], loc['longitude']) 
-                if loc else avg_distance for loc in miners_locations
-            ]
-
-        else :
-            distances = [avg_distance]*len(miners_locations)
-
-        # Store each synapse's response time
-        response_times = []
-        responses = []
-        
-        # Directly call dendrite and process responses in parallel
-        for axon in axons:
-            with Timer() as timer:
-
-                response = await settings.DENDRITE(
-                    axons=[axon],
-                    synapse=TensorProxSynapse(task_name=task.__class__.__name__,challenges=[task.query]),
-                    timeout=settings.NEURON_TIMEOUT,
-                    deserialize=False,
-                )
-
-            response_times.append(timer.elapsed_time)  # Log the time taken for each synapse
-            responses.append(response[0])
-
-        # Encapsulate the responses in a response event
-        response_event = DendriteResponseEvent(
-            results=responses, uids=uids, response_times=response_times, distances=distances
-        )
-
-        return response_event
 
     async def forward(self):
         logger.info("🚀 Starting forward loop...")

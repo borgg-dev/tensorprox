@@ -1,16 +1,14 @@
 import numpy as np
-from tensorprox.base.protocol import TensorProxSynapse
+from tensorprox.base.protocol import PingSynapse
 from pydantic import BaseModel, model_validator, ConfigDict
 from tensorprox import (labels,)
 
 class DendriteResponseEvent(BaseModel):
     uids: np.ndarray | list[float]
-    results: list[TensorProxSynapse]
-    response_times: list[float]
-    distances: list[float]
+    results: list[PingSynapse]
     status_messages: list[str] = []
     status_codes: list[int] = []
-    predictions: list[str] = []
+    machine_details: list[str] = []
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
