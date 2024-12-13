@@ -80,10 +80,10 @@ async def query_availabilities(uids: List[int]) -> List[PingSynapse]:
     try:
         responses = await settings.DENDRITE(
             axons=axons,
-            synapse=PingSynapse(ssh_public_key="", machine_availabilities=MachineConfig()),
+            synapse=PingSynapse(machine_availabilities=MachineConfig()),
             timeout=settings.NEURON_TIMEOUT,
             deserialize=False,
-        )
+        )   
 
         return responses
 

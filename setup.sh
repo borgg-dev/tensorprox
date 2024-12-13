@@ -13,10 +13,10 @@
 # pip install -r requirements.txt
 
 # # Generate cold key using btcli
-# btcli w regen_coldkey --wallet.name borgg --mnemonic actress dirt board drop envelope cricket link energy book case deal giant
+# btcli w regen_coldkey --wallet.name borgg --mnemonic "actress dirt board drop envelope cricket link energy book case deal giant"
 
-# # Generate hot key using btcli
-# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey default --mnemonic two oven toy elevator cargo certain bird connect sport tip soda rebel
+# Generate hot key using btcli
+# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey hotkey-test --mnemonic "two oven toy elevator cargo certain bird connect sport tip soda rebel"
 
 
 pm2 kill && pm2 flush

@@ -79,7 +79,7 @@ class Validator(BaseValidatorNeuron):
         if not event:
             return
 
-        event.forward_time = timer.elapsed_time
+        # event.forward_time = timer.elapsed_time
 
     def __enter__(self):
         if settings.NO_BACKGROUND_THREAD:

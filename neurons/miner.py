@@ -18,61 +18,72 @@ from cryptography.hazmat.primitives import serialization
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
-def generate_ssh_key_pair():
+def generate_ssh_key_pair() -> tuple[str, str]:
     """
-    Generates a random RSA SSH key pair and returns the public key as a string.
+    Generates a random RSA SSH key pair and returns the private and public keys as strings.
     """
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public_key = private_key.public_key()
 
-    public_key_str = public_key.public_bytes(
-        encoding=serialization.Encoding.OpenSSH,
-        format=serialization.PublicFormat.OpenSSH
+    # Serialize private key
+    private_key_str = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
     ).decode("utf-8")
 
-    return public_key_str
+    # Serialize public key
+    public_key = private_key.public_key()
+    public_key_str = public_key.public_bytes(
+        encoding=serialization.Encoding.OpenSSH,
+        format=serialization.PublicFormat.OpenSSH,
+    ).decode("utf-8")
 
-def add_ssh_key_to_remote_machine(machine_ip: str, ssh_public_key: str, private_key_path: str, username: str = os.environ.get("USERNAME")):
+    return public_key_str, private_key_str
+
+def add_ssh_key_to_remote_machine(
+    machine_ip: str,
+    ssh_public_key: str,
+    initial_private_key_path: str,
+    username: str = os.environ.get("USERNAME"),
+):
     """
-    Connects to a remote machine via SSH and appends the given SSH public key to the authorized_keys file
-    if it does not already exist.
+    Connects to a remote machine via SSH using the initial private key and appends the given SSH public key 
+    to the authorized_keys file if it does not already exist.
     """
-    # Set up SSH client with the private key
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # Automatically add unknown host keys
-    
-    try:
-        # Use the private key to authenticate
-        print(f"Connecting to {machine_ip} using private key {private_key_path}...")
-        ssh.connect(machine_ip, username=username, key_filename=private_key_path)
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-        # Ensure the .ssh directory exists on the remote machine
+    try:
+        # Step 1: Use the initial private key to connect
+        print(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
+        ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path)
+
+        # Step 2: Ensure the .ssh directory exists
         ssh.exec_command(f"mkdir -p /home/{username}/.ssh")
         ssh.exec_command(f"chmod 700 /home/{username}/.ssh")
 
-        # Check if the key already exists in authorized_keys
-        stdin, stdout, stderr = ssh.exec_command(f"grep -F '{ssh_public_key}' /home/{username}/.ssh/authorized_keys")
+        # Step 3: Check if the public key already exists
+        stdin, stdout, stderr = ssh.exec_command(
+            f"grep -F '{ssh_public_key}' /home/{username}/.ssh/authorized_keys"
+        )
         output = stdout.read().decode().strip()
-        
+
         if ssh_public_key in output:
             print(f"SSH key already exists on {machine_ip}")
         else:
-            # Append the SSH public key to authorized_keys
-            command = f'echo "{ssh_public_key}" >> /home/{username}/.ssh/authorized_keys'
-            ssh.exec_command(command)
-            
-            # Set the correct permissions
+            # Step 4: Add the new public key to authorized_keys
+            ssh.exec_command(f'echo "{ssh_public_key}" >> /home/{username}/.ssh/authorized_keys')
             ssh.exec_command(f"chmod 600 /home/{username}/.ssh/authorized_keys")
             print(f"SSH key added to {machine_ip}")
-        
+
     except Exception as e:
         print(f"Error while connecting to {machine_ip}: {e}")
     finally:
         ssh.close()
 
+
 class Miner(BaseMinerNeuron):
     should_exit: bool = False
-
 
     def forward(self, synapse: PingSynapse) -> PingSynapse:
         """The forward function predicts class output for a set of features and forwards it to the validator."""
@@ -81,20 +92,25 @@ class Miner(BaseMinerNeuron):
         logger.debug(f"📧 Ping received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
 
         try:
-            
+            ssh_public_key, ssh_private_key = generate_ssh_key_pair()
+            synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
             synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"))
             synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"))
             synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"))
+            
 
-            ssh_public_key = generate_ssh_key_pair()
-            synapse.ssh_public_key = ssh_public_key
+            # Use the initial private key for initial connection
+            initial_private_key_path = "/home/azureuser/tao-tensorprox.pem"
 
-            # Let's extract the public key from the response and update the King machine's authorized_keys
+            # Add the public key to each machine
             for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
                 machine_ip = machine_details.ip
-                logger.debug(f"Received SSH public key for validator: {ssh_public_key}")
-                private_key_path = os.environ.get("PRIVATE_KEY_PATH")
-                add_ssh_key_to_remote_machine(machine_ip, ssh_public_key, private_key_path)
+                logger.debug(f"Adding SSH key to {machine_name} at IP {machine_ip}")
+                add_ssh_key_to_remote_machine(
+                    machine_ip=machine_ip,
+                    ssh_public_key=ssh_public_key,
+                    initial_private_key_path=initial_private_key_path,
+                )
 
         except Exception as e:
             logger.exception(e)
