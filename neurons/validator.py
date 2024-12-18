@@ -52,11 +52,11 @@ class Validator(BaseValidatorNeuron):
                 uids = settings.METAGRAPH.uids
                 responses = await query_availabilities(uids=uids)
 
-            logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-            logger.debug(responses)
-
             # Encapsulate the responses in a response event
             response_event = DendriteResponseEvent(results=responses, uids=uids)
+
+            logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
+            logger.debug(response_event)
 
             return response_event
 
@@ -112,9 +112,9 @@ class Validator(BaseValidatorNeuron):
 
 async def main():
 
-    # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=global_vars.feature_queue)
-    asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
+    # # Start the traffic listener
+    # traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=global_vars.feature_queue)
+    # asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
     
     # Add your run_system call here to ensure the WebSocket listener is started.
     asyncio.create_task(task_loop.start())

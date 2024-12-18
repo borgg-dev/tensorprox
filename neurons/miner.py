@@ -45,41 +45,50 @@ def add_ssh_key_to_remote_machine(
     ssh_public_key: str,
     initial_private_key_path: str,
     username: str = os.environ.get("USERNAME"),
+    timeout: int = 5,
+    retries: int = 3,
 ):
     """
     Connects to a remote machine via SSH using the initial private key and appends the given SSH public key 
-    to the authorized_keys file if it does not already exist.
+    to the authorized_keys file if it does not already exist. Includes retry mechanism in case of failure.
     """
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    try:
-        # Step 1: Use the initial private key to connect
-        print(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
-        ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path)
+    attempt = 0
+    while attempt < retries:
+        try:
+            # Step 1: Use the initial private key to connect
+            print(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
 
-        # Step 2: Ensure the .ssh directory exists
-        ssh.exec_command(f"mkdir -p /home/{username}/.ssh")
-        ssh.exec_command(f"chmod 700 /home/{username}/.ssh")
+            ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path, timeout=timeout)
 
-        # Step 3: Check if the public key already exists
-        stdin, stdout, stderr = ssh.exec_command(
-            f"grep -F '{ssh_public_key}' /home/{username}/.ssh/authorized_keys"
-        )
-        output = stdout.read().decode().strip()
+            # Step 2: Ensure the .ssh directory exists
+            ssh.exec_command(f"mkdir -p /home/{username}/.ssh")
+            ssh.exec_command(f"chmod 700 /home/{username}/.ssh")
 
-        if ssh_public_key in output:
-            print(f"SSH key already exists on {machine_ip}")
-        else:
-            # Step 4: Add the new public key to authorized_keys
-            ssh.exec_command(f'echo "{ssh_public_key}" >> /home/{username}/.ssh/authorized_keys')
-            ssh.exec_command(f"chmod 600 /home/{username}/.ssh/authorized_keys")
-            print(f"SSH key added to {machine_ip}")
+            # Step 3: Check if the public key already exists
+            stdin, stdout, stderr = ssh.exec_command(
+                f"grep -F '{ssh_public_key}' /home/{username}/.ssh/authorized_keys"
+            )
+            output = stdout.read().decode().strip()
 
-    except Exception as e:
-        print(f"Error while connecting to {machine_ip}: {e}")
-    finally:
-        ssh.close()
+            if ssh_public_key in output:
+                print(f"SSH key already exists on {machine_ip}")
+            else:
+                # Step 4: Add the new public key to authorized_keys
+                ssh.exec_command(f'echo "{ssh_public_key}" >> /home/{username}/.ssh/authorized_keys')
+                ssh.exec_command(f"chmod 600 /home/{username}/.ssh/authorized_keys")
+                print(f"SSH key added to {machine_ip}")
+            break  # Exit loop if successful
+        except paramiko.ssh_exception.SSHException as e:
+            attempt += 1
+            print(f"Error while connecting to {machine_ip} on attempt {attempt}/{retries}: {e}")
+            if attempt == retries:
+                print(f"Failed to connect to {machine_ip} after {retries} attempts.")
+        finally:
+            ssh.close()
+
 
 
 class Miner(BaseMinerNeuron):
@@ -100,7 +109,7 @@ class Miner(BaseMinerNeuron):
             
 
             # Use the initial private key for initial connection
-            initial_private_key_path = "/home/azureuser/tao-tensorprox.pem"
+            initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
 
             # Add the public key to each machine
             for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
