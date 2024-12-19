@@ -90,7 +90,6 @@ def add_ssh_key_to_remote_machine(
             ssh.close()
 
 
-
 class Miner(BaseMinerNeuron):
     should_exit: bool = False
 
