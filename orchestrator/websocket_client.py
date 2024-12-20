@@ -17,9 +17,6 @@ async def ready(request):
 
     if message == "ready":
         active = True
-        validator_id = data.get("validator_id", "")
-        print(f"Validator {validator_id} is ready.")
-
         # Send a simple acknowledgment that the validator is ready
         return web.json_response({"status": "ready"})
 
