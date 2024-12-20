@@ -42,6 +42,7 @@ async def assign_miners_to_validators():
     """Periodically assign miners to active validators."""
     async with ClientSession() as session:  # Reuse session
         while True:
+            print("🏁▶️  Starting new Round...")
             print("Sending readiness check to validators...")
 
             # Clear the list of active validators at the start of each round
@@ -103,7 +104,6 @@ async def assign_miners_to_validators():
 
 # Startup event for the app
 async def on_startup(app):
-    print("Starting orchestrator...")
     asyncio.create_task(assign_miners_to_validators())
 
 app.on_startup.append(on_startup)
