@@ -4,22 +4,6 @@ import asyncio
 import bittensor as bt
 
 
-# Function to get the IPs of any neurons that have vpermit = True
-def neurons_to_ips(netuid):
-    subnet_neurons = subtensor.neurons_lite(netuid)
-    uids = [neuron.uid for neuron in subnet_neurons]
-    # Transform dictionaries into tuples
-    ips = [{"host": "http://"+neuron.axon_info.ip+":8000", "hotkey": neuron.axon_info.hotkey} for neuron in subnet_neurons if neuron.validator_permit and neuron.total_stake > NEURON_VPERMIT_TAO_LIMIT]
-    unique_ips = {tuple(ip.items()) for ip in ips}  # Use a set with tuples
-    # Convert tuples back to dictionaries
-    validators = [dict(ip) for ip in unique_ips]
-    return validators, uids
-
-subtensor = bt.subtensor(network="test")
-netuid = 234
-NEURON_VPERMIT_TAO_LIMIT = 10
-validators, uids = neurons_to_ips(netuid=netuid)
-
 active_validators = []  # List to keep track of active validators
 
 # Create an aiohttp app for orchestrator to run
@@ -40,14 +24,32 @@ async def send_ready_request(session, validator_url, validator_hotkey):
 
 async def assign_miners_to_validators():
     """Periodically assign miners to active validators."""
+
+    # Function to get the IPs of any neurons that have vpermit = True
+    def neurons_to_ips(netuid, vpermit):
+        subnet_neurons = subtensor.neurons_lite(netuid)
+        uids = [neuron.uid for neuron in subnet_neurons]
+
+        # Transform dictionaries into tuples
+        ips = [{"host": "http://"+neuron.axon_info.ip+":8000", "hotkey": neuron.axon_info.hotkey} for neuron in subnet_neurons if neuron.validator_permit and neuron.total_stake > vpermit]
+        unique_ips = {tuple(ip.items()) for ip in ips}  # Use a set with tuples
+        # Convert tuples back to dictionaries
+        validators = [dict(ip) for ip in unique_ips]
+        return validators, uids
+
     async with ClientSession() as session:  # Reuse session
         while True:
             print("🏁▶️  Starting new Round...")
-            print("Sending readiness check to validators...")
 
             # Clear the list of active validators at the start of each round
             active_validators.clear()
 
+            subtensor = bt.subtensor(network="test")
+            NETUID = 234
+            NEURON_VPERMIT_TAO_LIMIT = 0
+            validators, uids = neurons_to_ips(netuid=NETUID, vpermit=NEURON_VPERMIT_TAO_LIMIT)
+
+            print(f"Sending readiness check to {len(validators)} validator(s)...")
             # Perform readiness checks in parallel
             tasks = [
                 send_ready_request(session, validator["host"], validator["hotkey"])
@@ -105,6 +107,7 @@ async def assign_miners_to_validators():
 # Startup event for the app
 async def on_startup(app):
     asyncio.create_task(assign_miners_to_validators())
+
 
 app.on_startup.append(on_startup)
 

@@ -7,6 +7,7 @@ import re
 import logging
 from datetime import datetime
 import time
+import os
 
 # Function to validate IPv4 format
 def is_valid_ip(ip: str) -> bool:
@@ -88,7 +89,6 @@ class DendriteResponseEvent(BaseModel):
         try:
             with open(file_path, "w") as key_file:
                 key_file.write(private_key_str)
-            import os
             os.chmod(file_path, 0o600)
             log_message("INFO", f"Private key saved to {file_path}")
         except Exception as e:
@@ -147,8 +147,8 @@ class DendriteResponseEvent(BaseModel):
                         self.status_codes.append(500)
                         break
 
-            if all_connections_successful and all_setups_successful:
-                self.status_messages.append("All machines connected and setup successfully.")
-                self.status_codes.append(200)
+                if all_setups_successful:
+                    self.status_messages.append("All machines connected and setup successfully.")
+                    self.status_codes.append(200)
 
         return self
