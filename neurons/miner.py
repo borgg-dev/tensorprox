@@ -49,8 +49,9 @@ def add_ssh_key_to_remote_machine(
     retries: int = 3,
 ):
     """
-    Connects to a remote machine via SSH using the initial private key and appends the given SSH public key 
-    to the authorized_keys file if it does not already exist. Includes retry mechanism in case of failure.
+    Connects to a remote machine via SSH using the initial private key, appends the given SSH public key 
+    to the authorized_keys file if it does not already exist, and updates the sudoers file for passwordless sudo.
+    Includes a retry mechanism in case of failure.
     """
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -58,9 +59,9 @@ def add_ssh_key_to_remote_machine(
     attempt = 0
     while attempt < retries:
         try:
-            # Step 1: Use the initial private key to connect
             print(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
 
+            # Step 1: Use the initial private key to connect
             ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path, timeout=timeout)
 
             # Step 2: Ensure the .ssh directory exists
@@ -80,6 +81,19 @@ def add_ssh_key_to_remote_machine(
                 ssh.exec_command(f'echo "{ssh_public_key}" >> /home/{username}/.ssh/authorized_keys')
                 ssh.exec_command(f"chmod 600 /home/{username}/.ssh/authorized_keys")
                 print(f"SSH key added to {machine_ip}")
+
+            # Step 5: Update sudoers file for passwordless sudo
+            sudoers_entry = f"{username} ALL=(ALL) NOPASSWD: ALL"
+            print(f"Updating sudoers file for user {username}...")
+            stdin, stdout, stderr = ssh.exec_command(f'echo "{sudoers_entry}" | sudo tee -a /etc/sudoers')
+            err = stderr.read().decode().strip()
+
+            if err:
+                print(f"Error updating sudoers file: {err}")
+            else:
+                print(f"Sudoers file updated on {machine_ip} for user {username}.")
+                # Optionally restart sudo service (if required)
+                ssh.exec_command('sudo systemctl restart sudo')
             break  # Exit loop if successful
         except paramiko.ssh_exception.SSHException as e:
             attempt += 1

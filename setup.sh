@@ -6,7 +6,7 @@
 # # Install npm and pm2 for process management
 # sudo apt install npm -y && sudo npm install -g pm2 
 
-#Activate virtual env
+# Activate virtual env
 # python3 -m venv tp && source tp/bin/activate
 
 # # Install Python dependencies from requirements.txt

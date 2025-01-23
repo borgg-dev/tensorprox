@@ -39,6 +39,7 @@ class Validator(BaseValidatorNeuron):
         self.load_state()
         self._lock = asyncio.Lock()
         self.assigned_miners = []  # To store the assigned miners (UIDs)
+        self.playlist = []  # To store the playlist 
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
         """Runs a single step to query the assigned miners' availability."""
@@ -53,7 +54,7 @@ class Validator(BaseValidatorNeuron):
                     responses = await query_availabilities(uids=self.assigned_miners)
 
                 # Encapsulate the responses in a response event
-                response_event = DendriteResponseEvent(results=responses, uids=self.assigned_miners)
+                response_event = DendriteResponseEvent(results=responses, uids=self.assigned_miners, playlist=self.playlist)
 
                 logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
                 logger.debug(response_event)
@@ -91,14 +92,18 @@ async def ready(request):
 async def assign_miners(request):
     """Receive assigned miners from the orchestrator and update Validator instance."""
     data = await request.json()
+
     assigned_miners = data.get("assigned_miners", [])
+    playlist = data.get("playlist", [])
 
     if not assigned_miners:
         return web.json_response({"status": "failed", "error": "No miners provided"}, status=400)
 
     async with validator_instance._lock:
         validator_instance.assigned_miners = assigned_miners
+        validator_instance.playlist = playlist
         logger.info(f"Assigned miners updated: {assigned_miners}")
+        logger.info(f"Playlist updated: {playlist}")
 
     return web.json_response({"status": "miners_assigned"})
 
