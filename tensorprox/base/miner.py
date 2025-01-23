@@ -1,7 +1,7 @@
 import time
 import threading
 import bittensor as bt
-from tensorprox.base.protocol import TensorProxSynapse
+from tensorprox.base.protocol import PingSynapse
 from tensorprox.base.neuron import BaseNeuron
 from traceback import print_exception
 from tensorprox.settings import settings
@@ -175,7 +175,7 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
     async def availability_blacklist(self, synapse: AvailabilitySynapse) -> Tuple[bool, str]:
         return False, "Not blacklisting"
 
-    async def blacklist(self, synapse: TensorProxSynapse) -> Tuple[bool, str]:
+    async def blacklist(self, synapse: PingSynapse) -> Tuple[bool, str]:
         # WARNING: The typehint must remain Tuple[bool, str] to avoid runtime errors. YOU
         # CANNOT change to tuple[bool, str]!!!
         """
@@ -218,7 +218,7 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
     async def availability_priority(self, synapse: AvailabilitySynapse) -> float:
         return 1.0
 
-    async def priority(self, synapse: TensorProxSynapse) -> float:
+    async def priority(self, synapse: PingSynapse) -> float:
         """
         The priority function determines the order in which requests are handled. More valuable or higher-priority
         requests are processed before others. You should design your own priority mechanism with care.
@@ -245,7 +245,7 @@ class BaseMinerNeuron(BaseModel, BaseNeuron):
 
     def log_event(
         self,
-        synapse: TensorProxSynapse,
+        synapse: PingSynapse,
         timing: float,
         challenges: list[dict],
         prediction: str,

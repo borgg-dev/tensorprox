@@ -1,4 +1,5 @@
 import argparse
+
 import bittensor as bt
 from loguru import logger
 
@@ -21,13 +22,10 @@ def config() -> bt.config:
     Returns the configuration object specific to this miner or validator after adding relevant arguments.
     """
     parser = argparse.ArgumentParser()
-
     add_args(parser=parser)
     args, unknown = parser.parse_known_args()
-
     logger.info(f"RUNNING WITH ARGS: {' '.join(f'{k}={v}' for k, v in vars(args).items())}")
     logger.info(f"UNKNOWN ARGS: {unknown}")
-
     bt.wallet.add_args(parser)
     bt.subtensor.add_args(parser)
     bt.axon.add_args(parser)

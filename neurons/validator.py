@@ -1,17 +1,21 @@
 # ruff: noqa: E402
 import sys
 sys.path.append("/home/azureuser/tensorprox/")
+from aiohttp import web
 import asyncio
 import time
 from tensorprox import settings
-
+import os
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
 
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
-from tensorprox.base.dendrite import DendriteResponseEvent, TensorProxSynapse
+from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
+from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
+from tensorprox.miner_availability.miner_availability import query_availabilities
+
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -21,198 +25,110 @@ from tensorprox.tasks.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 from tensorprox.utils.uids import extract_axons_ips
 from tensorprox.utils.utils import get_location_from_maxmind, get_my_public_ip, haversine_distance
-        
+
+
+# Create an aiohttp app for validator
+app = web.Application()
+
+
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
-    
+
     def __init__(self, config=None):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
+        self.assigned_miners = []  # To store the assigned miners (UIDs)
+        self.playlist = []  # To store the playlist 
 
-    async def run_step(self, timeout: float) -> ValidatorLoggingEvent | ErrorLoggingEvent | None:
-        """Runs a single step for the validation :
-        1. Get Task from the task queue
-        2. Get list of UIDS from the Metagraph and  query the network with the corresponding synapse
-        3. Get back responses and reward the network
-        4. Update scores
-        Args:
-            challenges (List[dict]): The input features for the synapse.
-            timeout (float): The timeout for the queries.
-        """
-        
-        while len(global_vars.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
-            logger.debug("Scoring queue is full. Waiting 1 second...")
-            await asyncio.sleep(1)
-        while len(global_vars.task_queue) == 0:
-            logger.warning("No tasks in queue. Waiting 1 second...")
-            await asyncio.sleep(1)
-
+    async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
+        """Runs a single step to query the assigned miners' availability."""
         try:
+            async with self._lock:
+                if not self.assigned_miners:
+                    logger.warning("No miners assigned. Skipping availability check.")
+                    return None
 
-            # Get task from the task queue
-            task = global_vars.task_queue.pop(0)
+                # Query availabilities of the assigned miners
+                with Timer() as timer:
+                    responses = await query_availabilities(uids=self.assigned_miners)
 
-            # Simulate ing task to miners and collecting responses
-            with Timer() as timer:
-                response_event = await self.collect_responses(task=task)
+                # Encapsulate the responses in a response event
+                response_event = DendriteResponseEvent(results=responses, uids=self.assigned_miners, playlist=self.playlist)
 
-            logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-            logger.debug(response_event)
-            
-            # Scoring manager will score the responses
-            task_scorer.add_to_queue(
-                task=task,
-                response=response_event,
-                block=self.block,
-                step=self.step,
-                task_id=task.task_id,
-            )
+                logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
+                logger.debug(response_event)
 
-            # Log the step event.
-            return ValidatorLoggingEvent(
-                block=self.block,
-                step=self.step,
-                step_time=timer.elapsed_time,
-                response_event=response_event,
-                task_id=task.task_id,
-            )
+                return response_event
 
         except Exception as ex:
             logger.exception(ex)
-            return ErrorLoggingEvent(
-                error=str(ex),
-            )
-
-
-    async def collect_responses(self, task: DDoSDetectionTask) -> DendriteResponseEvent | None:
-        
-        avg_distance = 3500
-
-        # Get the list of uids and their axons to query for this step.
-        uids = settings.METAGRAPH.uids
-        logger.debug(f"🔍 Querying uids: {uids}")
-        if len(uids) == 0:
-            logger.debug("No available miners. Skipping step.")
-            return
-
-        axons, ip_addresses = extract_axons_ips(uids)
-
-        miners_locations = [get_location_from_maxmind(ip) for ip in ip_addresses]
-        local_ip = get_my_public_ip()
-        local_location = get_location_from_maxmind(local_ip)
-
-        if local_location :
-
-            local_lat, local_lon = local_location['latitude'], local_location['longitude']
-
-            # Calculate distances
-            distances = [
-                haversine_distance(local_lat, local_lon, loc['latitude'], loc['longitude']) 
-                if loc else avg_distance for loc in miners_locations
-            ]
-
-        else :
-            distances = [avg_distance]*len(miners_locations)
-
-        # Store each synapse's response time
-        response_times = []
-        responses = []
-        
-        # Directly call dendrite and process responses in parallel
-        for axon in axons:
-            with Timer() as timer:
-
-                response = await settings.DENDRITE(
-                    axons=[axon],
-                    synapse=TensorProxSynapse(task_name=task.__class__.__name__,challenges=[task.query]),
-                    timeout=settings.NEURON_TIMEOUT,
-                    deserialize=False,
-                )
-
-            response_times.append(timer.elapsed_time)  # Log the time taken for each synapse
-            responses.append(response[0])
-
-        # Encapsulate the responses in a response event
-        response_event = DendriteResponseEvent(
-            results=responses, uids=uids, response_times=response_times, distances=distances
-        )
-
-        return response_event
+            return None
 
     async def forward(self):
         logger.info("🚀 Starting forward loop...")
-        with Timer() as timer:
-            # in run_step, a task is generated and sent to the miners
-            async with self._lock:
-                event = await self.run_step(timeout=settings.NEURON_TIMEOUT)
-
-        if not event:
-            return
-
-        event.forward_time = timer.elapsed_time
-
-    def __enter__(self):
-        if settings.NO_BACKGROUND_THREAD:
-            logger.warning("Running validator in main thread.")
-            self.run()
-        else:
-            self.run_in_background_thread()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        """
-        Stops the validator's background operations upon exiting the context.
-        This method facilitates the use of the validator in a 'with' statement.
-
-        Args:
-            exc_type: The type of the exception that caused the context to be exited.
-                      None if the context was exited without an exception.
-            exc_value: The instance of the exception that caused the context to be exited.
-                       None if the context was exited without an exception.
-            traceback: A traceback object encoding the stack trace.
-                       None if the context was exited without an exception.
-        """
-        if self.is_running:
-            logger.debug("Stopping validator in background thread.")
-            self.should_exit = True
-            self.thread.join(5)
-            self.is_running = False
-            logger.debug("Stopped")
+        while not self.should_exit:
+            event = await self.run_step(timeout=settings.NEURON_TIMEOUT)
+            if event:
+                logger.info(f"Processing event: {event}")
+            await asyncio.sleep(5)  # Add delay between runs
 
 
+# Define the aiohttp routes for validator endpoints
+validator_instance = Validator()
 
+
+async def ready(request):
+    """Receive readiness request from the orchestrator."""
+    data = await request.json()
+    message = data.get("message", "").lower()
+
+    if message == "ready":
+        return web.json_response({"status": "ready"})
+    else:
+        return web.json_response({"status": "failed"}, status=400)
+
+
+async def assign_miners(request):
+    """Receive assigned miners from the orchestrator and update Validator instance."""
+    data = await request.json()
+
+    assigned_miners = data.get("assigned_miners", [])
+    playlist = data.get("playlist", [])
+
+    if not assigned_miners:
+        return web.json_response({"status": "failed", "error": "No miners provided"}, status=400)
+
+    async with validator_instance._lock:
+        validator_instance.assigned_miners = assigned_miners
+        validator_instance.playlist = playlist
+        logger.info(f"Assigned miners updated: {assigned_miners}")
+        logger.info(f"Playlist updated: {playlist}")
+
+    return web.json_response({"status": "miners_assigned"})
+
+
+# Add routes to the aiohttp app
+app.router.add_post('/ready', ready)
+app.router.add_post('/assign_miners', assign_miners)
+
+
+# Main function to start both the validator and aiohttp server
 async def main():
+    validator_task = asyncio.create_task(validator_instance.forward())
 
-    # Start the traffic listener
-    traffic_data_handler = TrafficData(uri="ws://127.0.0.1:8765", feature_queue=global_vars.feature_queue)
-    asyncio.create_task(traffic_data_handler.start())  # Start traffic data listener
-    
-    # Add your run_system call here to ensure the WebSocket listener is started.
-    asyncio.create_task(task_loop.start())
+    # Start the aiohttp server
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=8000)
+    await site.start()
 
-    asyncio.create_task(weight_setter.start())
-
-    # start scoring tasks in separate loop
-    asyncio.create_task(task_scorer.start())
-
-    with Validator() as v:
-        while True:
-            logger.info(
-                f"Validator running:: network: {settings.SUBTENSOR.network} "
-                f"| block: {v.block} "
-                f"| step: {v.step} "
-                f"| uid: {v.uid} "
-                f"| last updated: {v.block - settings.METAGRAPH.last_update[v.uid]} "
-                f"| vtrust: {settings.METAGRAPH.validator_trust[v.uid]:.3f} "
-                f"| emission {settings.METAGRAPH.emission[v.uid]:.3f}"
-            )
-            time.sleep(5)
-
-            if v.should_exit:
-                logger.warning("Ending validator...")
+    logger.info("Validator aiohttp server started.")
+    try:
+        await validator_task
+    finally:
+        await runner.cleanup()
 
 
-#Main function which runs the validator.
 if __name__ == "__main__":
     asyncio.run(main())
