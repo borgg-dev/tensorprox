@@ -3,6 +3,11 @@ import random
 import asyncio
 import bittensor as bt
 
+# NEW: Additional imports for JSON, hashing, logging, etc.
+import json
+import hashlib
+import time
+
 
 active_validators = []  # List to keep track of active validators
 
@@ -19,8 +24,53 @@ async def send_ready_request(session, validator_url, validator_hotkey):
             else:
                 return False
     except Exception as e:
-        print(f"Error connecting to {validator_url}: {e}")
+        # print(f"Error connecting to {validator_url}: {e}")
         return False
+
+# -----------------------------------------------------------------------------------
+# NEW: Sample type_class_map from traffic_generator.py
+# In practice, this should be read or imported from the actual 'traffic_generator.py'.
+# -----------------------------------------------------------------------------------
+type_class_map = {
+    'a': "ClassA",
+    'b': "ClassB",
+    'c': "ClassC",
+    'd': "ClassD",
+    # ...
+    # Potentially many more
+}
+
+# -----------------------------------------------------------------------------------
+# NEW: Function to create a random playlist of 15 minutes
+# -----------------------------------------------------------------------------------
+def create_random_playlist(total_minutes=15):
+    """
+    Creates a random playlist, each item has:
+      - 'name'     -> The class key or "pause"
+      - 'duration' -> random number of minutes (>= 1)
+    The function ensures the total sum of durations is ~15 minutes.
+    """
+    playlist = []
+    current_total = 0
+    while current_total < total_minutes:
+        # 50% chance to pick an actual class, 50% chance to pick a pause
+        is_pause = (random.random() < 0.5)
+
+        if is_pause:
+            name = "pause"
+        else:
+            name = random.choice(list(type_class_map.keys()))
+
+        # We choose at least 1 minute, but you could do up to 3 to vary
+        duration = random.randint(1, 3)
+        if current_total + duration > total_minutes:
+            duration = total_minutes - current_total
+
+        playlist.append({"name": name, "duration": duration})
+        current_total += duration
+
+    return playlist
+
 
 async def assign_miners_to_validators():
     """Periodically assign miners to active validators."""
@@ -90,8 +140,14 @@ async def assign_miners_to_validators():
                 assigned_miners = uids[miner_idx: miner_idx + num_miner_assigned]
                 miner_idx += num_miner_assigned
 
+                # NEW: Generate and distribute the random playlist in cleartext
+                playlist = create_random_playlist(total_minutes=15)
+
+                print(f"Random playlist generated for this round : {playlist}")
+
                 # Send assigned miners to the validator
-                miner_response_payload = {"assigned_miners": assigned_miners}
+                miner_response_payload = {"assigned_miners": assigned_miners, "playlist": playlist}
+
                 try:
                     async with session.post(f"{validator_url}/assign_miners", json=miner_response_payload) as miner_response:
                         if miner_response.status == 200:
