@@ -10,6 +10,7 @@ class MachineDetails(BaseModel):
     
 class MachineConfig(BaseModel):
     key_pair: Tuple[str, str] = ("", "")
+    ssh_user: str = ""
     machine_config: Dict[str, MachineDetails] = {
         "Attacker": MachineDetails(),
         "Benign": MachineDetails(),
@@ -38,14 +39,19 @@ class PingSynapse(bt.Synapse):
         Serializes the `PingSynapse` into a dictionary.
 
         Converts `MachineDetails` instances to dictionaries for external usage.
-        Also, properly includes the SSH key pair for validation purposes.
+        Also, properly includes the SSH key pair and ssh_user for validation purposes.
         """
-        # Directly include the key_pair as strings without base64 encoding
         return {
             "machine_availabilities": {
-                key: details.dict() for key, details in self.machine_availabilities.machine_config.items()
+                "key_pair": self.machine_availabilities.key_pair,
+                "ssh_user": self.machine_availabilities.ssh_user,
+                "machine_config": {
+                    key: details.dict() 
+                    for key, details in self.machine_availabilities.machine_config.items()
+                }
             }
         }
+
 
     @classmethod
     def deserialize(cls, data: dict) -> "PingSynapse":
