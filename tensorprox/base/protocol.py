@@ -4,13 +4,13 @@ from typing import List, Dict, Tuple
 
 class MachineDetails(BaseModel):
     ip: str = ""
+    username: str = ""
     
     def get(self, key, default=None):
         return getattr(self, key, default)
     
 class MachineConfig(BaseModel):
     key_pair: Tuple[str, str] = ("", "")
-    ssh_user: str = ""
     machine_config: Dict[str, MachineDetails] = {
         "Attacker": MachineDetails(),
         "Benign": MachineDetails(),
@@ -44,7 +44,6 @@ class PingSynapse(bt.Synapse):
         return {
             "machine_availabilities": {
                 "key_pair": self.machine_availabilities.key_pair,
-                "ssh_user": self.machine_availabilities.ssh_user,
                 "machine_config": {
                     key: details.dict() 
                     for key, details in self.machine_availabilities.machine_config.items()

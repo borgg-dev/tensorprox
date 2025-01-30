@@ -131,12 +131,15 @@ class Miner(BaseMinerNeuron):
 
         try:
             ssh_public_key, ssh_private_key = generate_ssh_key_pair()
+            attacker_username = os.environ.get("ATTACKER_USERNAME")
+            benign_username = os.environ.get("BENIGN_USERNAME")
+            king_username = os.environ.get("KING_USERNAME")
+            
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"))
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"))
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"))
-            username = os.environ.get("USERNAME")
-            synapse.machine_availabilities.ssh_user = username
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"), username=attacker_username)
+            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"), username=benign_username)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"), username=king_username)
+
             
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
@@ -144,12 +147,13 @@ class Miner(BaseMinerNeuron):
             # Add the public key to each machine
             for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
                 machine_ip = machine_details.ip
+                machine_username = machine_details.username
                 logger.debug(f"Adding SSH key to {machine_name} at IP {machine_ip}")
                 add_ssh_key_to_remote_machine(
                     machine_ip=machine_ip,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
-                    username=username,
+                    username=machine_username,
                 )
 
         except Exception as e:

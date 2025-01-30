@@ -30,7 +30,6 @@ from tensorprox.utils.utils import get_location_from_maxmind, get_my_public_ip, 
 # Create an aiohttp app for validator
 app = web.Application()
 
-
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron."""
 
@@ -66,17 +65,12 @@ class Validator(BaseValidatorNeuron):
             return None
 
     async def forward(self):
-        logger.info("🚀 Starting forward loop...")
-        while not self.should_exit:
-            event = await self.run_step(timeout=settings.NEURON_TIMEOUT)
-            if event:
-                logger.info(f"Processing event: {event}")
-            await asyncio.sleep(5)  # Add delay between runs
+        """Implements the abstract forward method."""
+        logger.info("Placeholder forward method called.")
+        await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
 
-
-# Define the aiohttp routes for validator endpoints
+# Define the validator instance
 validator_instance = Validator()
-
 
 async def ready(request):
     """Receive readiness request from the orchestrator."""
@@ -88,11 +82,9 @@ async def ready(request):
     else:
         return web.json_response({"status": "failed"}, status=400)
 
-
 async def assign_miners(request):
     """Receive assigned miners from the orchestrator and update Validator instance."""
     data = await request.json()
-
     assigned_miners = data.get("assigned_miners", [])
     playlist = data.get("playlist", [])
 
@@ -105,18 +97,17 @@ async def assign_miners(request):
         logger.info(f"Assigned miners updated: {assigned_miners}")
         logger.info(f"Playlist updated: {playlist}")
 
-    return web.json_response({"status": "miners_assigned"})
+    # Trigger run_step manually only when miners are assigned
+    asyncio.create_task(validator_instance.run_step(timeout=settings.NEURON_TIMEOUT))
 
+    return web.json_response({"status": "miners_assigned"})
 
 # Add routes to the aiohttp app
 app.router.add_post('/ready', ready)
 app.router.add_post('/assign_miners', assign_miners)
 
-
 # Main function to start both the validator and aiohttp server
 async def main():
-    validator_task = asyncio.create_task(validator_instance.forward())
-
     # Start the aiohttp server
     runner = web.AppRunner(app)
     await runner.setup()
@@ -124,11 +115,11 @@ async def main():
     await site.start()
 
     logger.info("Validator aiohttp server started.")
+
     try:
-        await validator_task
+        await asyncio.Event().wait()  # Keeps the server running indefinitely
     finally:
         await runner.cleanup()
-
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -80,23 +80,46 @@ def get_local_ip() -> str:
 
     return "127.0.0.1"
 
-def generate_local_ephemeral_keypair(key_path="/tmp/session_key") -> (str, str):
+# Add this near the top of dendrite.py
+SESSION_KEY_DIR = "/var/tmp/session_keys"
+
+# Add this after defining SESSION_KEY_DIR
+if not os.path.exists(SESSION_KEY_DIR):
+    try:
+        os.makedirs(SESSION_KEY_DIR, mode=0o700, exist_ok=True)
+        log_message("INFO", f"Created session key directory at {SESSION_KEY_DIR}")
+    except PermissionError as e:
+        log_message("ERROR", f"Permission denied while creating {SESSION_KEY_DIR}: {e}")
+        raise
+    except Exception as e:
+        log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
+        raise
+
+
+def generate_local_session_keypair(key_path: str) -> (str, str):
     """
     Generate an ED25519 keypair. Return (private_key_str, public_key_str).
-    Ensures correct file permissions for ephemeral keys.
+    Ensures correct file permissions for session keys.
     """
     import subprocess
 
     # Remove old keys if present
-    if os.path.exists(key_path):
-        os.remove(key_path)
-    if os.path.exists(f"{key_path}.pub"):
-        os.remove(f"{key_path}.pub")
+    try:
+        if os.path.exists(key_path):
+            os.remove(key_path)
+        if os.path.exists(f"{key_path}.pub"):
+            os.remove(f"{key_path}.pub")
+    except PermissionError as e:
+        log_message("ERROR", f"Permission denied while removing {key_path}: {e}")
+        raise
+    except Exception as e:
+        log_message("ERROR", f"Unexpected error while removing {key_path}: {e}")
+        raise
 
     # Generate
     subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""], check=True)
 
-    # Fix perms on the newly created files
+    # Fix permissions on the newly created files
     os.chmod(key_path, 0o600)
     if os.path.exists(f"{key_path}.pub"):
         os.chmod(f"{key_path}.pub", 0o644)
@@ -108,6 +131,8 @@ def generate_local_ephemeral_keypair(key_path="/tmp/session_key") -> (str, str):
         pub = fpk.read().strip()
 
     return priv, pub
+
+
 
 ######################################################################
 # 2) SUPPORTING UTILS
@@ -144,7 +169,7 @@ def create_and_test_connection(
             # Connect
             client.connect(ip, username=ssh_user, pkey=pkey, timeout=timeout, look_for_keys=False, allow_agent=False)
 
-            # Keep alive so ephemeral changes won't drop us too fast
+            # Keep alive so session changes won't drop us too fast
             transport = client.get_transport()
             if transport:
                 transport.set_keepalive(15)
@@ -208,179 +233,166 @@ def install_packages_if_missing(client: paramiko.SSHClient, packages: list[str])
             time.sleep(1)  # small wait after install
 
 ######################################################################
-# 3) SINGLE-PASS EPHEMERAL SETUP
+# 3) SINGLE-PASS SESSION SETUP
 ######################################################################
 
 def single_pass_setup(
-    uid : int,
+    uid: int,
     ip: str,
     original_priv_key: str,
     ssh_user: str,
-    user_commands: list[str],
+    # user_commands: list[str],
     validator_ip: str,
-    test_duration_minutes: int = 1
+    test_duration_minutes: int
 ) -> bool:
     """
-    Enhanced single-pass ephemeral setup with proper sudo elevation
-    and ephemeral key insertion for any user.
+    Single-pass setup with reliable process management and state transitions.
     """
-    log_message("INFO", f"--- Single-pass ephemeral setup for {ip} as {ssh_user} start ---")
+    log_message("INFO", f"--- Single-pass session setup for {ip} as {ssh_user} start ---")
 
-    # 1) Generate ephemeral key
-    ephemeral_priv, ephemeral_pub = generate_local_ephemeral_keypair("/tmp/session_key_"+str(uid))
+    # 1) Generate session key
+    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}")
+    session_priv, session_pub = generate_local_session_keypair(session_key_path)
 
-
-    # 2) Connect with the "original" key
+    # 2) Connect with original key
     client_orig = create_and_test_connection(ip, original_priv_key, ssh_user=ssh_user, retries=5, timeout=15)
     if not client_orig:
-        log_message("ERROR", f"[Phase1] Could NOT connect to {ip} as {ssh_user} => abort ephemeral setup.")
+        log_message("ERROR", f"[Phase1] Could NOT connect to {ip} as {ssh_user} => abort session setup.")
         return False
 
-    # 3) Ensure sudo access + needed pkgs
-    run_cmd(client_orig, "echo 'SUDO_TEST'", use_sudo=True)
-    needed = ["net-tools", "iptables-persistent", "psmisc"]
-    install_packages_if_missing(client_orig, needed)
-
-    # 4) Avoid requiretty for this user
-    no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
-    run_cmd(client_orig, no_tty_cmd, use_sudo=True)
-    time.sleep(1)  # give sudoers a moment
-
-    # 5) Insert ephemeral key
+    # 3) Prepare sudo access and session key
     ssh_dir = get_authorized_keys_dir(ssh_user)
     authorized_keys_path = f"{ssh_dir}/authorized_keys"
     authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak"
 
     setup_cmd = f"""
-export TMPDIR=$(mktemp -d /tmp/.ssh_setup_XXXXXX)
-chmod 700 $TMPDIR
-chown {ssh_user}:{ssh_user} $TMPDIR
+        echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
+        chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
 
-# Backup existing keys with proper permissions
-mkdir -p {ssh_dir}
-if [ -f {authorized_keys_path} ] && [ ! -f {authorized_keys_bak} ]; then
-    cp {authorized_keys_path} {authorized_keys_bak}
-    chmod 600 {authorized_keys_bak}
-fi
+        mkdir -p {ssh_dir}
+        if [ -f {authorized_keys_path} ]; then
+            cp {authorized_keys_path} {authorized_keys_bak}
+        fi
 
-# Remove any existing ephemeral lines before re-adding
-if [ -f {authorized_keys_path} ]; then
-    grep -v '^# START EPHEMERAL KEY' {authorized_keys_path} | \\
-    grep -v '^# END EPHEMERAL KEY' | \\
-    grep -v '{ephemeral_pub}' > $TMPDIR/authorized_keys_clean || true
-else
-    touch $TMPDIR/authorized_keys_clean
-fi
-
-echo '# START EPHEMERAL KEY' >> $TMPDIR/authorized_keys_clean
-echo '{ephemeral_pub}' >> $TMPDIR/authorized_keys_clean
-echo '# END EPHEMERAL KEY' >> $TMPDIR/authorized_keys_clean
-
-# Set correct permissions
-chown {ssh_user}:{ssh_user} $TMPDIR/authorized_keys_clean
-chmod 600 $TMPDIR/authorized_keys_clean
-
-mv $TMPDIR/authorized_keys_clean {authorized_keys_path}
-rm -rf $TMPDIR
-
-chown -R {ssh_user}:{ssh_user} {ssh_dir}
-chmod 700 {ssh_dir}
-chmod 600 {authorized_keys_path}
-"""
+        echo '# START SESSION KEY' > {authorized_keys_path}
+        echo '{session_pub}' >> {authorized_keys_path}
+        echo '# END SESSION KEY' >> {authorized_keys_path}
+        if [ -f {authorized_keys_bak} ]; then
+            cat {authorized_keys_bak} >> {authorized_keys_path}
+        fi
+        chmod 600 {authorized_keys_path}
+        chown {ssh_user}:{ssh_user} {authorized_keys_path}
+    """
     run_cmd(client_orig, setup_cmd)
     client_orig.close()
 
-    # 6) Test ephemeral connection
-    ep_client = create_and_test_connection(ip, ephemeral_priv, ssh_user=ssh_user, retries=5, timeout=15)
+    # 4) Test session connection
+    ep_client = create_and_test_connection(ip, session_priv, ssh_user=ssh_user, retries=5, timeout=15)
     if not ep_client:
-        log_message("ERROR", f"[Phase1.5] ephemeral test failed => skip {ip}.")
+        log_message("ERROR", f"[Phase1.5] session test failed => skip {ip}.")
         return False
-    log_message("INFO", f"[Phase1.5] ephemeral key success => lockdown + revert scheduling for {ip}.")
 
-    # 7) Configure passwordless sudo for ephemeral session
-    sudo_setup = f"""
-echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
-chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
-"""
-    run_cmd(ep_client, sudo_setup)
-    time.sleep(1)
+    # 5) Create revert script first
+    revert_script = f"""#!/bin/bash
+set -e
 
-    try:
-        # 8) Execute user commands with ephemeral session
-        for uc in user_commands:
-            out, err = run_cmd(ep_client, uc, ignore_errors=True, use_sudo=True)
-            if out:
-                log_message("INFO", f"[{ip}] user_cmd => {out}")
-            if err:
-                log_message("WARNING", f"[{ip}] user_cmd error => {err}")
+# Restore firewall
+if [ -f /tmp/iptables.bak ]; then
+    iptables-restore < /tmp/iptables.bak
+    rm /tmp/iptables.bak
+else
+    iptables -F
+    iptables -X
+    iptables -P INPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+    iptables -P OUTPUT ACCEPT
+fi
 
-        # 9) Additional sudo rule for revert
-        sudo_persist_cmd = f"""
-echo '{ssh_user} ALL=(ALL) NOPASSWD: /tmp/revert_privacy.sh' > /etc/sudoers.d/97_{ssh_user}_revert
-chmod 440 /etc/sudoers.d/97_{ssh_user}_revert
-chown root:root /etc/sudoers.d
-chmod 750 /etc/sudoers.d
-"""
-        run_cmd(ep_client, sudo_persist_cmd)
+# Restore SSH keys
+if [ -f {authorized_keys_bak} ]; then
+    mv {authorized_keys_bak} {authorized_keys_path}
+    chmod 600 {authorized_keys_path}
+    chown {ssh_user}:{ssh_user} {authorized_keys_path}
+fi
 
-        # 10) Lockdown script
-        lockdown_script = f"""
-############################################################
-# 0) Sudo persistence block (already handled)
-############################################################
+# Restore sshd config
+if [ -f /etc/ssh/sshd_config.bak ]; then
+    mv /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+    systemctl restart sshd
+fi
 
-############################################################
-# 1) Minimal services
-############################################################
-allowed="apparmor.service
-dbus.service
-networkd-dispatcher.service
-polkit.service
-rsyslog.service
-snapd.service
-ssh.service
-systemd-journald.service
-systemd-logind.service
-systemd-networkd.service
-systemd-resolved.service
-systemd-timesyncd.service
-systemd-udevd.service"
-
-systemctl list-units --type=service --state=running --no-pager --no-legend | awk '{{print $1}}' | while read s; do
-    if echo "$allowed" | grep -qx "$s"; then
-        :
-    else
-        echo "Stopping+masking $s"
-        systemctl stop "$s" || true
-        systemctl disable "$s" || true
-        systemctl mask "$s" || true
-    fi
+# Unlock users
+for user in $(cut -f1 -d: /etc/passwd); do
+    passwd -u "$user" 2>/dev/null || true
 done
 
-############################################################
-# 2) disable console TTY if /etc/securetty
-############################################################
-if [ -f /etc/securetty ]; then
-    sed -i '/^tty[0-9]/d' /etc/securetty || true
-    sed -i '/^ttyS/d' /etc/securetty || true
-fi
-systemctl stop console-getty.service || true
-systemctl disable console-getty.service || true
-systemctl mask console-getty.service || true
+# Unmask and start services
+systemctl daemon-reload
+systemctl list-unit-files --state=masked --type=service | 
+awk '{{print $1}}' | while read service; do
+    systemctl unmask "$service"
+    systemctl start "$service" 2>/dev/null || true
+done
 
-systemctl stop serial-getty@ttyS0.service || true
-systemctl disable serial-getty@ttyS0.service || true
-systemctl mask serial-getty@ttyS0.service || true
+# Clean up
+rm -f /etc/sudoers.d/99_{ssh_user}_temp
+rm -f /tmp/revert_privacy.sh
+rm -f /etc/systemd/system/revert-privacy.timer
+rm -f /etc/systemd/system/revert-privacy.service
 
-############################################################
-# 3) lock root
-############################################################
-passwd -l root || true
+echo "Revert completed on $(date)"
+"""
 
-############################################################
-# 4) firewall => only {validator_ip}
-############################################################
+    # 6) Deploy revert mechanism
+    run_cmd(ep_client, f"""
+cat > /tmp/revert_privacy.sh << 'EOFMARKER'
+{revert_script}
+EOFMARKER
+
+chmod 700 /tmp/revert_privacy.sh
+
+cat > /etc/systemd/system/revert-privacy.service << 'EOFMARKER'
+[Unit]
+Description=Privacy revert service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/tmp/revert_privacy.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOFMARKER
+
+cat > /etc/systemd/system/revert-privacy.timer << 'EOFMARKER'
+[Unit]
+Description=Schedule privacy revert
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={test_duration_minutes}m
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target
+EOFMARKER
+
+systemctl daemon-reload
+systemctl enable revert-privacy.service
+systemctl start revert-privacy.timer
+""")
+
+    # 7) Execute lockdown
+    lockdown_script = f"""#!/bin/bash
+set -e
+
+# Backup sshd config
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+
+# Configure firewall
 NIC=$(ip route | grep default | awk '{{print $5}}' | head -1)
+iptables-save > /tmp/iptables.bak
 iptables -F
 iptables -X
 iptables -A INPUT -i $NIC -p tcp -s {validator_ip} -j ACCEPT
@@ -388,192 +400,37 @@ iptables -A OUTPUT -o $NIC -p tcp -d {validator_ip} -j ACCEPT
 iptables -A INPUT -i $NIC -j DROP
 iptables -A OUTPUT -o $NIC -j DROP
 
-############################################################
-# 5) kill processes except ephemeral session
-############################################################
-ps -ef \\
- | grep -v systemd \\
- | grep -v '\\[.*\\]' \\
- | grep -v sshd \\
- | grep -v bash \\
- | grep -v ps \\
- | grep -v grep \\
- | grep -v awk \\
- | grep -v nohup \\
- | grep -v sleep \\
- | grep -v revert_launcher \\
- | grep -v revert_privacy \\
- | awk '{{print $2}}' \\
- | while read pid; do
+# Lock users except current
+for user in $(cut -f1 -d: /etc/passwd); do
+    if [ "$user" != "{ssh_user}" ]; then
+        passwd -l "$user" 2>/dev/null || true
+    fi
+done
+
+# Stop and mask non-essential services
+essential="ssh.service systemd-journald.service systemd-networkd.service systemd-resolved.service revert-privacy.service"
+systemctl list-units --type=service --state=running --no-pager --no-legend | 
+awk '{{print $1}}' | while read service; do
+    if ! echo "$essential" | grep -q "$service"; then
+        systemctl stop "$service" 2>/dev/null || true
+        systemctl mask "$service" 2>/dev/null || true
+    fi
+done
+
+# Kill non-essential processes
+ps -ef | grep -v "sshd\|systemd\|bash\|sudo\|revert-privacy" | 
+awk '{{if ($1 != "root" && $1 != "{ssh_user}") print $2}}' |
+while read pid; do
     kill -9 "$pid" 2>/dev/null || true
 done
-
-############################################################
-# 6) remove original => keep ephemeral only
-############################################################
-if [ -f {authorized_keys_path} ]; then
-   TMPDIR=$(mktemp -d)
-   chown {ssh_user}:{ssh_user} $TMPDIR
-
-   awk '/# START EPHEMERAL KEY/,/# END EPHEMERAL KEY/' {authorized_keys_path} > $TMPDIR/ephemeral_only
-   chown {ssh_user}:{ssh_user} $TMPDIR/ephemeral_only
-   chmod 600 $TMPDIR/ephemeral_only
-
-   mv $TMPDIR/ephemeral_only {authorized_keys_path}
-   rm -rf $TMPDIR
-
-   chown -R {ssh_user}:{ssh_user} {ssh_dir}
-   chmod 700 {ssh_dir}
-   chmod 600 {authorized_keys_path}
-fi
 """
-        run_cmd(ep_client, lockdown_script)
+    run_cmd(ep_client, lockdown_script)
+    ep_client.close()
 
-        # 11) Revert script for after test_duration
-        revert_script = f"""
-cat <<'REVERT' > /tmp/revert_privacy.sh
-#!/bin/bash
-set -e
-echo "Reverting {ip} to normal..."
-
-# 1) Re-add TTY lines
-if [ -f /etc/securetty ]; then
-cat <<TTYS >> /etc/securetty
-tty1
-tty2
-tty3
-tty4
-tty5
-tty6
-ttyS0
-TTYS
-fi
-sudo systemctl unmask console-getty.service || true
-sudo systemctl enable console-getty.service || true
-sudo systemctl start console-getty.service || true
-sudo systemctl unmask serial-getty@ttyS0.service || true
-sudo systemctl enable serial-getty@ttyS0.service || true
-sudo systemctl start serial-getty@ttyS0.service || true
-
-# 2) Flush iptables
-sudo iptables -F
-sudo iptables -X
-sudo iptables -t nat -F
-sudo iptables -t nat -X
-sudo iptables -t mangle -F
-sudo iptables -t mangle -X
-sudo iptables -P INPUT ACCEPT
-sudo iptables -P FORWARD ACCEPT
-sudo iptables -P OUTPUT ACCEPT
-
-# 3) Restore user's authorized_keys if .bak, else remove ephemeral
-if [ -f {authorized_keys_bak} ]; then
-    sudo cp {authorized_keys_bak} {authorized_keys_path}
-    sudo chmod 600 {authorized_keys_path}
-else
-    sudo sed -i '/^# START EPHEMERAL KEY/,/^# END EPHEMERAL KEY/d' {authorized_keys_path} || true
-fi
-
-# 4) If there's an /etc/ssh/sshd_config.bak, restore it, else remove appended lines
-if [ -f /etc/ssh/sshd_config.bak ]; then
-    sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
-    sudo chmod 644 /etc/ssh/sshd_config
-else
-    sudo sed -i '/^Protocol 2$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PubkeyAuthentication yes$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PasswordAuthentication no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^ChallengeResponseAuthentication no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^UsePAM no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^X11Forwarding no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^AllowTcpForwarding no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PermitTunnel no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^AllowUsers root$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PermitRootLogin/d' /etc/ssh/sshd_config || true
-    echo 'PermitRootLogin yes' | sudo tee -a /etc/ssh/sshd_config >/dev/null
-fi
-sudo passwd -u root 2>/dev/null || true
-sudo systemctl restart sshd
-
-# 5) Unlock all users
-for u in $(cut -f1 -d: /etc/passwd); do
-    sudo usermod -U "$u" 2>/dev/null || true
-done
-sudo passwd -u root 2>/dev/null || true
-
-# 6) Restore kernel params
-sudo sysctl -w kernel.kptr_restrict=0
-sudo sysctl -w kernel.dmesg_restrict=0
-sudo sysctl -w kernel.perf_event_paranoid=2
-sudo sysctl -w net.ipv4.tcp_syncookies=1
-sudo sysctl -w net.ipv4.ip_forward=1
-sudo sysctl -w net.ipv4.conf.all.accept_redirects=1
-sudo sysctl -w net.ipv4.conf.all.send_redirects=1
-sudo sysctl -w net.ipv4.conf.all.accept_source_route=1
-sudo sysctl -w net.ipv4.conf.all.rp_filter=1
-sudo sysctl -p
-
-# 7) Re-enable masked or disabled services
-sudo systemctl daemon-reload
-for s in $(systemctl list-unit-files --type=service --state=masked | cut -d' ' -f1); do
-   sudo systemctl unmask $s || true
-done
-for s in $(systemctl list-unit-files --type=service --state=disabled | cut -d' ' -f1); do
-   sudo systemctl enable $s || true
-   sudo systemctl start $s 2>/dev/null || true
-done
-
-# 8) Revert kernel modules
-echo 0 | sudo tee /proc/sys/kernel/modules_disabled >/dev/null
-
-# 9) Re-enable networking
-sudo systemctl unmask systemd-networkd.service || true
-sudo systemctl enable systemd-networkd.service || true
-sudo systemctl start systemd-networkd.service || true
-sudo systemctl unmask systemd-resolved.service || true
-sudo systemctl enable systemd-resolved.service || true
-sudo systemctl start systemd-resolved.service || true
-
-echo "Done revert on {ip}"
-REVERT
-
-chmod +x /tmp/revert_privacy.sh
-
-cat <<'LAUNCH' > /tmp/revert_launcher.sh
-#!/bin/bash
-sleep {test_duration_minutes}m
-
-# Attempt direct sudo first
-if [ -f /tmp/revert_privacy.sh ]; then
-    if sudo -n true 2>/dev/null; then
-        sudo /tmp/revert_privacy.sh
-    else
-        # fallback to the more specific sudo rule
-        sudo -n /tmp/revert_privacy.sh
-    fi
-else
-    echo "Revert script missing - emergency fallback"
-    sudo -n iptables -F
-    sudo -n iptables -P INPUT ACCEPT
-    sudo -n iptables -P OUTPUT ACCEPT
-    sudo -n iptables -P FORWARD ACCEPT
-fi
-LAUNCH
-
-chmod +x /tmp/revert_launcher.sh
-nohup bash /tmp/revert_launcher.sh >/dev/null 2>&1 &
-"""
-        run_cmd(ep_client, revert_script)
-
-        # Close ephemeral client
-        ep_client.close()
-
-    except Exception as e:
-        log_message("ERROR", f"[Phase2] error for {ip}: {e}")
-        ep_client.close()
-        return False
-
-    log_message("INFO", f"--- Done single-pass ephemeral setup for {ip} ---")
+    log_message("INFO", f"--- Done single-pass session setup for {ip} ---")
     return True
+
+    
 
 ######################################################################
 # 5) MODEL CLASS
@@ -606,21 +463,20 @@ class DendriteResponseEvent(BaseModel):
     @model_validator(mode="after")
     def process_results(self) -> "DendriteResponseEvent":
         """
-        For each synapse, run ephemeral setup on each machine in the machine_config,
+        For each synapse, run session setup on each machine in the machine_config,
         using optional user commands based on role, then shuffle the playlist.
         """
-        # Example commands by machine name
-        role_cmds = {
-            "Attacker": ["sudo apt-get update -qq || true"],
-            "Benign":   ["sudo apt update", "sudo apt install -y npm"],
-            "King":     ["sudo apt update", "sudo apt install -y npm"],
-        }
+        # # Example commands by machine name
+        # role_cmds = {
+        #     "Attacker": ["sudo apt-get update -qq || true"],
+        #     "Benign":   ["sudo apt update", "sudo apt install -y npm"],
+        #     "King":     ["sudo apt update", "sudo apt install -y npm"],
+        # }
 
         local_ip = get_local_ip()
 
         for uid, synapse in zip(self.uids, self.results) :
             ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
-            ssh_user = synapse.machine_availabilities.ssh_user
 
             if not (ssh_pub and ssh_priv):
                 log_message("ERROR", "Missing SSH Key Pair => skipping synapse.")
@@ -629,36 +485,37 @@ class DendriteResponseEvent(BaseModel):
                 continue
 
             # Save original key for debugging
-            self.save_private_key(ssh_priv, "/tmp/original_key_"+str(uid)+".pem")
+            self.save_private_key(ssh_priv, "/var/tmp/original_key_"+str(uid)+".pem")
 
             # For each machine in the config
             for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
                 ip = machine_details.ip
+                ssh_user = machine_details.username
                 if not is_valid_ip(ip):
                     log_message("ERROR", f"Invalid IP {ip} => skipping machine.")
                     self.status_messages.append("Invalid IP format.")
                     self.status_codes.append(400)
                     continue
 
-                # Gather role-based commands
-                user_cmds = role_cmds.get(machine_name, [])
+                # # Gather role-based commands
+                # user_cmds = role_cmds.get(machine_name, [])
 
-                log_message("INFO", f"Starting ephemeral single-pass setup for machine '{machine_name}' at {ip}, user={ssh_user}.")
+                log_message("INFO", f"Starting session single-pass setup for machine '{machine_name}' at {ip}, user={ssh_user}.")
 
                 success = single_pass_setup(
                     uid=uid,
                     ip=ip,
                     original_priv_key=ssh_priv,
                     ssh_user=ssh_user,
-                    user_commands=user_cmds,
+                    # user_commands=user_cmds,
                     validator_ip=local_ip,
-                    test_duration_minutes=5
+                    test_duration_minutes=1
                 )
                 if success:
-                    self.status_messages.append(f"Ephemeral setup success for {machine_name} ({ip}) as {ssh_user}.")
+                    self.status_messages.append(f"Session setup success for {machine_name} ({ip}) as {ssh_user}.")
                     self.status_codes.append(200)
                 else:
-                    self.status_messages.append(f"Ephemeral setup failed for {machine_name} ({ip}) as {ssh_user}.")
+                    self.status_messages.append(f"Session setup failed for {machine_name} ({ip}) as {ssh_user}.")
                     self.status_codes.append(500)
 
         # Shuffle / transform playlist
