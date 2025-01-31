@@ -108,9 +108,9 @@ async def assign_miners_to_validators():
                 except Exception as e:
                     print(f"❌ Error assigning miners to {validator['hotkey']}: {e}")
 
-            # Wait for 180 seconds **only after miners have been assigned**
-            print("⏳ Waiting 180 seconds before next round...")
-            await asyncio.sleep(180)
+            # Wait for 240 seconds **only after miners have been assigned**
+            print("⏳ Waiting 240 seconds before next round...")
+            await asyncio.sleep(240)
 
 async def on_startup(app):
     asyncio.create_task(assign_miners_to_validators())

@@ -8,13 +8,13 @@ from tensorprox import settings
 import os
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
-
+from typing import Tuple
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.miner_availability.miner_availability import query_availabilities
+from tensorprox.miner_availability.miner_availability import query_availabilities, setup_available_machines
 
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
@@ -40,7 +40,7 @@ class Validator(BaseValidatorNeuron):
         self.assigned_miners = []  # To store the assigned miners (UIDs)
         self.playlist = []  # To store the playlist 
 
-    async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
+    async def run_step(self, timeout: float) -> Tuple[DendriteResponseEvent, DendriteResponseEvent] | DendriteResponseEvent | None:
         """Runs a single step to query the assigned miners' availability."""
         try:
             async with self._lock:
@@ -50,15 +50,45 @@ class Validator(BaseValidatorNeuron):
 
                 # Query availabilities of the assigned miners
                 with Timer() as timer:
-                    responses = await query_availabilities(uids=self.assigned_miners)
+                    synapses, all_miners_availability = await query_availabilities(self.assigned_miners)
 
                 # Encapsulate the responses in a response event
-                response_event = DendriteResponseEvent(results=responses, uids=self.assigned_miners, playlist=self.playlist)
+                response_event_1 = DendriteResponseEvent(synapses = synapses, all_miners_availability = all_miners_availability, uids=self.assigned_miners)
 
                 logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-                logger.debug(response_event)
+                logger.debug(response_event_1)
 
-                return response_event
+
+                # Step 2: Extract available miners (only those with status 200)
+                available_miners = [
+                    (uid, synapse) for uid, status, synapse in zip(self.assigned_miners, all_miners_availability, synapses)
+                    if status["ping_status_code"] == 200
+                ]
+
+                if not available_miners:
+                    logger.warning("No miners are available after availability check.")
+                    return response_event_1  # Return first response since no miners are ready
+
+                # Step 3: Setup available miners
+                with Timer() as setup_timer:
+                    logger.info("Setting up available miners...")
+                    setup_status = await setup_available_machines(available_miners, self.playlist)
+                
+                logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")  
+                logger.debug(setup_status)
+
+                # # Step 4: Create second response event (After machine setup)
+                # response_event_2 = DendriteResponseEvent(
+                #     synapses=synapses,  # Keep original synapses
+                #     setup_status=setup_status,  # Updated availability after setup
+                #     uids=available_miners  # Only available miners
+                # )
+
+                # logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
+                # logger.debug(response_event_2)
+
+
+                return response_event_1
 
         except Exception as ex:
             logger.exception(ex)

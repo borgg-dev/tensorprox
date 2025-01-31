@@ -48,7 +48,7 @@ class PingSynapse(bt.Synapse):
                     key: details.dict() 
                     for key, details in self.machine_availabilities.machine_config.items()
                 }
-            }
+            },
         }
 
 
@@ -66,7 +66,10 @@ class PingSynapse(bt.Synapse):
         }
         
         return cls(
-            machine_availabilities=MachineConfig(machine_config=machine_availabilities)
+            machine_availabilities=MachineConfig(
+                key_pair=tuple(data.get("machine_availabilities", {}).get("key_pair", ("", ""))),
+                machine_config=machine_availabilities,
+            ),
         )
 
     
