@@ -44,7 +44,7 @@ def add_ssh_key_to_remote_machine(
     machine_ip: str,
     ssh_public_key: str,
     initial_private_key_path: str,
-    username: str = os.environ.get("USERNAME"),
+    username: str,
     timeout: int = 5,
     retries: int = 3,
 ):
@@ -56,52 +56,68 @@ def add_ssh_key_to_remote_machine(
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+    prefix_path = f"/root" if username == "root" else f"/home/{username}"
+    
     attempt = 0
     while attempt < retries:
         try:
             print(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
 
-            # Step 1: Use the initial private key to connect
+            # Step 1: Connect using the private key
             ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path, timeout=timeout)
 
             # Step 2: Ensure the .ssh directory exists
-            ssh.exec_command(f"mkdir -p /home/{username}/.ssh")
-            ssh.exec_command(f"chmod 700 /home/{username}/.ssh")
+            commands = [
+                f"mkdir -p {prefix_path}/.ssh",
+                f"chmod 700 {prefix_path}/.ssh",
+                f"touch {prefix_path}/.ssh/authorized_keys",
+                f"chmod 600 {prefix_path}/.ssh/authorized_keys",
+                f"chown -R {username}:{username} {prefix_path}/.ssh"
+            ]
+            for cmd in commands:
+                ssh.exec_command(cmd)
 
             # Step 3: Check if the public key already exists
-            stdin, stdout, stderr = ssh.exec_command(
-                f"grep -F '{ssh_public_key}' /home/{username}/.ssh/authorized_keys"
-            )
-            output = stdout.read().decode().strip()
+            stdin, stdout, stderr = ssh.exec_command(f"cat {prefix_path}/.ssh/authorized_keys")
+            authorized_keys = stdout.read().decode().strip()
 
-            if ssh_public_key in output:
-                print(f"SSH key already exists on {machine_ip}")
+            if ssh_public_key.strip() in authorized_keys:
+                print(f"SSH key already exists on {machine_ip}.")
             else:
-                # Step 4: Add the new public key to authorized_keys
-                ssh.exec_command(f'echo "{ssh_public_key}" >> /home/{username}/.ssh/authorized_keys')
-                ssh.exec_command(f"chmod 600 /home/{username}/.ssh/authorized_keys")
-                print(f"SSH key added to {machine_ip}")
+                # Step 4: Add the new public key
+                print(f"Adding SSH key to {machine_ip}...")
+                stdin, stdout, stderr = ssh.exec_command(f'echo "{ssh_public_key.strip()}" >> {prefix_path}/.ssh/authorized_keys')
+                error = stderr.read().decode().strip()
+                if error:
+                    print(f"Error adding SSH key: {error}")
+                else:
+                    print(f"SSH key successfully added to {machine_ip}.")
+                
+                # Ensure correct permissions again
+                ssh.exec_command(f"chmod 600 {prefix_path}/.ssh/authorized_keys")
 
             # Step 5: Update sudoers file for passwordless sudo
             sudoers_entry = f"{username} ALL=(ALL) NOPASSWD: ALL"
             print(f"Updating sudoers file for user {username}...")
-            stdin, stdout, stderr = ssh.exec_command(f'echo "{sudoers_entry}" | sudo tee -a /etc/sudoers')
+            stdin, stdout, stderr = ssh.exec_command(f'echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo')
             err = stderr.read().decode().strip()
-
             if err:
                 print(f"Error updating sudoers file: {err}")
             else:
                 print(f"Sudoers file updated on {machine_ip} for user {username}.")
-                # Optionally restart sudo service (if required)
-                ssh.exec_command('sudo systemctl restart sudo')
+                ssh.exec_command('sudo systemctl restart sudo || echo "Skipping sudo restart"')
+
             break  # Exit loop if successful
+
         except paramiko.ssh_exception.SSHException as e:
             attempt += 1
             print(f"Error while connecting to {machine_ip} on attempt {attempt}/{retries}: {e}")
             if attempt == retries:
                 print(f"Failed to connect to {machine_ip} after {retries} attempts.")
+
         finally:
             ssh.close()
+
 
 
 class Miner(BaseMinerNeuron):
@@ -115,23 +131,29 @@ class Miner(BaseMinerNeuron):
 
         try:
             ssh_public_key, ssh_private_key = generate_ssh_key_pair()
-            synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"))
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"))
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"))
+            attacker_username = os.environ.get("ATTACKER_USERNAME")
+            benign_username = os.environ.get("BENIGN_USERNAME")
+            king_username = os.environ.get("KING_USERNAME")
             
+            synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"), username=attacker_username)
+            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"), username=benign_username)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"), username=king_username)
 
+            
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
 
             # Add the public key to each machine
             for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
                 machine_ip = machine_details.ip
+                machine_username = machine_details.username
                 logger.debug(f"Adding SSH key to {machine_name} at IP {machine_ip}")
                 add_ssh_key_to_remote_machine(
                     machine_ip=machine_ip,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
+                    username=machine_username,
                 )
 
         except Exception as e:

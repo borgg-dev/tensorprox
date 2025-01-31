@@ -18,7 +18,6 @@
 # Generate hot key using btcli
 # btcli w regen_hotkey --wallet.name borgg --wallet.hotkey hotkey-test --mnemonic "two oven toy elevator cargo certain bird connect sport tip soda rebel"
 
-
 pm2 kill && pm2 flush
 
 # Start validator and miner services with pm2
