@@ -80,10 +80,9 @@ def get_local_ip() -> str:
 
     return "127.0.0.1"
 
-# Add this near the top of dendrite.py
+
 SESSION_KEY_DIR = "/var/tmp/session_keys"
 
-# Add this after defining SESSION_KEY_DIR
 if not os.path.exists(SESSION_KEY_DIR):
     try:
         os.makedirs(SESSION_KEY_DIR, mode=0o700, exist_ok=True)
@@ -117,9 +116,10 @@ def generate_local_session_keypair(key_path: str) -> (str, str):
         raise
 
     # Generate
+    log_message("INFO", "🚀 Generating session ED25519 keypair...")
     subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""], check=True)
 
-    # Fix permissions on the newly created files
+    # Fix permissions
     os.chmod(key_path, 0o600)
     if os.path.exists(f"{key_path}.pub"):
         os.chmod(f"{key_path}.pub", 0o644)
@@ -130,8 +130,8 @@ def generate_local_session_keypair(key_path: str) -> (str, str):
     with open(f"{key_path}.pub", "r") as fpk:
         pub = fpk.read().strip()
 
+    log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
-
 
 
 ######################################################################
@@ -155,34 +155,35 @@ def create_and_test_connection(
     attempt = 0
     while attempt < retries:
         try:
-            log_message("INFO", f"SSH connect to {ip} as {ssh_user}, attempt {attempt+1}/{retries}")
+            log_message("INFO", f"🔗 Attempting SSH connect to {ip} as '{ssh_user}', attempt {attempt+1}/{retries}...")
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
             # Decide key type exactly once
             if "BEGIN RSA PRIVATE KEY" in private_key_str or "RSA PRIVATE KEY" in private_key_str:
                 pkey = RSAKey.from_private_key(io.StringIO(private_key_str))
+                log_message("INFO", "🔑 Detected RSA private key format.")
             else:
-                # Assume Ed25519 (covers 'OPENSSH PRIVATE KEY' and typical ED25519 markers)
                 pkey = Ed25519Key.from_private_key(io.StringIO(private_key_str))
+                log_message("INFO", "🔑 Detected ED25519 private key format.")
 
             # Connect
             client.connect(ip, username=ssh_user, pkey=pkey, timeout=timeout, look_for_keys=False, allow_agent=False)
 
-            # Keep alive so session changes won't drop us too fast
+            # Keep alive
             transport = client.get_transport()
             if transport:
                 transport.set_keepalive(15)
 
-            log_message("INFO", f"SSH connection to {ip} succeeded (user={ssh_user}).")
+            log_message("INFO", f"🟢 SSH connection to {ip} succeeded (user={ssh_user}).")
             return client
 
         except paramiko.AuthenticationException:
-            log_message("ERROR", f"SSH authentication failed for {ip} (user={ssh_user}).")
+            log_message("ERROR", f"❌ SSH authentication failed for {ip} (user={ssh_user}).")
         except paramiko.SSHException as e:
-            log_message("ERROR", f"SSH error for {ip}: {e}")
+            log_message("ERROR", f"⚠️ SSH error for {ip}: {e}")
         except Exception as e:
-            log_message("ERROR", f"Unexpected error for {ip}: {e}")
+            log_message("ERROR", f"💥 Unexpected error for {ip}: {e}")
 
         attempt += 1
         if attempt < retries:
@@ -206,7 +207,10 @@ def run_cmd(client: paramiko.SSHClient, cmd: str, ignore_errors=False, use_sudo=
     err = stderr.read().decode().strip()
 
     if err and not ignore_errors:
-        log_message("WARNING", f"Command error '{cmd}': {err}")
+        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
+    else:
+        if out:
+            log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
     return out, err
 
 def get_authorized_keys_dir(ssh_user: str) -> str:
@@ -226,11 +230,12 @@ def install_packages_if_missing(client: paramiko.SSHClient, packages: list[str])
         check_cmd = f"dpkg -s {pkg} >/dev/null 2>&1"
         stdin, stdout, stderr = client.exec_command(check_cmd)
         code = stdout.channel.recv_exit_status()
-        if code != 0:  # missing
-            log_message("INFO", f"Package '{pkg}' missing => installing.")
+        if code != 0:  
+            log_message("INFO", f"📦 Package '{pkg}' missing => installing now...")
             run_cmd(client, "DEBIAN_FRONTEND=noninteractive apt-get update -qq || true", ignore_errors=True)
             run_cmd(client, f"DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}", ignore_errors=True)
             time.sleep(1)  # small wait after install
+
 
 ######################################################################
 # 3) SINGLE-PASS SESSION SETUP
@@ -241,15 +246,40 @@ def single_pass_setup(
     ip: str,
     original_priv_key: str,
     ssh_user: str,
-    # user_commands: list[str],
+    user_commands: list[str],
     validator_ip: str,
     test_duration_minutes: int
 ) -> bool:
     """
-    Single-pass setup with reliable process management and state transitions.
-    """
-    log_message("INFO", f"--- Single-pass session setup for {ip} as {ssh_user} start ---")
+    Enhanced single-pass session setup with proper sudo elevation,
+    session (session) key insertion for any user, plus a guaranteed
+    revert after test_duration_minutes on Ubuntu 22.04 LTS.
 
+    Logical Flow:
+      1) Connect via ORIGINAL SSH key
+      2) Generate session key & add to authorized_keys
+      3) Close original connection, test session key
+      4) With session session:
+         - Give session user full NOPASSWD
+         - Run user_commands
+         - Create BOTH revert_privacy.sh + revert_launcher.sh
+         - **Immediately** launch the revert launcher via nohup (detached)
+      5) Now do the "lockdown" (remove original key lines, kill all extraneous processes,
+         block all IP except validator_ip, etc.)
+      6) Close session session.
+      => The revert_launcher continues sleeping in the background, unaffected by the kill loop,
+         and fires revert_privacy.sh exactly after `test_duration_minutes`.
+
+    """
+
+    log_message("INFO", f"🔒 Single-pass session setup for {ip} as '{ssh_user}' start...")
+
+    ########################################################################
+    # A) CONNECT WITH ORIGINAL KEY + PREPARE
+    ########################################################################
+
+
+    log_message("INFO", f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
     # 1) Generate session key
     session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}")
     session_priv, session_pub = generate_local_session_keypair(session_key_path)
@@ -257,142 +287,301 @@ def single_pass_setup(
     # 2) Connect with original key
     client_orig = create_and_test_connection(ip, original_priv_key, ssh_user=ssh_user, retries=5, timeout=15)
     if not client_orig:
-        log_message("ERROR", f"[Phase1] Could NOT connect to {ip} as {ssh_user} => abort session setup.")
+        log_message("ERROR", f"❌ Could NOT connect to {ip} as {ssh_user}. Aborting session setup.")
         return False
 
-    # 3) Prepare sudo access and session key
+    # Ensure minimal packages
+    run_cmd(client_orig, "echo 'SUDO_TEST'", use_sudo=True)
+    needed = ["net-tools", "iptables-persistent", "psmisc"]
+    install_packages_if_missing(client_orig, needed)
+
+    # Avoid 'requiretty'
+    no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
+    run_cmd(client_orig, no_tty_cmd, use_sudo=True)
+    time.sleep(1)
+
+    ########################################################################
+    # B) INSERT SESSION KEY + CLOSE ORIGINAL
+    ########################################################################
+
+    log_message("INFO", "🔐 Step B: Inserting session key into authorized_keys and closing original SSH.")
     ssh_dir = get_authorized_keys_dir(ssh_user)
     authorized_keys_path = f"{ssh_dir}/authorized_keys"
     authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak"
 
-    setup_cmd = f"""
-        echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
-        chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
+    insert_key_cmd = f"""
+export TMPDIR=$(mktemp -d /tmp/.ssh_setup_XXXXXX)
+chmod 700 $TMPDIR
+chown {ssh_user}:{ssh_user} $TMPDIR
 
-        mkdir -p {ssh_dir}
-        if [ -f {authorized_keys_path} ]; then
-            cp {authorized_keys_path} {authorized_keys_bak}
-        fi
+# Backup existing keys if not already backed up
+mkdir -p {ssh_dir}
+if [ -f {authorized_keys_path} ] && [ ! -f {authorized_keys_bak} ]; then
+    cp {authorized_keys_path} {authorized_keys_bak}
+    chmod 600 {authorized_keys_bak}
+fi
 
-        echo '# START SESSION KEY' > {authorized_keys_path}
-        echo '{session_pub}' >> {authorized_keys_path}
-        echo '# END SESSION KEY' >> {authorized_keys_path}
-        if [ -f {authorized_keys_bak} ]; then
-            cat {authorized_keys_bak} >> {authorized_keys_path}
-        fi
-        chmod 600 {authorized_keys_path}
-        chown {ssh_user}:{ssh_user} {authorized_keys_path}
-    """
-    run_cmd(client_orig, setup_cmd)
+# Remove any existing session lines
+if [ -f {authorized_keys_path} ]; then
+    grep -v '^# START SESSION KEY' {authorized_keys_path} | \\
+    grep -v '^# END SESSION KEY' | \\
+    grep -v '{session_pub}' > $TMPDIR/authorized_keys_clean || true
+else
+    touch $TMPDIR/authorized_keys_clean
+fi
+
+echo '# START SESSION KEY' >> $TMPDIR/authorized_keys_clean
+echo '{session_pub}' >> $TMPDIR/authorized_keys_clean
+echo '# END SESSION KEY' >> $TMPDIR/authorized_keys_clean
+
+chown {ssh_user}:{ssh_user} $TMPDIR/authorized_keys_clean
+chmod 600 $TMPDIR/authorized_keys_clean
+mv $TMPDIR/authorized_keys_clean {authorized_keys_path}
+rm -rf $TMPDIR
+chown -R {ssh_user}:{ssh_user} {ssh_dir}
+chmod 700 {ssh_dir}
+chmod 600 {authorized_keys_path}
+"""
+    run_cmd(client_orig, insert_key_cmd)
     client_orig.close()
+    log_message("INFO", f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
 
-    # 4) Test session connection
+    ########################################################################
+    # C) TEST SESSION KEY
+    ########################################################################
+
+    log_message("INFO", f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
     ep_client = create_and_test_connection(ip, session_priv, ssh_user=ssh_user, retries=5, timeout=15)
     if not ep_client:
-        log_message("ERROR", f"[Phase1.5] session test failed => skip {ip}.")
+        log_message("ERROR", f"❌ Session SSH test failed => skipping {ip}.")
         return False
 
-    # 5) Create revert script first
-    revert_script = f"""#!/bin/bash
-set -e
+    log_message("INFO", f"✨ Session session key success => proceeding to revert scheduling + lockdown for {ip}.")
 
-# Restore firewall
-if [ -f /tmp/iptables.bak ]; then
-    iptables-restore < /tmp/iptables.bak
-    rm /tmp/iptables.bak
-else
-    iptables -F
-    iptables -X
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
-fi
+    ########################################################################
+    # D) PREPARE REVERT SCRIPTS, LAUNCH NOHUP, THEN LOCKDOWN
+    ########################################################################
 
-# Restore SSH keys
-if [ -f {authorized_keys_bak} ]; then
-    mv {authorized_keys_bak} {authorized_keys_path}
-    chmod 600 {authorized_keys_path}
-    chown {ssh_user}:{ssh_user} {authorized_keys_path}
-fi
+    log_message("INFO", "🧩 Step D: Setting up passwordless sudo, user commands, revert scripts, and nohup revert launcher...")
 
-# Restore sshd config
-if [ -f /etc/ssh/sshd_config.bak ]; then
-    mv /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
-    systemctl restart sshd
-fi
-
-# Unlock users
-for user in $(cut -f1 -d: /etc/passwd); do
-    passwd -u "$user" 2>/dev/null || true
-done
-
-# Unmask and start services
-systemctl daemon-reload
-systemctl list-unit-files --state=masked --type=service | 
-awk '{{print $1}}' | while read service; do
-    systemctl unmask "$service"
-    systemctl start "$service" 2>/dev/null || true
-done
-
-# Clean up
-rm -f /etc/sudoers.d/99_{ssh_user}_temp
-rm -f /tmp/revert_privacy.sh
-rm -f /etc/systemd/system/revert-privacy.timer
-rm -f /etc/systemd/system/revert-privacy.service
-
-echo "Revert completed on $(date)"
+    # 1) Full NOPASSWD
+    sudo_setup_cmd = f"""
+echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
+chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
 """
+    run_cmd(ep_client, sudo_setup_cmd)
+    time.sleep(1)
 
-    # 6) Deploy revert mechanism
-    run_cmd(ep_client, f"""
-cat > /tmp/revert_privacy.sh << 'EOFMARKER'
-{revert_script}
-EOFMARKER
+    # 2) Execute user commands
+    if user_commands:
+        log_message("INFO", f"🛠 Running custom user commands for role on {ip}.")
+    for uc in user_commands:
+        out, err = run_cmd(ep_client, uc, ignore_errors=True, use_sudo=True)
 
-chmod 700 /tmp/revert_privacy.sh
+    # 3) Additional rule for revert script
+    persist_revert_cmd = f"""
+echo '{ssh_user} ALL=(ALL) NOPASSWD: /tmp/revert_privacy.sh' > /etc/sudoers.d/97_{ssh_user}_revert
+chmod 440 /etc/sudoers.d/97_{ssh_user}_revert
+chown root:root /etc/sudoers.d
+chmod 750 /etc/sudoers.d
+"""
+    run_cmd(ep_client, persist_revert_cmd)
 
-cat > /etc/systemd/system/revert-privacy.service << 'EOFMARKER'
-[Unit]
-Description=Privacy revert service
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/tmp/revert_privacy.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOFMARKER
-
-cat > /etc/systemd/system/revert-privacy.timer << 'EOFMARKER'
-[Unit]
-Description=Schedule privacy revert
-
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec={test_duration_minutes}m
-AccuracySec=1s
-
-[Install]
-WantedBy=timers.target
-EOFMARKER
-
-systemctl daemon-reload
-systemctl enable revert-privacy.service
-systemctl start revert-privacy.timer
-""")
-
-    # 7) Execute lockdown
-    lockdown_script = f"""#!/bin/bash
+    # 4) Create revert + launcher
+    log_message("INFO", "📝 Creating revert_privacy.sh and revert_launcher.sh on the remote host...")
+    revert_script = f"""
+cat <<'REVERT' > /tmp/revert_privacy.sh
+#!/bin/bash
 set -e
+echo "Reverting {ip} to normal..."
 
-# Backup sshd config
-cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+# 1) Re-add TTY lines
+if [ -f /etc/securetty ]; then
+cat <<TTYS >> /etc/securetty
+tty1
+tty2
+tty3
+tty4
+tty5
+tty6
+ttyS0
+TTYS
+fi
+sudo systemctl unmask console-getty.service || true
+sudo systemctl enable console-getty.service || true
+sudo systemctl start console-getty.service || true
+sudo systemctl unmask serial-getty@ttyS0.service || true
+sudo systemctl enable serial-getty@ttyS0.service || true
+sudo systemctl start serial-getty@ttyS0.service || true
 
-# Configure firewall
+# 2) Flush iptables
+sudo iptables -F
+sudo iptables -X
+sudo iptables -t nat -F
+sudo iptables -t nat -X
+sudo iptables -t mangle -F
+sudo iptables -t mangle -X
+sudo iptables -P INPUT ACCEPT
+sudo iptables -P FORWARD ACCEPT
+sudo iptables -P OUTPUT ACCEPT
+
+# 3) Restore user's authorized_keys
+if [ -f {authorized_keys_bak} ]; then
+    sudo cp {authorized_keys_bak} {authorized_keys_path}
+    sudo chmod 600 {authorized_keys_path}
+else
+    sudo sed -i '/^# START SESSION KEY/,/^# END SESSION KEY/d' {authorized_keys_path} || true
+fi
+
+# 4) If there's /etc/ssh/sshd_config.bak, restore it, else remove appended lines
+if [ -f /etc/ssh/sshd_config.bak ]; then
+    sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+    sudo chmod 644 /etc/ssh/sshd_config
+else
+    sudo sed -i '/^Protocol 2$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^PubkeyAuthentication yes$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^PasswordAuthentication no$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^ChallengeResponseAuthentication no$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^UsePAM no$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^X11Forwarding no$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^AllowTcpForwarding no$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^PermitTunnel no$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^AllowUsers root$/d' /etc/ssh/sshd_config
+    sudo sed -i '/^PermitRootLogin/d' /etc/ssh/sshd_config || true
+    echo 'PermitRootLogin yes' | sudo tee -a /etc/ssh/sshd_config >/dev/null
+fi
+sudo passwd -u root 2>/dev/null || true
+sudo systemctl restart sshd
+
+# 5) Unlock all users
+for u in $(cut -f1 -d: /etc/passwd); do
+    sudo usermod -U "$u" 2>/dev/null || true
+done
+sudo passwd -u root 2>/dev/null || true
+
+# 6) Restore kernel params
+sudo sysctl -w kernel.kptr_restrict=0
+sudo sysctl -w kernel.dmesg_restrict=0
+sudo sysctl -w kernel.perf_event_paranoid=2
+sudo sysctl -w net.ipv4.tcp_syncookies=1
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo sysctl -w net.ipv4.conf.all.accept_redirects=1
+sudo sysctl -w net.ipv4.conf.all.send_redirects=1
+sudo sysctl -w net.ipv4.conf.all.accept_source_route=1
+sudo sysctl -w net.ipv4.conf.all.rp_filter=1
+sudo sysctl -p
+
+# 7) Re-enable masked or disabled services
+sudo systemctl daemon-reload
+for s in $(systemctl list-unit-files --type=service --state=masked | cut -d' ' -f1); do
+    sudo systemctl unmask $s || true
+done
+for s in $(systemctl list-unit-files --type=service --state=disabled | cut -d' ' -f1); do
+    sudo systemctl enable $s || true
+    sudo systemctl start $s 2>/dev/null || true
+done
+
+# 8) Revert modules + networking
+echo 0 | sudo tee /proc/sys/kernel/modules_disabled >/dev/null
+sudo systemctl unmask systemd-networkd.service || true
+sudo systemctl enable systemd-networkd.service || true
+sudo systemctl start systemd-networkd.service || true
+sudo systemctl unmask systemd-resolved.service || true
+sudo systemctl enable systemd-resolved.service || true
+sudo systemctl start systemd-resolved.service || true
+
+echo "Done revert on {ip}"
+REVERT
+
+chmod +x /tmp/revert_privacy.sh
+
+cat <<'LAUNCH' > /tmp/revert_launcher.sh
+#!/bin/bash
+sleep {test_duration_minutes}m
+
+if [ -f /tmp/revert_privacy.sh ]; then
+    if sudo -n true 2>/dev/null; then
+        sudo /tmp/revert_privacy.sh
+    else
+        sudo -n /tmp/revert_privacy.sh
+    fi
+else
+    echo "Revert script missing - emergency fallback"
+    sudo -n iptables -F
+    sudo -n iptables -P INPUT ACCEPT
+    sudo -n iptables -P OUTPUT ACCEPT
+    sudo -n iptables -P FORWARD ACCEPT
+fi
+LAUNCH
+
+chmod +x /tmp/revert_privacy.sh
+chmod +x /tmp/revert_launcher.sh
+"""
+    run_cmd(ep_client, revert_script, ignore_errors=True)
+
+    log_message("INFO", f"📝 Revert scripts created. test_duration_minutes={test_duration_minutes} => scheduling now...")
+
+    # Launch revert_launcher via nohup BEFORE lockdown
+    nohup_cmd = "nohup bash /tmp/revert_launcher.sh >/dev/null 2>&1 &"
+    run_cmd(ep_client, nohup_cmd, ignore_errors=True)
+    log_message("INFO", "⏰ Revert launcher started in background. We'll now do final lockdown...")
+
+    ########################################################################
+    # E) LOCKDOWN (FINAL)
+    ########################################################################
+
+    lockdown_cmd = f"""
+############################################################
+# 1) Minimal services
+############################################################
+allowed="apparmor.service
+dbus.service
+networkd-dispatcher.service
+polkit.service
+rsyslog.service
+snapd.service
+ssh.service
+systemd-journald.service
+systemd-logind.service
+systemd-networkd.service
+systemd-resolved.service
+systemd-timesyncd.service
+systemd-udevd.service"
+
+systemctl list-units --type=service --state=running --no-pager --no-legend | awk '{{print $1}}' | while read s; do
+    if echo "$allowed" | grep -qx "$s"; then
+        :
+    else
+        echo "Stopping+masking $s"
+        systemctl stop "$s" || true
+        systemctl disable "$s" || true
+        systemctl mask "$s" || true
+    fi
+done
+
+############################################################
+# 2) disable console TTY if /etc/securetty
+############################################################
+if [ -f /etc/securetty ]; then
+    sed -i '/^tty[0-9]/d' /etc/securetty || true
+    sed -i '/^ttyS/d' /etc/securetty || true
+fi
+systemctl stop console-getty.service || true
+systemctl disable console-getty.service || true
+systemctl mask console-getty.service || true
+systemctl stop serial-getty@ttyS0.service || true
+systemctl disable serial-getty@ttyS0.service || true
+systemctl mask serial-getty@ttyS0.service || true
+
+############################################################
+# 3) lock root
+############################################################
+passwd -l root || true
+
+############################################################
+# 4) firewall => only {validator_ip}
+############################################################
 NIC=$(ip route | grep default | awk '{{print $5}}' | head -1)
-iptables-save > /tmp/iptables.bak
 iptables -F
 iptables -X
 iptables -A INPUT -i $NIC -p tcp -s {validator_ip} -j ACCEPT
@@ -400,37 +589,54 @@ iptables -A OUTPUT -o $NIC -p tcp -d {validator_ip} -j ACCEPT
 iptables -A INPUT -i $NIC -j DROP
 iptables -A OUTPUT -o $NIC -j DROP
 
-# Lock users except current
-for user in $(cut -f1 -d: /etc/passwd); do
-    if [ "$user" != "{ssh_user}" ]; then
-        passwd -l "$user" 2>/dev/null || true
-    fi
-done
-
-# Stop and mask non-essential services
-essential="ssh.service systemd-journald.service systemd-networkd.service systemd-resolved.service revert-privacy.service"
-systemctl list-units --type=service --state=running --no-pager --no-legend | 
-awk '{{print $1}}' | while read service; do
-    if ! echo "$essential" | grep -q "$service"; then
-        systemctl stop "$service" 2>/dev/null || true
-        systemctl mask "$service" 2>/dev/null || true
-    fi
-done
-
-# Kill non-essential processes
-ps -ef | grep -v "sshd\|systemd\|bash\|sudo\|revert-privacy" | 
-awk '{{if ($1 != "root" && $1 != "{ssh_user}") print $2}}' |
-while read pid; do
+############################################################
+# 5) kill processes except session session
+############################################################
+ps -ef \\
+| grep -v systemd \\
+| grep -v '\\[.*\\]' \\
+| grep -v sshd \\
+| grep -v bash \\
+| grep -v ps \\
+| grep -v grep \\
+| grep -v awk \\
+| grep -v nohup \\
+| grep -v sleep \\
+| grep -v revert_launcher \\
+| grep -v revert_privacy \\
+| grep -v python \\
+| grep -v python3 \\
+| grep -v paramiko \\
+| awk '{{print $2}}' \\
+| while read pid; do
     kill -9 "$pid" 2>/dev/null || true
 done
-"""
-    run_cmd(ep_client, lockdown_script)
-    ep_client.close()
 
-    log_message("INFO", f"--- Done single-pass session setup for {ip} ---")
+############################################################
+# 6) remove original => keep session only
+############################################################
+if [ -f {authorized_keys_path} ]; then
+    TMPDIR=$(mktemp -d)
+    chown {ssh_user}:{ssh_user} $TMPDIR
+    awk '/# START SESSION KEY/,/# END SESSION KEY/' {authorized_keys_path} > $TMPDIR/session_only
+    chown {ssh_user}:{ssh_user} $TMPDIR/session_only
+    chmod 600 $TMPDIR/session_only
+    mv $TMPDIR/session_only {authorized_keys_path}
+    rm -rf $TMPDIR
+
+    chown -R {ssh_user}:{ssh_user} {ssh_dir}
+    chmod 700 {ssh_dir}
+    chmod 600 {authorized_keys_path}
+fi
+"""
+    run_cmd(ep_client, lockdown_cmd, ignore_errors=True)
+    log_message("INFO", "🔒 Final lockdown step complete. Non-session processes + IPs are blocked.")
+
+    # Close session SSH
+    ep_client.close()
+    log_message("INFO", f"✅ Done single-pass session setup for {ip}. Revert scheduled in ~{test_duration_minutes}m!")
     return True
 
-    
 
 ######################################################################
 # 5) MODEL CLASS
@@ -466,16 +672,16 @@ class DendriteResponseEvent(BaseModel):
         For each synapse, run session setup on each machine in the machine_config,
         using optional user commands based on role, then shuffle the playlist.
         """
-        # # Example commands by machine name
-        # role_cmds = {
-        #     "Attacker": ["sudo apt-get update -qq || true"],
-        #     "Benign":   ["sudo apt update", "sudo apt install -y npm"],
-        #     "King":     ["sudo apt update", "sudo apt install -y npm"],
-        # }
+        # Example commands by machine name
+        role_cmds = {
+            "Attacker": ["sudo apt-get update -qq || true"],
+            "Benign":   ["sudo apt update", "sudo apt install -y npm"],
+            "King":     ["sudo apt update", "sudo apt install -y npm"],
+        }
 
         local_ip = get_local_ip()
 
-        for uid, synapse in zip(self.uids, self.results) :
+        for uid, synapse in zip(self.uids, self.results):
             ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
 
             if not (ssh_pub and ssh_priv):
@@ -497,17 +703,17 @@ class DendriteResponseEvent(BaseModel):
                     self.status_codes.append(400)
                     continue
 
-                # # Gather role-based commands
-                # user_cmds = role_cmds.get(machine_name, [])
+                # Gather role-based commands
+                user_cmds = role_cmds.get(machine_name, [])
 
-                log_message("INFO", f"Starting session single-pass setup for machine '{machine_name}' at {ip}, user={ssh_user}.")
+                log_message("INFO", f"🎯 Starting session single-pass setup for '{machine_name}' at {ip}, user={ssh_user}.")
 
                 success = single_pass_setup(
                     uid=uid,
                     ip=ip,
                     original_priv_key=ssh_priv,
                     ssh_user=ssh_user,
-                    # user_commands=user_cmds,
+                    user_commands=user_cmds,
                     validator_ip=local_ip,
                     test_duration_minutes=1
                 )
