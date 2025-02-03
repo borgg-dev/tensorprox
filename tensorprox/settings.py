@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     LOG_WEIGHTS: bool = Field(True, env="LOG_WEIGHTS")
 
     # Neuron parameters.
-    NEURON_TIMEOUT: int = Field(15, env="NEURON_TIMEOUT")
+    NEURON_TIMEOUT: int = Field(30, env="NEURON_TIMEOUT")
     NEURON_DISABLE_SET_WEIGHTS: bool = Field(False, env="NEURON_DISABLE_SET_WEIGHTS")
     NEURON_AXON_OFF: bool = Field(False, env="NEURON_AXON_OFF")
     NEURON_VPERMIT_TAO_LIMIT: int = Field(10, env="NEURON_VPERMIT_TAO_LIMIT")

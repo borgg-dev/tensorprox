@@ -276,10 +276,10 @@ def single_pass_setup(
     # A) CONNECT WITH ORIGINAL KEY + PREPARE
     ########################################################################
 
-
     log_message("INFO", f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
+
     # 1) Generate session key
-    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}")
+    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
     session_priv, session_pub = generate_local_session_keypair(session_key_path)
 
     # 2) Connect with original key
@@ -640,6 +640,16 @@ def single_pass_setup(
     log_message("INFO", f"✅ Done single-pass session setup for {ip}. Revert scheduled in ~{test_duration_minutes}m!")
     return True
 
+async def async_single_pass_setup(uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes):
+    """
+    A wrapper to execute single_pass_setup asynchronously.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,  # Uses default executor (can be changed to a custom ThreadPoolExecutor)
+        single_pass_setup, uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes
+    )
+    
 def save_private_key(priv_key_str: str, path: str):
     """
     Optionally save the original private key locally (for debugging/logging).
@@ -775,9 +785,9 @@ async def query_availabilities(uids: List[int]) -> Tuple[List[PingSynapse], List
     return responses, all_miners_availability
       
 
-async def setup_available_machines(available_miners: List[Tuple[int,PingSynapse]], playlist: List[dict]) -> List[Dict[str, Union[int, str]]]:
+async def setup_available_machines(available_miners: List[Tuple[int, PingSynapse]], playlist: List[dict]) -> List[Dict[str, Union[int, str]]]:
     """
-    Runs setup on miners that have all required machines available.
+    Runs setup on miners that have all required machines available concurrently.
     """
     role_cmds = {
         "Attacker": ["sudo apt-get update -qq || true"],
@@ -786,21 +796,25 @@ async def setup_available_machines(available_miners: List[Tuple[int,PingSynapse]
     }
     
     local_ip = get_local_ip()  # Ensure this function is defined
-
     setup_status = []
-    for uid, synapse in available_miners:  
-        uid_status_setup = {}
 
+    async def setup_miner(uid, synapse):
+        """
+        Asynchronous setup for a single miner.
+        """
+        uid_status_setup = {}
         ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
 
-        for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
+        async def setup_machine(machine_name, machine_details):
+            """
+            Asynchronously setup a single machine within a miner.
+            """
             ip = machine_details.ip
             ssh_user = machine_details.username
             user_cmds = role_cmds.get(machine_name, [])
-            uid_status_setup[machine_name] = {}
-            logger.info(f"🎯 Setting up '{machine_name}' at {ip}, user={ssh_user}.")
+            logger.info(f"\U0001F3AF Setting up '{machine_name}' at {ip}, user={ssh_user}.")
 
-            success = single_pass_setup(
+            success = await async_single_pass_setup(
                 uid=uid,
                 ip=ip,
                 original_priv_key=ssh_priv,
@@ -810,15 +824,18 @@ async def setup_available_machines(available_miners: List[Tuple[int,PingSynapse]
                 test_duration_minutes=1
             )
 
-            if success:
-                uid_status_setup[machine_name]["setup_status_message"] = f"Setup success for {machine_name} ({ip})."
-                uid_status_setup[machine_name]["setup_status_code"] = 200
-            else:
-                uid_status_setup[machine_name]["setup_status_message"] = f"Setup failed for {machine_name} ({ip})."
-                uid_status_setup[machine_name]["setup_status_code"] = 500
+            uid_status_setup[machine_name] = {
+                "setup_status_message": f"Setup {'success' if success else 'failed'} for {machine_name} ({ip}).",
+                "setup_status_code": 200 if success else 500,
+            }
 
-        setup_status.append(uid_status_setup)
-    
+        # Run all machine setups concurrently
+        await asyncio.gather(*(setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items()))
+        return uid_status_setup
+
+    # Run setup for all miners concurrently
+    setup_status = await asyncio.gather(*(setup_miner(uid, synapse) for uid, synapse in available_miners))
+
     # **Process Playlist**
     if playlist:
         class_names = [p["name"] for p in playlist if p["name"] != "pause"]
@@ -837,6 +854,7 @@ async def setup_available_machines(available_miners: List[Tuple[int,PingSynapse]
                 item["identifier"] = mapping.get(item["name"], generate_random_string())
 
     return setup_status
+
 
 
 # Start availability checking
