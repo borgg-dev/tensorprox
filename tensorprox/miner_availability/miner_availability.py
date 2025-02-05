@@ -22,6 +22,7 @@ import io
 import re
 import logging
 import string
+import traceback
 
 ######################################################################
 # 1) LOCAL FUNCTIONS / UTILITIES
@@ -65,7 +66,6 @@ def get_local_ip() -> str:
             return public_ip
     except Exception:
         pass
-
     try:
         import subprocess
         local_ip = subprocess.check_output("hostname -I | awk '{print $1}'", shell=True).decode().strip()
@@ -73,7 +73,6 @@ def get_local_ip() -> str:
             return local_ip
     except:
         pass
-
     return "127.0.0.1"
 
 SESSION_KEY_DIR = "/var/tmp/session_keys"
@@ -95,8 +94,6 @@ def generate_local_session_keypair(key_path: str) -> (str, str):
     Ensures correct file permissions for session keys.
     """
     import subprocess
-
-    # Remove old keys if present
     try:
         if os.path.exists(key_path):
             os.remove(key_path)
@@ -108,22 +105,15 @@ def generate_local_session_keypair(key_path: str) -> (str, str):
     except Exception as e:
         log_message("ERROR", f"Unexpected error while removing {key_path}: {e}")
         raise
-
-    # Generate
     log_message("INFO", "🚀 Generating session ED25519 keypair...")
     subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", ""], check=True)
-
-    # Fix permissions
     os.chmod(key_path, 0o600)
     if os.path.exists(f"{key_path}.pub"):
         os.chmod(f"{key_path}.pub", 0o644)
-
-    # Read them in
     with open(key_path, "r") as fk:
         priv = fk.read().strip()
     with open(f"{key_path}.pub", "r") as fpk:
         pub = fpk.read().strip()
-
     log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
@@ -135,8 +125,8 @@ def create_and_test_connection(
     ip: str,
     private_key_str: str,
     ssh_user: str,
-    retries: int = 5,
-    timeout: int = 15
+    retries: int = 3,
+    timeout: int = 5
 ) -> paramiko.SSHClient | None:
     """
     Attempt SSH connection using exactly the correct key type.
@@ -154,21 +144,18 @@ def create_and_test_connection(
             else:
                 pkey = Ed25519Key.from_private_key(io.StringIO(private_key_str))
                 log_message("INFO", "🔑 Detected ED25519 private key format.")
-
             client.connect(ip, username=ssh_user, pkey=pkey, timeout=timeout, look_for_keys=False, allow_agent=False)
             transport = client.get_transport()
             if transport:
                 transport.set_keepalive(15)
             log_message("INFO", f"🟢 SSH connection to {ip} succeeded (user={ssh_user}).")
             return client
-
         except paramiko.AuthenticationException:
             log_message("ERROR", f"❌ SSH authentication failed for {ip} (user={ssh_user}).")
         except paramiko.SSHException as e:
             log_message("ERROR", f"⚠️ SSH error for {ip}: {e}")
         except Exception as e:
             log_message("ERROR", f"💥 Unexpected error for {ip}: {e}")
-
         attempt += 1
         if attempt < retries:
             time.sleep(2)
@@ -228,7 +215,11 @@ def single_pass_setup(
     """
     Single-pass session setup with proper sudo, ephemeral session key insertion,
     and guaranteed revert after test_duration_minutes on Ubuntu 22.04 LTS.
-    The revert is scheduled via the OS's "at" daemon for reliability.
+    The revert is now scheduled via systemd timer units for robustness.
+    Additionally, the authorized_keys backup is refreshed on every iteration
+    using a unique filename and a hardcoded “open” iptables configuration is used
+    for reliable revert.
+    Any pending revert jobs and stale sudoers entries are removed before scheduling.
     """
     log_message("INFO", f"🔒 Single-pass session setup for {ip} as '{ssh_user}' start...")
 
@@ -236,7 +227,7 @@ def single_pass_setup(
     log_message("INFO", f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
     session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
     session_priv, session_pub = generate_local_session_keypair(session_key_path)
-    client_orig = create_and_test_connection(ip, original_priv_key, ssh_user=ssh_user, retries=5, timeout=15)
+    client_orig = create_and_test_connection(ip, original_priv_key, ssh_user=ssh_user, retries=3, timeout=5)
     if not client_orig:
         log_message("ERROR", f"❌ Could NOT connect to {ip} as {ssh_user}. Aborting session setup.")
         return False
@@ -247,18 +238,19 @@ def single_pass_setup(
     run_cmd(client_orig, no_tty_cmd, use_sudo=True)
     time.sleep(1)
 
-    # B) INSERT SESSION KEY + CLOSE ORIGINAL
-    log_message("INFO", "🔐 Step B: Inserting session key into authorized_keys and closing original SSH.")
+    # B) INSERT SESSION KEY + UPDATE UNIQUE BACKUP, then CLOSE ORIGINAL
+    log_message("INFO", "🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
     ssh_dir = get_authorized_keys_dir(ssh_user)
     authorized_keys_path = f"{ssh_dir}/authorized_keys"
-    authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak"
+    backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+    authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
     insert_key_cmd = f"""
         export TMPDIR=$(mktemp -d /tmp/.ssh_setup_XXXXXX)
         chmod 700 $TMPDIR
         chown {ssh_user}:{ssh_user} $TMPDIR
 
         mkdir -p {ssh_dir}
-        if [ -f {authorized_keys_path} ] && [ ! -f {authorized_keys_bak} ]; then
+        if [ -f {authorized_keys_path} ]; then
             cp {authorized_keys_path} {authorized_keys_bak}
             chmod 600 {authorized_keys_bak}
         fi
@@ -286,18 +278,22 @@ def single_pass_setup(
     run_cmd(client_orig, insert_key_cmd)
     client_orig.close()
     log_message("INFO", f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
+    log_message("INFO", f"Backup of authorized_keys stored as: {authorized_keys_bak}")
 
     # C) TEST SESSION KEY
     log_message("INFO", f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
-    ep_client = create_and_test_connection(ip, session_priv, ssh_user=ssh_user, retries=5, timeout=15)
+    ep_client = create_and_test_connection(ip, session_priv, ssh_user=ssh_user, retries=3, timeout=5)
     if not ep_client:
         log_message("ERROR", f"❌ Session SSH test failed => skipping {ip}.")
         return False
     log_message("INFO", f"✨ Session key success => proceeding to revert scheduling + lockdown for {ip}.")
 
-    # D) PREPARE REVERT SCRIPTS, KILL LINGERING NOHUP/PYTHON PROCESSES, & SCHEDULE REVERT VIA 'at'
-    log_message("INFO", "🧩 Step D: Setting up passwordless sudo, running user commands, creating revert script, and scheduling revert via 'at'...")
+    # D) PREPARE REVERT SCRIPT, CLEAN STALE SUDOERS, & SCHEDULE REVERT VIA SYSTEMD TIMER
+    log_message("INFO", "🧩 Step D: Setting up passwordless sudo, running user commands, creating revert script, and scheduling revert via systemd timer...")
 
+    # Remove any stale sudoers revert entries
+    run_cmd(ep_client, f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*", ignore_errors=True)
+    
     sudo_setup_cmd = f"""
         echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
         chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
@@ -308,59 +304,73 @@ def single_pass_setup(
         log_message("INFO", f"🛠 Running custom user commands for role on {ip}.")
     for uc in user_commands:
         run_cmd(ep_client, uc, ignore_errors=True, use_sudo=True)
+    # Create a unique sudoers entry tied to the unique revert script path
+    revert_script_path = f"/tmp/revert_privacy_{uid}_{backup_suffix}.sh"
     persist_revert_cmd = f"""
-        echo '{ssh_user} ALL=(ALL) NOPASSWD: /tmp/revert_privacy.sh' > /etc/sudoers.d/97_{ssh_user}_revert
-        chmod 440 /etc/sudoers.d/97_{ssh_user}_revert
+        echo '{ssh_user} ALL=(ALL) NOPASSWD: {revert_script_path}' > /etc/sudoers.d/97_{ssh_user}_revert_{backup_suffix}
+        chmod 440 /etc/sudoers.d/97_{ssh_user}_revert_{backup_suffix}
         chown root:root /etc/sudoers.d
         chmod 750 /etc/sudoers.d
     """
     run_cmd(ep_client, persist_revert_cmd)
-
-    log_message("INFO", "📝 Creating revert_privacy.sh on the remote host...")
+    
+    # Create the unique revert script (with extensive logging and a nuclear firewall flush)
+    log_message("INFO", f"📝 Creating unique revert script {revert_script_path} on the remote host...")
+    revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
     revert_script = f"""
-        cat <<'REVERT' > /tmp/revert_privacy.sh
+        cat <<'REVERT' > {revert_script_path}
 #!/bin/bash
-set -e
-echo "Reverting {ip} to normal..."
+# Revert script for {ip}
+# Logging to {revert_log}
+exec > {revert_log} 2>&1
+echo "=== Revert started at $(date) for {ip} ==="
 
-if [ -f /etc/securetty ]; then
-cat <<TTYS >> /etc/securetty
-tty1
-tty2
-tty3
-tty4
-tty5
-tty6
-ttyS0
-TTYS
-fi
-sudo systemctl unmask console-getty.service || true
-sudo systemctl enable console-getty.service || true
-sudo systemctl start console-getty.service || true
-sudo systemctl unmask serial-getty@ttyS0.service || true
-sudo systemctl enable serial-getty@ttyS0.service || true
-sudo systemctl start serial-getty@ttyS0.service || true
+# --- Restore critical services ---
+sudo systemctl unmask console-getty.service || echo "Failed to unmask console-getty"
+sudo systemctl enable console-getty.service || echo "Failed to enable console-getty"
+sudo systemctl start console-getty.service || echo "Failed to start console-getty"
+sudo systemctl unmask serial-getty@ttyS0.service || echo "Failed to unmask serial-getty@ttyS0"
+sudo systemctl enable serial-getty@ttyS0.service || echo "Failed to enable serial-getty@ttyS0"
+sudo systemctl start serial-getty@ttyS0.service || echo "Failed to start serial-getty@ttyS0"
+sudo systemctl unmask atd.service || echo "Failed to unmask atd"
+sudo systemctl enable atd.service || echo "Failed to enable atd"
+sudo systemctl restart atd.service || echo "Failed to restart atd"
 
+# --- Nuclear Firewall Flush: flush all tables ---
 sudo iptables -F
 sudo iptables -X
 sudo iptables -t nat -F
 sudo iptables -t nat -X
 sudo iptables -t mangle -F
 sudo iptables -t mangle -X
-sudo iptables -P INPUT ACCEPT
-sudo iptables -P FORWARD ACCEPT
-sudo iptables -P OUTPUT ACCEPT
+sudo iptables -t raw -F
+sudo iptables -t raw -X
+sudo iptables -t security -F
+sudo iptables -t security -X
+cat <<EOF | sudo iptables-restore
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+EOF
 
+# --- Restore authorized_keys ---
 if [ -f {authorized_keys_bak} ]; then
     sudo cp {authorized_keys_bak} {authorized_keys_path}
     sudo chmod 600 {authorized_keys_path}
+    rm -f {authorized_keys_bak}
+    echo "Authorized_keys restored from backup."
 else
-    sudo sed -i '/^# START SESSION KEY/,/^# END SESSION KEY/d' {authorized_keys_path} || true
+    sudo sed -i '/^# START SESSION KEY/,/^# END SESSION KEY/d' {authorized_keys_path} || echo "Failed to remove session key block."
+    echo "No backup file found; removed session key block."
 fi
 
+# --- Restore sshd configuration ---
 if [ -f /etc/ssh/sshd_config.bak ]; then
     sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
     sudo chmod 644 /etc/ssh/sshd_config
+    echo "sshd_config restored from backup."
 else
     sudo sed -i '/^Protocol 2$/d' /etc/ssh/sshd_config
     sudo sed -i '/^PubkeyAuthentication yes$/d' /etc/ssh/sshd_config
@@ -373,61 +383,92 @@ else
     sudo sed -i '/^AllowUsers root$/d' /etc/ssh/sshd_config
     sudo sed -i '/^PermitRootLogin/d' /etc/ssh/sshd_config || true
     echo 'PermitRootLogin yes' | sudo tee -a /etc/ssh/sshd_config >/dev/null
+    echo "sshd_config modified."
 fi
-sudo passwd -u root 2>/dev/null || true
-sudo systemctl restart sshd
+sudo passwd -u root 2>/dev/null || echo "Failed to unlock root password."
+sudo systemctl restart sshd || echo "Failed to restart sshd."
 
 for u in $(cut -f1 -d: /etc/passwd); do
-    sudo usermod -U "$u" 2>/dev/null || true
+    sudo usermod -U "$u" 2>/dev/null || echo "Failed to unmask user $u"
 done
-sudo passwd -u root 2>/dev/null || true
+sudo passwd -u root 2>/dev/null || echo "Failed to unlock root password (second attempt)."
 
-sudo sysctl -w kernel.kptr_restrict=0
-sudo sysctl -w kernel.dmesg_restrict=0
-sudo sysctl -w kernel.perf_event_paranoid=2
-sudo sysctl -w net.ipv4.tcp_syncookies=1
-sudo sysctl -w net.ipv4.ip_forward=1
-sudo sysctl -w net.ipv4.conf.all.accept_redirects=1
-sudo sysctl -w net.ipv4.conf.all.send_redirects=1
-sudo sysctl -w net.ipv4.conf.all.accept_source_route=1
-sudo sysctl -w net.ipv4.conf.all.rp_filter=1
-sudo sysctl -p
+sudo sysctl -w kernel.kptr_restrict=0 || echo "Failed to set kptr_restrict"
+sudo sysctl -w kernel.dmesg_restrict=0 || echo "Failed to set dmesg_restrict"
+sudo sysctl -w kernel.perf_event_paranoid=2 || echo "Failed to set perf_event_paranoid"
+sudo sysctl -w net.ipv4.tcp_syncookies=1 || echo "Failed to set tcp_syncookies"
+sudo sysctl -w net.ipv4.ip_forward=1 || echo "Failed to set ip_forward"
+sudo sysctl -w net.ipv4.conf.all.accept_redirects=1 || echo "Failed to set accept_redirects"
+sudo sysctl -w net.ipv4.conf.all.send_redirects=1 || echo "Failed to set send_redirects"
+sudo sysctl -w net.ipv4.conf.all.accept_source_route=1 || echo "Failed to set accept_source_route"
+sudo sysctl -w net.ipv4.conf.all.rp_filter=1 || echo "Failed to set rp_filter"
+sudo sysctl -p || echo "Failed to load sysctl settings"
 
-sudo systemctl daemon-reload
+sudo systemctl daemon-reload || echo "Failed to daemon-reload"
 for s in $(systemctl list-unit-files --type=service --state=masked | cut -d' ' -f1); do
-    sudo systemctl unmask $s || true
+    sudo systemctl unmask $s || echo "Failed to unmask $s"
 done
 for s in $(systemctl list-unit-files --type=service --state=disabled | cut -d' ' -f1); do
-    sudo systemctl enable $s || true
-    sudo systemctl start $s 2>/dev/null || true
+    sudo systemctl enable $s || echo "Failed to enable $s"
+    sudo systemctl start $s 2>/dev/null || echo "Failed to start $s"
 done
 
-echo 0 | sudo tee /proc/sys/kernel/modules_disabled >/dev/null
-sudo systemctl unmask systemd-networkd.service || true
-sudo systemctl enable systemd-networkd.service || true
-sudo systemctl start systemd-networkd.service || true
-sudo systemctl unmask systemd-resolved.service || true
-sudo systemctl enable systemd-resolved.service || true
-sudo systemctl start systemd-resolved.service || true
+echo 0 | sudo tee /proc/sys/kernel/modules_disabled >/dev/null || echo "Failed to reset modules_disabled"
+sudo systemctl unmask systemd-networkd.service || echo "Failed to unmask systemd-networkd"
+sudo systemctl enable systemd-networkd.service || echo "Failed to enable systemd-networkd"
+sudo systemctl start systemd-networkd.service || echo "Failed to start systemd-networkd"
+sudo systemctl unmask systemd-resolved.service || echo "Failed to unmask systemd-resolved"
+sudo systemctl enable systemd-resolved.service || echo "Failed to enable systemd-resolved"
+sudo systemctl start systemd-resolved.service || echo "Failed to start systemd-resolved"
 
 echo "Done revert on {ip}"
+echo "=== Revert completed at $(date) ==="
 REVERT
 
-chmod +x /tmp/revert_privacy.sh
+chmod +x {revert_script_path}
     """
     run_cmd(ep_client, revert_script, ignore_errors=True)
 
-    # --- NEW STEP: Kill any lingering nohup + python(3) processes ---
-    run_cmd(ep_client, "pgrep -f 'nohup.*python' | xargs -r kill -9", ignore_errors=True, use_sudo=True)
-    run_cmd(ep_client, "pgrep -f 'nohup.*python3' | xargs -r kill -9", ignore_errors=True, use_sudo=True)
+    # --- Schedule revert via systemd timer ---
+    sleep_seconds = test_duration_minutes * 60
+    # Create a service unit for the revert script via a heredoc:
+    service_unit_cmd = f"""
+sudo tee /etc/systemd/system/revert_{uid}_{backup_suffix}.service > /dev/null <<'EOF'
+[Unit]
+Description=Revert Lockdown for machine {ip}
 
-    # Ensure the 'at' daemon is available and schedule the revert job.
-    install_packages_if_missing(ep_client, ["at"])
-    run_cmd(ep_client, f"echo 'sudo /tmp/revert_privacy.sh' | at now + {test_duration_minutes} minutes", ignore_errors=True)
-    log_message("INFO", f"⏰ Revert script scheduled via 'at' to run in ~{test_duration_minutes} minute(s).")
+[Service]
+Type=oneshot
+ExecStart=/bin/bash {revert_script_path}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+"""
+    run_cmd(ep_client, service_unit_cmd, ignore_errors=True)
+    
+    # Create a timer unit that triggers after the desired sleep time:
+    timer_unit_cmd = f"""
+sudo tee /etc/systemd/system/revert_{uid}_{backup_suffix}.timer > /dev/null <<'EOF'
+[Unit]
+Description=Timer for Revert Lockdown on machine {ip}
+
+[Timer]
+OnActiveSec={sleep_seconds}
+Unit=revert_{uid}_{backup_suffix}.service
+
+[Install]
+WantedBy=timers.target
+EOF
+"""
+    run_cmd(ep_client, timer_unit_cmd, ignore_errors=True)
+    
+    # Reload systemd units and enable the timer
+    run_cmd(ep_client, "sudo systemctl daemon-reload", ignore_errors=True)
+    run_cmd(ep_client, f"sudo systemctl enable --now revert_{uid}_{backup_suffix}.timer", ignore_errors=True)
+    log_message("INFO", f"⏰ Revert scheduled via systemd timer to run in ~{test_duration_minutes} minute(s).")
 
     # E) LOCKDOWN (FINAL)
-    # --- ALLOWED services list defined as a single line with exact matching ---
     lockdown_cmd = f"""
         ############################################################
         # 1) Minimal services
@@ -531,6 +572,7 @@ async def async_single_pass_setup(uid, ip, original_priv_key, ssh_user, user_com
         single_pass_setup, uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes
     )
 
+
 def save_private_key(priv_key_str: str, path: str):
     """
     Optionally save the original private key locally (for debugging/logging).
@@ -545,7 +587,7 @@ def save_private_key(priv_key_str: str, path: str):
 
 class MinerAvailabilities(BaseModel):
     """Tracks all miners' availability using PingSynapse."""
-    miners: Dict[int, PingSynapse] = {}
+    miners: Dict[int, 'PingSynapse'] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         ip_machine = self.miners[uid].machine_availabilities[machine_name]
@@ -563,58 +605,98 @@ class MinerAvailabilities(BaseModel):
             available = random.sample(available, min(len(available), k))
         return available
 
-async def query_availabilities(uids: List[int]) -> Tuple[List[PingSynapse], List[Dict[str, Union[int, str]]]]:
-    logger.debug(f"🔍 Querying uids machine's availabilities: {uids}")
-    if not uids:
-        logger.debug("No available miners. Skipping step.")
-        return [], []
-    axons = [settings.METAGRAPH.axons[uid] for uid in uids]
-    responses = []
+
+async def async_single_pass_setup(uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes):
+    """A wrapper to execute single_pass_setup asynchronously."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        single_pass_setup, uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes
+    )
+
+
+def save_private_key(priv_key_str: str, path: str):
+    """Optionally save the original private key locally (for debugging/logging)."""
     try:
-        responses = await settings.DENDRITE(
-            axons=axons,
+        with open(path, "w") as f:
+            f.write(priv_key_str)
+        os.chmod(path, 0o600)
+        logger.info(f"Saved private key to {path}")
+    except Exception as e:
+        logger.error(f"Error saving private key: {e}")
+
+
+async def query_availability(uid: int) -> Tuple[PingSynapse, Dict[str, Union[int, str]]]:
+    """Query availability for a given uid."""
+
+    # Run all miner queries concurrently
+    uid, synapse = await dendrite_call(uid)
+
+    uid_status_availability = {"uid": uid, "ping_status_message" : None, "ping_status_code" : None}
+
+    if synapse is None:
+        logger.error(f"❌ Miner {uid} query failed.")
+        uid_status_availability["ping_status_message"] = "Query failed."
+        uid_status_availability["ping_status_code"] = 500
+
+    if not synapse.machine_availabilities.key_pair:
+        logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
+        uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
+        uid_status_availability["ping_status_code"] = 400
+
+    # Extract SSH key pair safely
+    ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
+    save_private_key(ssh_priv, f"/var/tmp/original_key_{uid}.pem")
+
+    all_machines_available = True
+
+    for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
+        ip = machine_details.ip
+        ssh_user = machine_details.username
+
+        if not is_valid_ip(ip):
+            logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
+            all_machines_available = False
+            uid_status_availability["ping_status_message"] = "Invalid IP format."
+            uid_status_availability["ping_status_code"] = 400
+            break
+
+        # Test SSH Connection (corrected return handling)
+        client = create_and_test_connection(ip, ssh_priv, ssh_user)
+        if not client:
+            logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
+            all_machines_available = False
+            uid_status_availability["ping_status_message"] = "SSH connection failed."
+            uid_status_availability["ping_status_code"] = 500
+            break
+
+    if all_machines_available:
+        uid_status_availability["ping_status_message"] = f"✅ All machines are accessible for UID {uid}."
+        uid_status_availability["ping_status_code"] = 200
+    
+
+    return synapse, uid_status_availability
+
+
+async def dendrite_call(uid: int):
+    """Query a single miner's availability."""
+    try:
+        axon = settings.METAGRAPH.axons[uid]
+        response = await settings.DENDRITE(
+            axons=[axon],
             synapse=PingSynapse(machine_availabilities=MachineConfig()),
             timeout=settings.NEURON_TIMEOUT,
             deserialize=False,
         )
-    except Exception as e:
-        logger.error(f"Failed to query miners: {e}")
-        return [], []
-    all_miners_availability = []
-    for uid, synapse in zip(uids, responses):
-        uid_status_availability = {}
-        ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
-        save_private_key(ssh_priv, f"/var/tmp/original_key_{uid}.pem")
-        if not (ssh_pub and ssh_priv):
-            logger.error(f"Missing SSH Key Pair for UID {uid}, marking as unavailable.")
-            uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
-            uid_status_availability["ping_status_code"] = 400
-            all_miners_availability.append(uid_status_availability)
-            continue
-        all_machines_available = True
-        for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
-            ip = machine_details.ip
-            ssh_user = machine_details.username
-            if not is_valid_ip(ip):
-                logger.error(f"Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
-                all_machines_available = False
-                uid_status_availability["ping_status_message"] = "Invalid IP format."
-                uid_status_availability["ping_status_code"] = 400
-                break
-            client = create_and_test_connection(ip, ssh_priv, ssh_user)
-            if not client:
-                logger.error(f"SSH connection failed for {machine_name} ({ip}) UID {uid}, marking as unavailable.")
-                all_machines_available = False
-                uid_status_availability["ping_status_message"] = f"One or more machine(s) are not accessible. Skipping UID {uid}."
-                uid_status_availability["ping_status_code"] = 500
-                break
-        if all_machines_available:
-            uid_status_availability["ping_status_message"] = f"All machines are accessible for UID {uid}."
-            uid_status_availability["ping_status_code"] = 200
-        all_miners_availability.append(uid_status_availability)
-    return responses, all_miners_availability
+        return uid, response[0] if response else None  
 
-async def setup_available_machines(available_miners: List[Tuple[int, PingSynapse]], playlist: List[dict]) -> List[Dict[str, Union[int, str]]]:
+    except Exception as e:
+        logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
+        return uid, None
+
+
+async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']], playlist: List[dict]) -> List[Dict[str, Union[int, str]]]:
+    """Setup available machines based on the queried miner availability."""
     role_cmds = {
         "Attacker": ["sudo apt-get update -qq || true"],
         "Benign": ["sudo apt update", "sudo apt install -y npm"],
@@ -622,10 +704,14 @@ async def setup_available_machines(available_miners: List[Tuple[int, PingSynapse
     }
     local_ip = get_local_ip()
     setup_status = {}
+
     async def setup_miner(uid, synapse):
+        """Setup each miner's machines."""
         uid_status_setup = {}
         ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
+
         async def setup_machine(machine_name, machine_details):
+            """Perform the setup for a single machine."""
             ip = machine_details.ip
             ssh_user = machine_details.username
             logger.info(f"🎯 Setting up '{machine_name}' at {ip}, user={ssh_user}.")
@@ -642,22 +728,33 @@ async def setup_available_machines(available_miners: List[Tuple[int, PingSynapse
                 "setup_status_message": f"Setup {'success' if success else 'failed'} for {machine_name} ({ip}).",
                 "setup_status_code": 200 if success else 500,
             }
+
+        # Run setup tasks for all machines of a miner in parallel
         await asyncio.gather(*(setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items()))
         return uid_status_setup
+
+    # Run setup for all miners concurrently
     setup_status = await asyncio.gather(*(setup_miner(uid, synapse) for uid, synapse in available_miners))
+
+    # Optionally modify the playlist with unique identifiers if needed
     if playlist:
         class_names = [p["name"] for p in playlist if p["name"] != "pause"]
+        
         def generate_random_string(min_len=10, max_len=13):
             length = random.randint(min_len, max_len)
             return "".join(random.choices(string.ascii_letters + string.digits, k=length))
+        
         mapping = {cn: generate_random_string() for cn in class_names}
         mapping["tcp_traffic"] = generate_random_string()
         mapping["udp_traffic"] = generate_random_string()
+
         shuffled_playlist = random.sample(playlist, len(playlist))
         for item in shuffled_playlist:
             if item["name"] != "pause":
                 item["identifier"] = mapping.get(item["name"], generate_random_string())
+
     return setup_status
+
 
 # Start availability checking
 miner_availabilities = MinerAvailabilities()
