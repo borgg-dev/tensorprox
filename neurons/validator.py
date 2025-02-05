@@ -97,7 +97,7 @@ class Validator(BaseValidatorNeuron):
                 )
 
                 logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
-                logger.debug(response_event_2)
+                logger.debug(setup_status)
 
                 return response_event_1, response_event_2
 
