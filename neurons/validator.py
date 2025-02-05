@@ -88,21 +88,18 @@ class Validator(BaseValidatorNeuron):
                 with Timer() as setup_timer:
                     logger.info(f"Setting up available miners : {[uid for uid, synapse in available_miners]}")
                     setup_status = await setup_available_machines(available_miners, self.playlist)
-                
-                logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")  
-                logger.debug(setup_status)
 
-                # # Step 4: Create second response event (After machine setup)
-                # response_event_2 = DendriteResponseEvent(
-                #     synapses=synapses,  # Keep original synapses
-                #     setup_status=setup_status,  # Updated availability after setup
-                #     uids=available_miners  # Only available miners
-                # )
+                # Step 4: Create second response event (After machine setup)
+                response_event_2 = DendriteResponseEvent(
+                    synapses=synapses,  # Keep original synapses
+                    setup_status=setup_status,  # Updated availability after setup
+                    uids=[uid for uid, _ in available_miners],  # Extract only UIDs
+                )
 
-                # logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
-                # logger.debug(response_event_2)
+                logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
+                logger.debug(response_event_2)
 
-                return response_event_1, None
+                return response_event_1, response_event_2
 
         except Exception as ex:
             logger.exception(ex)

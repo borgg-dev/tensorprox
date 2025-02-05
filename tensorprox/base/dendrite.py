@@ -20,31 +20,32 @@ def is_valid_ip(ip: str) -> bool:
 class DendriteResponseEvent(BaseModel):
     uids: np.ndarray | list[int]
     synapses: list[PingSynapse]
-    all_miners_availability: list[Dict[str, Union[int, str]]]
+    all_miners_availability: list[Dict[str, Union[int, str]]] = []
+    setup_status: list[Dict[str, Dict[str, Union[int, str]]]] = []
     ping_status_messages: list[str] = []
     ping_status_codes: list[int] = []
+    setup_status_by_uid: dict[int, Dict[str, Dict[str, Union[int, str]]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
     @model_validator(mode="after")
     def process_results(self) -> "DendriteResponseEvent":
         """
-        For each synapse, run session setup on each machine in the machine_config,
-        using optional user commands based on role, then shuffle the playlist.
+        Processes miner availability and extracts relevant ping and setup status details.
+        This ensures response_event_1 and response_event_2 are handled separately.
         """
-
-
-        for uid, avail  in zip(self.uids, self.all_miners_availability):
-
-            if "ping_status_message" in avail : 
-                self.ping_status_messages.append(avail["ping_status_message"])
-            else :
-                self.ping_status_messages.append("")
-
-            if "ping_status_code" in avail : 
-                self.ping_status_codes.append(avail["ping_status_code"])
-            else :
-                self.ping_status_codes.append(0)
-           
+        if self.all_miners_availability:
+            for avail in self.all_miners_availability:
+                self.ping_status_messages.append(avail.get("ping_status_message", ""))
+                self.ping_status_codes.append(avail.get("ping_status_code", 0))
+        
+        print('*******************************************')
+        print(self.setup_status)
+        print('***********************************')
+        if self.setup_status:
+            for uid, setup in zip(self.uids, self.setup_status):
+                self.setup_status_by_uid[uid] = {}
+                self.setup_status_by_uid[uid]["setup_status_message"] = setup.get("setup_status_message", f"UID {uid} missed availability check. Not selected for this round.")
+                self.setup_status_by_uid[uid]["setup_status_code"] = setup.get("setup_status_code", 400)
+        
         return self
