@@ -1,10 +1,10 @@
-import sys
-sys.path.append("/home/azureuser/tensorprox/")
+import os, sys
+sys.path.append(os.path.expanduser("~/tensorprox"))
+
 from aiohttp import web
 import asyncio
 import time
 from tensorprox import settings
-import os
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
 from typing import Tuple

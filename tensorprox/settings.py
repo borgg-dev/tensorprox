@@ -1,7 +1,6 @@
-import sys
-sys.path.append("/home/azureuser/tensorprox/")
+import os, sys
+sys.path.append(os.path.expanduser("~/tensorprox"))
 
-import os
 from functools import cached_property
 from typing import Any, Literal, Optional
 import bittensor as bt
@@ -121,12 +120,7 @@ class Settings(BaseSettings):
 
     @cached_property
     def SUBTENSOR(self) -> bt.subtensor:
-        subtensor_network = self.SUBTENSOR_NETWORK or os.environ.get("SUBTENSOR_NETWORK", "local")
-        # bt_config = config()
-        if subtensor_network.lower() == "local":
-            subtensor_network = os.environ.get("SUBTENSOR_CHAIN_ENDPOINT")  # bt_config.subtensor.chain_endpoint or
-        else:
-            subtensor_network = subtensor_network.lower()  # bt_config.subtensor.network or
+        subtensor_network = os.environ.get("SUBTENSOR_CHAIN_ENDPOINT", "wss://test.finney.opentensor.ai:443") 
         logger.info(f"Instantiating subtensor with network: {subtensor_network}")
         return bt.subtensor(network=subtensor_network)
 

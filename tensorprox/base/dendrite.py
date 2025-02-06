@@ -39,9 +39,7 @@ class DendriteResponseEvent(BaseModel):
                 self.ping_status_messages.append(avail.get("ping_status_message", ""))
                 self.ping_status_codes.append(avail.get("ping_status_code", 0))
         
-        print('*******************************************')
-        print(self.setup_status)
-        print('***********************************')
+
         if self.setup_status:
             for uid, setup in zip(self.uids, self.setup_status):
                 self.setup_status_by_uid[uid] = {}

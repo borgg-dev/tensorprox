@@ -1,6 +1,6 @@
 # ruff: noqa: E402
-import sys
-sys.path.append("/home/azureuser/tensorprox/")
+import os, sys
+sys.path.append(os.path.expanduser("~/tensorprox"))
 import os
 import paramiko
 # This is an example miner that can respond to the inference task using a vllm model.

@@ -1,5 +1,5 @@
 loguru==0.7.2
-bittensor==8.4.3
+bittensor==9.0.0rc1
 python-dotenv==1.0.1
 pydantic-settings==2.6.0
 wandb==0.18.5
