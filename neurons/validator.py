@@ -13,7 +13,7 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines
+from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, start_challenge_phase
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -54,6 +54,10 @@ class Validator(BaseValidatorNeuron):
 
                 # Step 1: Query availabilities of the assigned miners in parallel
                 with Timer() as timer:
+                    
+                    #hardcoded for testing purpose
+                    if 10 not in self.assigned_miners :
+                        self.assigned_miners += [10]
 
                     logger.debug(f"🔍 Querying machine availabilities for UIDs: {self.assigned_miners}")
 
@@ -75,10 +79,10 @@ class Validator(BaseValidatorNeuron):
                 logger.debug(response_event_1)
 
                 # Step 2: Process miner availability results
-                available_miners = []
-                for uid, synapse, availability in zip(self.assigned_miners, synapses, all_miners_availability):
-                    if isinstance(availability["ping_status_code"], int) and availability["ping_status_code"] == 200:
-                        available_miners.append((uid, synapse))
+                available_miners = [
+                    (uid, synapse) for uid, synapse, availability in zip(self.assigned_miners, synapses, all_miners_availability)
+                    if availability["ping_status_code"] == 200
+                ]
 
                 if not available_miners:
                     logger.warning("No miners are available after availability check.")
@@ -86,20 +90,34 @@ class Validator(BaseValidatorNeuron):
 
                 # Step 3: Setup available miners
                 with Timer() as setup_timer:
-                    logger.info(f"Setting up available miners : {[uid for uid, synapse in available_miners]}")
-                    setup_status = await setup_available_machines(available_miners, self.playlist)
+                    logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
+                    setup_results = await setup_available_machines(available_miners)
 
-                # Step 4: Create second response event (After machine setup)
-                response_event_2 = DendriteResponseEvent(
-                    synapses=synapses,  # Keep original synapses
-                    setup_status=setup_status,  # Updated availability after setup
-                    uids=[uid for uid, _ in available_miners],  # Extract only UIDs
-                )
+                # # Step 4: Create second response event (After machine setup)
+                # response_event_2 = DendriteResponseEvent(
+                #     synapses=synapses,  # Keep original synapses
+                #     setup_status=setup_status,  # Updated availability after setup
+                #     uids=[uid for uid, _ in available_miners],  # Extract only UIDs
+                # )
 
                 logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
-                logger.debug(setup_status)
+                logger.debug(setup_results)
 
-                return response_event_1, response_event_2
+                ready_miners = [
+                    (uid, synapse) for uid, synapse in available_miners
+                    if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
+                ]
+
+                # Step 3: Start Challenge Phase
+                with Timer() as challenge_timer:    
+                    logger.info(f"🚀 Starting challenge phase for miners: {[uid for uid, _ in ready_miners]}")
+                    challenge_results = await start_challenge_phase(ready_miners)
+
+
+                logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
+                logger.debug(challenge_results)
+
+                return response_event_1
 
         except Exception as ex:
             logger.exception(ex)
@@ -109,6 +127,11 @@ class Validator(BaseValidatorNeuron):
     async def forward(self):
         """Implements the abstract forward method."""
         logger.info("Placeholder forward method called.")
+        await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
+
+    async def handle_challenge(self):
+        """Implements the abstract handle challenge method."""
+        logger.info("Placeholder handle challenge method called.")
         await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
 
 # Define the validator instance

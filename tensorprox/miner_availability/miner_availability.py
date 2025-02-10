@@ -8,7 +8,7 @@ from loguru import logger
 from pydantic import BaseModel
 from datetime import datetime
 import time
-from tensorprox.base.protocol import PingSynapse, MachineDetails
+from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
 from tensorprox.base.loop_runner import AsyncLoopRunner
 from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids, extract_axons_ips
@@ -51,6 +51,8 @@ def log_message(level: str, message: str):
         logging.debug(message)
 
 def is_valid_ip(ip: str) -> bool:
+    if not isinstance(ip, str):  # Check if ip is None or not a string
+        return False
     pattern = r"^((25[0-5]|2[0-4][0-9]|[01]?\d?\d?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?\d?\d?)$"
     return re.match(pattern, ip) is not None
 
@@ -590,11 +592,15 @@ class MinerAvailabilities(BaseModel):
     miners: Dict[int, 'PingSynapse'] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
+        if machine_name == "Moat":
+            return True  #Skip Moat
         ip_machine = self.miners[uid].machine_availabilities[machine_name]
         return bool(ip_machine)
 
     def is_miner_ready(self, uid: int = None) -> bool:
         for machine_name in self.miners[uid].machine_availabilities.keys():
+            if machine_name == "Moat":
+                continue  #Skip Moat
             if not self.check_machine_availability(machine_name=machine_name, uid=uid):
                 return False
         return True
@@ -630,7 +636,8 @@ async def query_availability(uid: int) -> Tuple[PingSynapse, Dict[str, Union[int
     """Query availability for a given uid."""
 
     # Run all miner queries concurrently
-    uid, synapse = await dendrite_call(uid)
+    synapse = PingSynapse(machine_availabilities=MachineConfig())
+    uid, synapse = await dendrite_call(uid, synapse)
 
     uid_status_availability = {"uid": uid, "ping_status_message" : None, "ping_status_code" : None}
 
@@ -651,6 +658,10 @@ async def query_availability(uid: int) -> Tuple[PingSynapse, Dict[str, Union[int
     all_machines_available = True
 
     for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
+
+        if machine_name == "Moat":
+            continue  # Skip the Moat machine
+
         ip = machine_details.ip
         ssh_user = machine_details.username
 
@@ -678,13 +689,13 @@ async def query_availability(uid: int) -> Tuple[PingSynapse, Dict[str, Union[int
     return synapse, uid_status_availability
 
 
-async def dendrite_call(uid: int):
+async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse]):
     """Query a single miner's availability."""
     try:
         axon = settings.METAGRAPH.axons[uid]
         response = await settings.DENDRITE(
             axons=[axon],
-            synapse=PingSynapse(machine_availabilities=MachineConfig()),
+            synapse=synapse,
             timeout=settings.NEURON_TIMEOUT,
             deserialize=False,
         )
@@ -695,7 +706,8 @@ async def dendrite_call(uid: int):
         return uid, None
 
 
-async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']], playlist: List[dict]) -> List[Dict[str, Union[int, str]]]:
+
+async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']]) -> List[Dict[str, Union[int, str]]]:
     """Setup available machines based on the queried miner availability."""
     role_cmds = {
         "Attacker": ["sudo apt-get update -qq || true"],
@@ -707,11 +719,13 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
 
     async def setup_miner(uid, synapse):
         """Setup each miner's machines."""
-        uid_status_setup = {}
         ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
 
         async def setup_machine(machine_name, machine_details):
             """Perform the setup for a single machine."""
+            if machine_name == "Moat":
+                return True  # Skip Moat machine setup and consider it successful
+            
             ip = machine_details.ip
             ssh_user = machine_details.username
             logger.info(f"🎯 Setting up '{machine_name}' at {ip}, user={ssh_user}.")
@@ -724,37 +738,48 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
                 validator_ip=local_ip,
                 test_duration_minutes=1
             )
-            uid_status_setup[machine_name] = {
-                "setup_status_message": f"Setup {'success' if success else 'failed'} for {machine_name} ({ip}).",
-                "setup_status_code": 200 if success else 500,
-            }
+            return success
 
         # Run setup tasks for all machines of a miner in parallel
-        await asyncio.gather(*(setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items()))
-        return uid_status_setup
+        tasks = [setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+        results = await asyncio.gather(*tasks)
 
-    # Run setup for all miners concurrently
-    setup_status = await asyncio.gather(*(setup_miner(uid, synapse) for uid, synapse in available_miners))
+        # Determine overall status
+        all_success = all(results)
+        setup_status[uid] = {
+            "setup_status_code": 200 if all_success else 500,
+            "setup_status_message": "All machines setup successfully" if all_success else "Failure: Some machines failed to setup",
+        }
 
-    # Optionally modify the playlist with unique identifiers if needed
-    if playlist:
-        class_names = [p["name"] for p in playlist if p["name"] != "pause"]
-        
-        def generate_random_string(min_len=10, max_len=13):
-            length = random.randint(min_len, max_len)
-            return "".join(random.choices(string.ascii_letters + string.digits, k=length))
-        
-        mapping = {cn: generate_random_string() for cn in class_names}
-        mapping["tcp_traffic"] = generate_random_string()
-        mapping["udp_traffic"] = generate_random_string()
+    # Process all miners in parallel
+    await asyncio.gather(*[setup_miner(uid, synapse) for uid, synapse in available_miners])
 
-        shuffled_playlist = random.sample(playlist, len(playlist))
-        for item in shuffled_playlist:
-            if item["name"] != "pause":
-                item["identifier"] = mapping.get(item["name"], generate_random_string())
+    return [{"uid": uid, **status} for uid, status in setup_status.items()]
 
-    return setup_status
 
+async def start_challenge_phase(ready_miners: List[Tuple[int, PingSynapse]]) -> Dict[int, dict]:
+    """Sends ChallengeSynapse to miners before the challenge starts and collects responses."""
+    challenge_results = {}
+
+    async def send_challenge(uid, synapse):
+        try:
+            moat_private_ip = synapse.machine_availabilities.machine_config["Moat"].private_ip
+            king_private_ip = synapse.machine_availabilities.machine_config["King"].private_ip
+            challenge_duration = 60
+            challenge_synapse = ChallengeSynapse(
+                king_private_ip=king_private_ip,
+                moat_private_ip=moat_private_ip,
+                challenge_duration=challenge_duration
+            )
+            uid, response = await dendrite_call(uid, challenge_synapse)
+
+            challenge_results[uid] = response
+        except Exception as e:
+            logger.error(f"Error sending challenge to miner {uid}: {e}")
+            challenge_results[uid] = {"error": str(e)}
+
+    await asyncio.gather(*[send_challenge(uid, synapse) for uid, synapse in ready_miners])
+    return challenge_results
 
 # Start availability checking
 miner_availabilities = MinerAvailabilities()

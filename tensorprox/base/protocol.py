@@ -3,19 +3,17 @@ import bittensor as bt
 from typing import List, Dict, Tuple
 
 class MachineDetails(BaseModel):
-    ip: str = ""
-    username: str = ""
+    ip: str | None = None
+    username: str | None = None
+    private_ip: str | None = None
     
     def get(self, key, default=None):
         return getattr(self, key, default)
     
 class MachineConfig(BaseModel):
     key_pair: Tuple[str, str] = ("", "")
-    machine_config: Dict[str, MachineDetails] = {
-        "Attacker": MachineDetails(),
-        "Benign": MachineDetails(),
-        "King": MachineDetails(),
-    }
+    machine_config: Dict[str, MachineDetails] = {name: MachineDetails() for name in ["Attacker", "Benign", "King", "Moat"]}
+
 
 class AvailabilitySynapse(bt.Synapse):
     """AvailabilitySynapse is a specialized implementation of the `Synapse` class used to allow miners to let validators know
@@ -72,7 +70,59 @@ class PingSynapse(bt.Synapse):
             ),
         )
 
-    
+
+class ChallengeSynapse(bt.Synapse):
+    """
+    Synapse for sending necessary configuration details to miners before a challenge round begins.
+    """
+
+    king_private_ip: str = Field(
+        ..., title="King Machine Private IP", description="The Private IP address of the King machine."
+    )
+
+    king_port: int = Field(
+        8080, title="King Machine Port", description="The port on which the King machine is listening."
+    )
+
+    moat_private_ip: str = Field(
+        ..., title="Moat Machine Private IP", description="The Private IP address of the Moat machine."
+    )
+
+    moat_listen_port: int = Field(
+        8080, title="Moat Listening Port", description="The port on which the Moat should listen for incoming traffic."
+    )
+
+    challenge_duration: int = Field(
+        ..., title="Challenge Duration", description="Duration of the challenge round in seconds."
+    )
+
+
+    def serialize(self) -> dict:
+        """
+        Serializes the ChallengeSynapse into a dictionary.
+        """
+        return {
+            "king_private_ip": self.king_private_ip,
+            "king_port": self.king_port,
+            "moat_private_ip": self.moat_private_ip,
+            "moat_listen_port": self.moat_listen_port,
+            "challenge_duration": self.challenge_duration,
+        }
+
+    @classmethod
+    def deserialize(cls, data: dict) -> "ChallengeSynapse":
+        """
+        Deserializes a dictionary into a ChallengeSynapse instance.
+        """
+        return cls(
+            king_private_ip=data["king_private_ip"],
+            king_port=data.get("king_port", 8080),
+            moat_private_ip=data["moat_private_ip"],
+            moat_listen_port=data.get("moat_listen_port", 8080),
+            challenge_duration=data["challenge_duration"],
+        )
+
+
 class TensorProxSynapse(bt.Synapse):
     """
     TensorProxSynapse is a specialized implementation of the `Synapse`. 
