@@ -1,18 +1,17 @@
 # ruff: noqa: E402
-import sys
-sys.path.append("/home/azureuser/tensorprox/")
+import os, sys
+sys.path.append(os.path.expanduser("~/tensorprox"))
 import os
 import paramiko
 # This is an example miner that can respond to the inference task using a vllm model.
 from tensorprox import settings
-
 settings.settings = settings.Settings.load(mode="miner")
 settings = settings.settings
 import time
 from loguru import logger
 from tensorprox.base.miner import BaseMinerNeuron
 from tensorprox.utils.logging import ErrorLoggingEvent, log_event
-from tensorprox.base.protocol import PingSynapse, MachineDetails
+from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetails
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
@@ -138,7 +137,8 @@ class Miner(BaseMinerNeuron):
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
             synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"), username=attacker_username)
             synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"), username=benign_username)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"), username=king_username)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"), username=king_username, private_ip=os.environ.get("KING_PRIVATE_IP"))
+            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=os.environ.get("MOAT_PRIVATE_IP"))
 
             
             # Use the initial private key for initial connection
@@ -146,6 +146,8 @@ class Miner(BaseMinerNeuron):
 
             # Add the public key to each machine
             for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
+                if machine_name == "Moat":
+                    continue  # Skip the Moat machine
                 machine_ip = machine_details.ip
                 machine_username = machine_details.username
                 logger.debug(f"Adding SSH key to {machine_name} at IP {machine_ip}")
@@ -166,10 +168,31 @@ class Miner(BaseMinerNeuron):
 
         logger.debug(f"⏩ Forwarding Ping synapse with machine details to validator {synapse.dendrite.hotkey}: {synapse}.")
 
+        return synapse
+
+    def handle_challenge(self, synapse: ChallengeSynapse) -> ChallengeSynapse:
+        """The forward function for ChallengeSynapse, processing challenge details and responding back."""
+        logger.debug(f"📧 Challenge received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
+
+        try:
+            # Extract challenge information from the synapse
+            king_ip = synapse.king_private_ip
+            moat_ip = synapse.moat_private_ip
+            challenge_duration = synapse.challenge_duration
+            
+            logger.debug(f"Challenge details: King IP: {king_ip}, Moat IP: {moat_ip}, Duration: {challenge_duration} sec")
+
+            time.sleep(5)
+
+        except Exception as e:
+            logger.exception(f"Error processing challenge: {e}")
+            log_event(ErrorLoggingEvent(error=str(e)))
+            if NEURON_STOP_ON_FORWARD_EXCEPTION:
+                self.should_exit = True
+
         self.step += 1
 
         return synapse
-
 
 if __name__ == "__main__":
     with Miner() as miner:

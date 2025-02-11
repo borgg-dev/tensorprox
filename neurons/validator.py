@@ -1,21 +1,19 @@
-# ruff: noqa: E402
-import sys
-sys.path.append("/home/azureuser/tensorprox/")
+import os, sys
+sys.path.append(os.path.expanduser("~/tensorprox"))
+
 from aiohttp import web
 import asyncio
 import time
 from tensorprox import settings
-import os
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
-
+from typing import Tuple
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.miner_availability.miner_availability import query_availabilities
-
+from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, start_challenge_phase
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -25,7 +23,6 @@ from tensorprox.tasks.traffic_data import TrafficData
 from tensorprox.tasks.task_creation import task_loop
 from tensorprox.utils.uids import extract_axons_ips
 from tensorprox.utils.utils import get_location_from_maxmind, get_my_public_ip, haversine_distance
-
 
 # Create an aiohttp app for validator
 app = web.Application()
@@ -40,7 +37,14 @@ class Validator(BaseValidatorNeuron):
         self.assigned_miners = []  # To store the assigned miners (UIDs)
         self.playlist = []  # To store the playlist 
 
-    async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
+    async def check_miner(self, uid):
+        """Check the status of an individual miner."""
+        # Query the availability of a single miner
+        synapse, uid_status_availability = await query_availability(uid)  # Get both lists from the query
+        return synapse, uid_status_availability
+
+
+    async def run_step(self, timeout: float) -> Tuple[DendriteResponseEvent, DendriteResponseEvent] | DendriteResponseEvent | None:
         """Runs a single step to query the assigned miners' availability."""
         try:
             async with self._lock:
@@ -48,25 +52,86 @@ class Validator(BaseValidatorNeuron):
                     logger.warning("No miners assigned. Skipping availability check.")
                     return None
 
-                # Query availabilities of the assigned miners
+                # Step 1: Query availabilities of the assigned miners in parallel
                 with Timer() as timer:
-                    responses = await query_availabilities(uids=self.assigned_miners)
+                    
+                    #hardcoded for testing purpose
+                    if 10 not in self.assigned_miners :
+                        self.assigned_miners += [10]
 
-                # Encapsulate the responses in a response event
-                response_event = DendriteResponseEvent(results=responses, uids=self.assigned_miners, playlist=self.playlist)
+                    logger.debug(f"🔍 Querying machine availabilities for UIDs: {self.assigned_miners}")
+
+                    # Gather all the results of the availability checks concurrently
+                    tasks = [self.check_miner(uid) for uid in self.assigned_miners]
+                    results = await asyncio.gather(*tasks)
+                    synapses, all_miners_availability = zip(*results) if results else ([], [])
+
 
                 logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-                logger.debug(response_event)
 
-                return response_event
+                # Encapsulate the responses in a response event
+                response_event_1 = DendriteResponseEvent(
+                    synapses=synapses, 
+                    all_miners_availability=all_miners_availability,
+                    uids=self.assigned_miners
+                )
+
+                logger.debug(response_event_1)
+
+                # Step 2: Process miner availability results
+                available_miners = [
+                    (uid, synapse) for uid, synapse, availability in zip(self.assigned_miners, synapses, all_miners_availability)
+                    if availability["ping_status_code"] == 200
+                ]
+
+                if not available_miners:
+                    logger.warning("No miners are available after availability check.")
+                    return None  # Return None if no miners are available
+
+                # Step 3: Setup available miners
+                with Timer() as setup_timer:
+                    logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
+                    setup_results = await setup_available_machines(available_miners)
+
+                # # Step 4: Create second response event (After machine setup)
+                # response_event_2 = DendriteResponseEvent(
+                #     synapses=synapses,  # Keep original synapses
+                #     setup_status=setup_status,  # Updated availability after setup
+                #     uids=[uid for uid, _ in available_miners],  # Extract only UIDs
+                # )
+
+                logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
+                logger.debug(setup_results)
+
+                ready_miners = [
+                    (uid, synapse) for uid, synapse in available_miners
+                    if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
+                ]
+
+                # Step 3: Start Challenge Phase
+                with Timer() as challenge_timer:    
+                    logger.info(f"🚀 Starting challenge phase for miners: {[uid for uid, _ in ready_miners]}")
+                    challenge_results = await start_challenge_phase(ready_miners)
+
+
+                logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
+                logger.debug(challenge_results)
+
+                return response_event_1
 
         except Exception as ex:
             logger.exception(ex)
             return None
 
+
     async def forward(self):
         """Implements the abstract forward method."""
         logger.info("Placeholder forward method called.")
+        await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
+
+    async def handle_challenge(self):
+        """Implements the abstract handle challenge method."""
+        logger.info("Placeholder handle challenge method called.")
         await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
 
 # Define the validator instance

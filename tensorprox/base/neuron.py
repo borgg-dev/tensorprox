@@ -39,6 +39,9 @@ class BaseNeuron(ABC):
     def forward(self, synapse: bt.Synapse) -> bt.Synapse: ...
 
     @abstractmethod
+    def handle_challenge(self, synapse: bt.Synapse) -> bt.Synapse: ...
+
+    @abstractmethod
     def run(self): ...
 
     def set_weights():

@@ -1,7 +1,6 @@
-import sys
-sys.path.append("/home/azureuser/tensorprox/")
+import os, sys
+sys.path.append(os.path.expanduser("~/tensorprox"))
 
-import os
 from functools import cached_property
 from typing import Any, Literal, Optional
 import bittensor as bt
@@ -39,7 +38,7 @@ class Settings(BaseSettings):
     LOG_WEIGHTS: bool = Field(True, env="LOG_WEIGHTS")
 
     # Neuron parameters.
-    NEURON_TIMEOUT: int = Field(15, env="NEURON_TIMEOUT")
+    NEURON_TIMEOUT: int = Field(30, env="NEURON_TIMEOUT")
     NEURON_DISABLE_SET_WEIGHTS: bool = Field(False, env="NEURON_DISABLE_SET_WEIGHTS")
     NEURON_AXON_OFF: bool = Field(False, env="NEURON_AXON_OFF")
     NEURON_VPERMIT_TAO_LIMIT: int = Field(10, env="NEURON_VPERMIT_TAO_LIMIT")
@@ -121,12 +120,7 @@ class Settings(BaseSettings):
 
     @cached_property
     def SUBTENSOR(self) -> bt.subtensor:
-        subtensor_network = self.SUBTENSOR_NETWORK or os.environ.get("SUBTENSOR_NETWORK", "local")
-        # bt_config = config()
-        if subtensor_network.lower() == "local":
-            subtensor_network = os.environ.get("SUBTENSOR_CHAIN_ENDPOINT")  # bt_config.subtensor.chain_endpoint or
-        else:
-            subtensor_network = subtensor_network.lower()  # bt_config.subtensor.network or
+        subtensor_network = os.environ.get("SUBTENSOR_CHAIN_ENDPOINT", "wss://test.finney.opentensor.ai:443") 
         logger.info(f"Instantiating subtensor with network: {subtensor_network}")
         return bt.subtensor(network=subtensor_network)
 
