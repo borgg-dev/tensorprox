@@ -15,13 +15,16 @@
 # # Generate cold key using btcli
 # btcli w regen_coldkey --wallet.name borgg --mnemonic "actress dirt board drop envelope cricket link energy book case deal giant"
 
-# Generate hot key using btcli
+# #Generate hot key using btcli
 # btcli w regen_hotkey --wallet.name borgg --wallet.hotkey hotkey-test --mnemonic "two oven toy elevator cargo certain bird connect sport tip soda rebel"
+
+# #Generate hot key using btcli
+# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey miner --mnemonic "brick jelly unable coral during warm pyramid blame loop tunnel kind transfer"
 
 pm2 kill && pm2 flush
 
 # Start validator and miner services with pm2
-# pm2 start "python3 ~/tensorprox/neurons/miner.py" --name miner
+pm2 start "python3 ~/tensorprox/neurons/miner.py" --name miner
 pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator
 # pm2 start "python3 ~/TensorProx/TrafficLogger/websocket_server.py" --name websocket_server
 
