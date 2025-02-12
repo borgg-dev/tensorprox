@@ -14,7 +14,6 @@ from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetai
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from threading import Thread
-import random
 import asyncio
 import socket
 import struct
@@ -128,93 +127,96 @@ def add_ssh_key_to_remote_machine(
         finally:
             ssh.close()
 
-async def handle_client(king_private_ip, data, decision_engine):
+
+# Moat logic: intercepts and forwards packets to King
+async def moat_forward_packet(packet, destination_ip, destination_port, protocol):
     """
-    Handles client connections, decides whether to forward or drop based on decision_engine.
+    Forward the packet to King based on its protocol (TCP/UDP).
     """
+    try:
+        if protocol == 6:  # TCP
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((destination_ip, destination_port))
+                s.sendall(packet)
+                logger.info(f"Forwarded TCP packet to King at {destination_ip}:{destination_port}")
+        elif protocol == 17:  # UDP
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.sendto(packet, (destination_ip, destination_port))
+                logger.info(f"Forwarded UDP packet to King at {destination_ip}:{destination_port}")
+    except Exception as e:
+        logger.error(f"Error forwarding packet to King: {e}")
+        
 
-    decision = await decision_engine(data)
-    decision = "allow"
-
-    if decision == "allow":
-        try:
-            # Use King’s private IP for Moat to King connection
-            logger.info(f"✅ allowed - data_length: {len(data)}")
-            reader, writer = await asyncio.open_connection(king_private_ip, 8080)
-            writer.write(data)
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
-        except Exception as e:
-            logger.error(f"Error forwarding packet to King at Private IP: {e}")
-            log_event(ErrorLoggingEvent(error=str(e)))
-    else:
-        logger.info(f"🚫 blocked - data_length: {len(data)}")
-
-    return None  # If dropped, nothing is returned
-
-async def decision_engine(packet_data):
+async def handle_moat_connection(packet_data, king_private_ip, destination_port, protocol):
     """
-    Placeholder for decision engine logic based on packet data.
+    Handle the incoming packet, validate it, and forward to King.
     """
-    # Replace this with your actual decision-making logic
-    return "allow" if random.choice([True, False]) else "attack"
+    if packet_data:
+        logger.info("Received packet for validation")
+
+        if is_allowed_packet(packet_data):
+            logger.info("Packet allowed by Moat, forwarding to King...")
+            # Forward to King (replace 'KING_IP_ADDRESS' with the real IP of King)
+            await moat_forward_packet(packet_data, king_private_ip, destination_port, protocol)  # Example: King's IP and port 8080
+        else:
+            logger.warning("Packet blocked by Moat")
+
+    # Respond with a simple acknowledgment message
+    return b"Packet processed"
 
 
-async def process_packet(packet_data, king_private_ip):
+# Logic to check if packet is allowed (this can be customized)
+def is_allowed_packet(packet):
     """
-    Processes packet data using raw socket. This function filters for TCP and UDP packets,
-    extracts the IP information, and forwards the packet or drops it based on the
-    decision engine logic.
+    This is where you define whether a packet should be allowed or blocked.
+    For now, we just allow all packets.
     """
+    return True  # Allow all packets (customize this with your logic)
 
-    # Ethernet header is the first 14 bytes
+# Sniff packets in a streamed manner and forward to Moat for processing
+async def process_packet_stream(packet_data, king_private_ip):
+    """
+    Processes packets in a streamed fashion and forwards them to Moat for validation.
+    """
     eth_header = packet_data[0:14]
     eth_protocol = struct.unpack('!H', eth_header[12:14])[0]
 
-    # Check if the packet is an IPv4 packet (protocol 0x0800)
     if eth_protocol != 0x0800:
         return  # Ignore non-IPv4 packets
 
-    # Extract the IP header (next 20 bytes after Ethernet header)
     ip_header = packet_data[14:34]
     iph = struct.unpack('!BBHHHBBH4s4s', ip_header)
-
-    # Extract protocol type from IP header (6 = TCP, 17 = UDP)
     protocol = iph[6]
 
     if protocol not in (6, 17):
         return  # Ignore non-TCP and non-UDP packets
 
-    # Extract destination IP from IP header
-    src_ip = socket.inet_ntoa(iph[8])  # Extract source IP (from the IP header)
+    src_ip = socket.inet_ntoa(iph[8])  # Extract source IP
 
-    # Process the packet if it's destined for the King
     if src_ip == king_private_ip:
-        
-        # Call the async handle_client function
-        await handle_client(king_private_ip, packet_data, decision_engine)
+        logger.info("Decision engine processing...")
+        await handle_moat_connection(packet_data, king_private_ip, 8080, protocol)  # Moat listens on port 8081
 
-async def sniff_packets(king_private_ip, iface='eth0'):
-    """Sniffs packets using raw socket and forwards them or drops them based on decision engine."""
-    logger.info(f"Sniffing packets for King Public IP: {king_private_ip} on interface {iface}")
+# Function to continuously sniff packets and handle them in a stream
+async def sniff_packets_stream(king_private_ip, iface='eth0'):
+    """Sniffs packets in a continuous stream and forwards them to Moat for processing."""
+    logger.info(f"Sniffing packets for King Private IP: {king_private_ip} on interface {iface}")
 
-    # Create a raw socket to capture all packets on the network
-    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))  # 0x0003 to capture all layers (ETH_P_ALL)
-    raw_socket.bind((iface, 0))  # Bind to the interface to start capturing
+    raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))  # Capture all layers
+    raw_socket.bind((iface, 0))
 
     while True:
         packet_data = raw_socket.recv(65535)  # Receive raw packet
-        # We need to await the process_packet function here
-        await process_packet(packet_data, king_private_ip)
+        await process_packet_stream(packet_data, king_private_ip)
 
 
-def run_async_sniffer(king_private_ip, iface='eth0'):
-    """Runs the asyncio event loop for packet sniffing."""
-    loop = asyncio.new_event_loop()  # Create a new event loop for the thread
+def run_async_packet_stream(king_private_ip, iface='eth0'):
+    """Runs the asyncio event loop for packet sniffing and handling in a streamed way."""
+    loop = asyncio.new_event_loop()  # Create a new event loop
     asyncio.set_event_loop(loop)  # Set the loop for this thread
-    loop.run_until_complete(sniff_packets(king_private_ip, iface))  # Run the async function
-    
+    loop.run_until_complete(sniff_packets_stream(king_private_ip, iface))  # Run the async function
+
+
 class Miner(BaseMinerNeuron):
     should_exit: bool = False
     firewall_active: bool = False  # To prevent redundant setups
@@ -273,14 +275,14 @@ class Miner(BaseMinerNeuron):
         try:
             # Extract challenge information from the synapse
             king_private_ip = synapse.king_private_ip
-            moat_ip = synapse.moat_private_ip
+            moat_private_ip = synapse.moat_private_ip
             challenge_duration = synapse.challenge_duration
             
-            logger.debug(f"Challenge details: King IP: {king_private_ip}, Moat IP: {moat_ip}, Duration: {challenge_duration} sec")
+            logger.debug(f"Challenge details: King IP: {king_private_ip}, Moat IP: {moat_private_ip}, Duration: {challenge_duration} sec")
 
             if not self.firewall_active:
                 self.firewall_active = True
-                firewall_thread = Thread(target=run_async_sniffer, args=(king_private_ip, "eth0"))
+                firewall_thread = Thread(target=run_async_packet_stream, args=(king_private_ip, "eth0"))
                 firewall_thread.daemon = True
                 firewall_thread.start()
             else :
