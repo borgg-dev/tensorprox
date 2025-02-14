@@ -27,7 +27,6 @@ import traceback
 from tensorprox.miner_availability.session_commands import (
     get_insert_key_cmd,
     get_sudo_setup_cmd,
-    get_persist_revert_cmd,
     get_revert_script_cmd,
     get_lockdown_cmd,
 )
@@ -524,11 +523,9 @@ async def lockdown_machines(setup_complete_miners: List[Tuple[int, PingSynapse]]
                     lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, validator_ip, authorized_keys_path)
                     result = await run_cmd_async(conn, lockdown_cmd)
                     if result.exit_status == 0:
-                        logger.info(f"Lockdown command executed successfully on {ip}")
+                        logger.info(f"✅ Lockdown command executed successfully on {ip}")
                     else:
-                        logger.error(f"Lockdown command failed on {ip}: {result.stderr}")
-
-                log_message("INFO", "🔒 Final lockdown step complete. Non-session processes + IPs are blocked.")
+                        logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
                 return True
 
             except Exception as e:
@@ -555,52 +552,45 @@ async def revert_machines(ready_miners: List[Tuple[int, PingSynapse]], backup_su
     """
     Executes the lockdown step for all given miners after setup is complete.
     """
-    validator_ip = get_local_ip()
     revert_status = {}
 
     async def revert_miner(uid, synapse):
         """Lock down each miner's machines."""
 
         async def revert_machine(machine_name, machine_details):
+            
             if machine_name == "Moat":
                 return True  # Skip Moat machine setup and consider it successful
 
             ip = machine_details.ip
-            ssh_user = machine_details.username
-            ssh_dir = get_authorized_keys_dir(ssh_user)
-            authorized_keys_path = f"{ssh_dir}/authorized_keys"
-            session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-            authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
-            revert_script_path = f"/tmp/revert_privacy_{uid}_{backup_suffix}.sh"
-            revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
 
-            logger.info(f"🔒 Reverting miner {uid} at {ip}.")
+            logger.info(f"🔄 Reverting miner {uid} at {ip}.")
 
             try:
+                ssh_user = machine_details.username
+                ssh_dir = get_authorized_keys_dir(ssh_user)
+                authorized_keys_path = f"{ssh_dir}/authorized_keys"
+                session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
+                revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
+                revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_log)
+
                 # Establish an SSH connection using asyncssh
-                async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as conn:
-                    
-                    #Run persist command
-                    persist_revert_cmd = get_persist_revert_cmd(ssh_user, revert_script_path, backup_suffix)
-                    persist_result = await run_cmd_async(conn, persist_revert_cmd)   
-                    if persist_result.exit_status == 0:
-                        logger.info(f"Persist revert executed successfully on {ip}")
-                    else:
-                        logger.error(f"Persist revert command failed on {ip}: {persist_result.stderr}")                 
+                async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as conn_revert:
                     
                     # Run revert command
-                    revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_script_path, revert_log)
-                    revert_result = await run_cmd_async(conn, revert_cmd) 
-                    if revert_result.exit_status == 0:
-                        logger.info(f"Revert command executed successfully on {ip}")
+                    result = await run_cmd_async(conn_revert, revert_cmd) 
+                    if result.exit_status == 0:
+                        logger.info(f"✅ Revert command executed successfully on {ip}")
                     else:
-                        logger.error(f"Revert command failed on {ip}: {revert_result.stderr}")
+                        logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
 
                 return True
 
             except Exception as e:
                 logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
                 return False
+
 
         # Run lockdown for all machines of the miner
         tasks = [revert_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]

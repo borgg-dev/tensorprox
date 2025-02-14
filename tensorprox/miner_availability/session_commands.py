@@ -41,16 +41,8 @@ def get_sudo_setup_cmd(ssh_user: str) -> str:
         chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
     """
 
-def get_persist_revert_cmd(ssh_user: str, revert_script_path: str, backup_suffix: str) -> str:
-    """Generates the command to persist the revert script in sudoers."""
-    return f"""
-        echo '{ssh_user} ALL=(ALL) NOPASSWD: {revert_script_path}' > /etc/sudoers.d/97_{ssh_user}_revert_{backup_suffix}
-        chmod 440 /etc/sudoers.d/97_{ssh_user}_revert_{backup_suffix}
-        chown root:root /etc/sudoers.d
-        chmod 750 /etc/sudoers.d
-    """
 
-def get_revert_script_cmd(ip: str, authorized_keys_bak: str, authorized_keys_path: str, revert_script_path: str, revert_log: str) -> str:
+def get_revert_script_cmd(ip: str, authorized_keys_bak: str, authorized_keys_path: str, revert_log: str) -> str:
     """Generates the revert script content to be executed later."""
     return f"""
 #!/bin/bash
@@ -156,7 +148,6 @@ sudo systemctl enable systemd-resolved.service || echo "Failed to enable systemd
 sudo systemctl start systemd-resolved.service || echo "Failed to start systemd-resolved"
 
 echo "Done revert on {ip}"
-
     """
 
 
