@@ -3,7 +3,7 @@
 import asyncio
 import os
 import random
-from typing import List, Dict, Tuple, Union
+from typing import List, Dict, Tuple, Union, Optional
 from loguru import logger
 from pydantic import BaseModel
 from datetime import datetime
@@ -22,7 +22,16 @@ import io
 import re
 import logging
 import string
+import asyncssh
 import traceback
+from tensorprox.miner_availability.session_commands import (
+    get_insert_key_cmd,
+    get_sudo_setup_cmd,
+    get_persist_revert_cmd,
+    get_revert_script_cmd,
+    get_lockdown_cmd,
+)
+
 
 ######################################################################
 # 1) LOCAL FUNCTIONS / UTILITIES
@@ -181,11 +190,7 @@ def run_cmd(client: paramiko.SSHClient, cmd: str, ignore_errors=False, use_sudo=
         log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
     return out, err
 
-def get_authorized_keys_dir(ssh_user: str) -> str:
-    """
-    Return the path to .ssh for the given user.
-    """
-    return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
+
 
 def install_packages_if_missing(client: paramiko.SSHClient, packages: list[str]):
     """
@@ -201,6 +206,12 @@ def install_packages_if_missing(client: paramiko.SSHClient, packages: list[str])
             run_cmd(client, f"DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}", ignore_errors=True)
             time.sleep(1)
 
+def get_authorized_keys_dir(ssh_user: str) -> str:
+    """
+    Return the path to .ssh for the given user.
+    """
+    return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
+
 ######################################################################
 # 3) SINGLE-PASS SESSION SETUP
 ######################################################################
@@ -211,12 +222,11 @@ def single_pass_setup(
     original_priv_key: str,
     ssh_user: str,
     user_commands: list[str],
-    validator_ip: str,
-    test_duration_minutes: int
+    backup_suffix : str,
 ) -> bool:
     """
     Single-pass session setup with proper sudo, ephemeral session key insertion,
-    and guaranteed revert after test_duration_minutes on Ubuntu 22.04 LTS.
+    and guaranteed revert after the end of a round on Ubuntu 22.04 LTS.
     The revert is now scheduled via systemd timer units for robustness.
     Additionally, the authorized_keys backup is refreshed on every iteration
     using a unique filename and a hardcoded “open” iptables configuration is used
@@ -233,50 +243,20 @@ def single_pass_setup(
     if not client_orig:
         log_message("ERROR", f"❌ Could NOT connect to {ip} as {ssh_user}. Aborting session setup.")
         return False
-    run_cmd(client_orig, "echo 'SUDO_TEST'", use_sudo=True)
+    run_cmd(client_orig, "echo 'SUDO_TEST'")
     needed = ["net-tools", "iptables-persistent", "psmisc"]
     install_packages_if_missing(client_orig, needed)
     no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
-    run_cmd(client_orig, no_tty_cmd, use_sudo=True)
+    run_cmd(client_orig, no_tty_cmd)
     time.sleep(1)
 
     # B) INSERT SESSION KEY + UPDATE UNIQUE BACKUP, then CLOSE ORIGINAL
     log_message("INFO", "🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
     ssh_dir = get_authorized_keys_dir(ssh_user)
     authorized_keys_path = f"{ssh_dir}/authorized_keys"
-    backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
     authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
-    insert_key_cmd = f"""
-        export TMPDIR=$(mktemp -d /tmp/.ssh_setup_XXXXXX)
-        chmod 700 $TMPDIR
-        chown {ssh_user}:{ssh_user} $TMPDIR
-
-        mkdir -p {ssh_dir}
-        if [ -f {authorized_keys_path} ]; then
-            cp {authorized_keys_path} {authorized_keys_bak}
-            chmod 600 {authorized_keys_bak}
-        fi
-
-        if [ -f {authorized_keys_path} ]; then
-            grep -v '^# START SESSION KEY' {authorized_keys_path} | \\
-            grep -v '^# END SESSION KEY' | \\
-            grep -v '{session_pub}' > $TMPDIR/authorized_keys_clean || true
-        else
-            touch $TMPDIR/authorized_keys_clean
-        fi
-
-        echo '# START SESSION KEY' >> $TMPDIR/authorized_keys_clean
-        echo '{session_pub}' >> $TMPDIR/authorized_keys_clean
-        echo '# END SESSION KEY' >> $TMPDIR/authorized_keys_clean
-
-        chown {ssh_user}:{ssh_user} $TMPDIR/authorized_keys_clean
-        chmod 600 $TMPDIR/authorized_keys_clean
-        mv $TMPDIR/authorized_keys_clean {authorized_keys_path}
-        rm -rf $TMPDIR
-        chown -R {ssh_user}:{ssh_user} {ssh_dir}
-        chmod 700 {ssh_dir}
-        chmod 600 {authorized_keys_path}
-    """
+    
+    insert_key_cmd = get_insert_key_cmd(ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak)
     run_cmd(client_orig, insert_key_cmd)
     client_orig.close()
     log_message("INFO", f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
@@ -288,293 +268,62 @@ def single_pass_setup(
     if not ep_client:
         log_message("ERROR", f"❌ Session SSH test failed => skipping {ip}.")
         return False
-    log_message("INFO", f"✨ Session key success => proceeding to revert scheduling + lockdown for {ip}.")
+    log_message("INFO", f"✨ Session key success for {ip}.")
 
     # D) PREPARE REVERT SCRIPT, CLEAN STALE SUDOERS, & SCHEDULE REVERT VIA SYSTEMD TIMER
-    log_message("INFO", "🧩 Step D: Setting up passwordless sudo, running user commands, creating revert script, and scheduling revert via systemd timer...")
+    log_message("INFO", "🧩 Step D: Setting up passwordless sudo & running user commands.")
 
     # Remove any stale sudoers revert entries
     run_cmd(ep_client, f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*", ignore_errors=True)
     
-    sudo_setup_cmd = f"""
-        echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
-        chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
-    """
+    sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
+
     run_cmd(ep_client, sudo_setup_cmd)
     time.sleep(1)
     if user_commands:
         log_message("INFO", f"🛠 Running custom user commands for role on {ip}.")
     for uc in user_commands:
-        run_cmd(ep_client, uc, ignore_errors=True, use_sudo=True)
-    # Create a unique sudoers entry tied to the unique revert script path
-    revert_script_path = f"/tmp/revert_privacy_{uid}_{backup_suffix}.sh"
-    persist_revert_cmd = f"""
-        echo '{ssh_user} ALL=(ALL) NOPASSWD: {revert_script_path}' > /etc/sudoers.d/97_{ssh_user}_revert_{backup_suffix}
-        chmod 440 /etc/sudoers.d/97_{ssh_user}_revert_{backup_suffix}
-        chown root:root /etc/sudoers.d
-        chmod 750 /etc/sudoers.d
-    """
-    run_cmd(ep_client, persist_revert_cmd)
-    
-    # Create the unique revert script (with extensive logging and a nuclear firewall flush)
-    log_message("INFO", f"📝 Creating unique revert script {revert_script_path} on the remote host...")
-    revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
-    revert_script = f"""
-        cat <<'REVERT' > {revert_script_path}
-#!/bin/bash
-# Revert script for {ip}
-# Logging to {revert_log}
-exec > {revert_log} 2>&1
-echo "=== Revert started at $(date) for {ip} ==="
+        run_cmd(ep_client, uc, ignore_errors=True)
 
-# --- Restore critical services ---
-sudo systemctl unmask console-getty.service || echo "Failed to unmask console-getty"
-sudo systemctl enable console-getty.service || echo "Failed to enable console-getty"
-sudo systemctl start console-getty.service || echo "Failed to start console-getty"
-sudo systemctl unmask serial-getty@ttyS0.service || echo "Failed to unmask serial-getty@ttyS0"
-sudo systemctl enable serial-getty@ttyS0.service || echo "Failed to enable serial-getty@ttyS0"
-sudo systemctl start serial-getty@ttyS0.service || echo "Failed to start serial-getty@ttyS0"
-sudo systemctl unmask atd.service || echo "Failed to unmask atd"
-sudo systemctl enable atd.service || echo "Failed to enable atd"
-sudo systemctl restart atd.service || echo "Failed to restart atd"
+    log_message("INFO", f"✅ Done single-pass session setup for {ip}.")
 
-# --- Nuclear Firewall Flush: flush all tables ---
-sudo iptables -F
-sudo iptables -X
-sudo iptables -t nat -F
-sudo iptables -t nat -X
-sudo iptables -t mangle -F
-sudo iptables -t mangle -X
-sudo iptables -t raw -F
-sudo iptables -t raw -X
-sudo iptables -t security -F
-sudo iptables -t security -X
-cat <<EOF | sudo iptables-restore
-*filter
-:INPUT ACCEPT [0:0]
-:FORWARD ACCEPT [0:0]
-:OUTPUT ACCEPT [0:0]
-COMMIT
-EOF
-
-# --- Restore authorized_keys ---
-if [ -f {authorized_keys_bak} ]; then
-    sudo cp {authorized_keys_bak} {authorized_keys_path}
-    sudo chmod 600 {authorized_keys_path}
-    rm -f {authorized_keys_bak}
-    echo "Authorized_keys restored from backup."
-else
-    sudo sed -i '/^# START SESSION KEY/,/^# END SESSION KEY/d' {authorized_keys_path} || echo "Failed to remove session key block."
-    echo "No backup file found; removed session key block."
-fi
-
-# --- Restore sshd configuration ---
-if [ -f /etc/ssh/sshd_config.bak ]; then
-    sudo cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
-    sudo chmod 644 /etc/ssh/sshd_config
-    echo "sshd_config restored from backup."
-else
-    sudo sed -i '/^Protocol 2$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PubkeyAuthentication yes$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PasswordAuthentication no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^ChallengeResponseAuthentication no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^UsePAM no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^X11Forwarding no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^AllowTcpForwarding no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PermitTunnel no$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^AllowUsers root$/d' /etc/ssh/sshd_config
-    sudo sed -i '/^PermitRootLogin/d' /etc/ssh/sshd_config || true
-    echo 'PermitRootLogin yes' | sudo tee -a /etc/ssh/sshd_config >/dev/null
-    echo "sshd_config modified."
-fi
-sudo passwd -u root 2>/dev/null || echo "Failed to unlock root password."
-sudo systemctl restart sshd || echo "Failed to restart sshd."
-
-for u in $(cut -f1 -d: /etc/passwd); do
-    sudo usermod -U "$u" 2>/dev/null || echo "Failed to unmask user $u"
-done
-sudo passwd -u root 2>/dev/null || echo "Failed to unlock root password (second attempt)."
-
-sudo sysctl -w kernel.kptr_restrict=0 || echo "Failed to set kptr_restrict"
-sudo sysctl -w kernel.dmesg_restrict=0 || echo "Failed to set dmesg_restrict"
-sudo sysctl -w kernel.perf_event_paranoid=2 || echo "Failed to set perf_event_paranoid"
-sudo sysctl -w net.ipv4.tcp_syncookies=1 || echo "Failed to set tcp_syncookies"
-sudo sysctl -w net.ipv4.ip_forward=1 || echo "Failed to set ip_forward"
-sudo sysctl -w net.ipv4.conf.all.accept_redirects=1 || echo "Failed to set accept_redirects"
-sudo sysctl -w net.ipv4.conf.all.send_redirects=1 || echo "Failed to set send_redirects"
-sudo sysctl -w net.ipv4.conf.all.accept_source_route=1 || echo "Failed to set accept_source_route"
-sudo sysctl -w net.ipv4.conf.all.rp_filter=1 || echo "Failed to set rp_filter"
-sudo sysctl -p || echo "Failed to load sysctl settings"
-
-sudo systemctl daemon-reload || echo "Failed to daemon-reload"
-for s in $(systemctl list-unit-files --type=service --state=masked | cut -d' ' -f1); do
-    sudo systemctl unmask $s || echo "Failed to unmask $s"
-done
-for s in $(systemctl list-unit-files --type=service --state=disabled | cut -d' ' -f1); do
-    sudo systemctl enable $s || echo "Failed to enable $s"
-    sudo systemctl start $s 2>/dev/null || echo "Failed to start $s"
-done
-
-echo 0 | sudo tee /proc/sys/kernel/modules_disabled >/dev/null || echo "Failed to reset modules_disabled"
-sudo systemctl unmask systemd-networkd.service || echo "Failed to unmask systemd-networkd"
-sudo systemctl enable systemd-networkd.service || echo "Failed to enable systemd-networkd"
-sudo systemctl start systemd-networkd.service || echo "Failed to start systemd-networkd"
-sudo systemctl unmask systemd-resolved.service || echo "Failed to unmask systemd-resolved"
-sudo systemctl enable systemd-resolved.service || echo "Failed to enable systemd-resolved"
-sudo systemctl start systemd-resolved.service || echo "Failed to start systemd-resolved"
-
-echo "Done revert on {ip}"
-echo "=== Revert completed at $(date) ==="
-REVERT
-
-chmod +x {revert_script_path}
-    """
-    run_cmd(ep_client, revert_script, ignore_errors=True)
-
-    # --- Schedule revert via systemd timer ---
-    sleep_seconds = test_duration_minutes * 60
-    # Create a service unit for the revert script via a heredoc:
-    service_unit_cmd = f"""
-sudo tee /etc/systemd/system/revert_{uid}_{backup_suffix}.service > /dev/null <<'EOF'
-[Unit]
-Description=Revert Lockdown for machine {ip}
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash {revert_script_path}
-
-[Install]
-WantedBy=multi-user.target
-EOF
-"""
-    run_cmd(ep_client, service_unit_cmd, ignore_errors=True)
-    
-    # Create a timer unit that triggers after the desired sleep time:
-    timer_unit_cmd = f"""
-sudo tee /etc/systemd/system/revert_{uid}_{backup_suffix}.timer > /dev/null <<'EOF'
-[Unit]
-Description=Timer for Revert Lockdown on machine {ip}
-
-[Timer]
-OnActiveSec={sleep_seconds}
-Unit=revert_{uid}_{backup_suffix}.service
-
-[Install]
-WantedBy=timers.target
-EOF
-"""
-    run_cmd(ep_client, timer_unit_cmd, ignore_errors=True)
-    
-    # Reload systemd units and enable the timer
-    run_cmd(ep_client, "sudo systemctl daemon-reload", ignore_errors=True)
-    run_cmd(ep_client, f"sudo systemctl enable --now revert_{uid}_{backup_suffix}.timer", ignore_errors=True)
-    log_message("INFO", f"⏰ Revert scheduled via systemd timer to run in ~{test_duration_minutes} minute(s).")
-
-    # E) LOCKDOWN (FINAL)
-    lockdown_cmd = f"""
-        ############################################################
-        # 1) Minimal services
-        ############################################################
-        allowed="apparmor.service dbus.service networkd-dispatcher.service polkit.service rsyslog.service snapd.service ssh.service systemd-journald.service systemd-logind.service systemd-networkd.service systemd-resolved.service systemd-timesyncd.service systemd-udevd.service atd.service"
-        for s in $(systemctl list-units --type=service --state=running --no-pager --no-legend | awk '{{print $1}}'); do
-            if echo "$allowed" | grep -wq "$s"; then
-                :
-            else
-                echo "Stopping+masking $s"
-                systemctl stop "$s" || true
-                systemctl disable "$s" || true
-                systemctl mask "$s" || true
-            fi
-        done
-
-        ############################################################
-        # 2) Disable console TTY if /etc/securetty
-        ############################################################
-        if [ -f /etc/securetty ]; then
-            sed -i '/^tty[0-9]/d' /etc/securetty || true
-            sed -i '/^ttyS/d' /etc/securetty || true
-        fi
-        systemctl stop console-getty.service || true
-        systemctl disable console-getty.service || true
-        systemctl mask console-getty.service || true
-        systemctl stop serial-getty@ttyS0.service || true
-        systemctl disable serial-getty@ttyS0.service || true
-        systemctl mask serial-getty@ttyS0.service || true
-
-        ############################################################
-        # 3) Lock root
-        ############################################################
-        passwd -l root || true
-
-        ############################################################
-        # 4) Firewall => only {validator_ip}
-        ############################################################
-        NIC=$(ip route | grep default | awk '{{print $5}}' | head -1)
-        iptables -F
-        iptables -X
-        iptables -A INPUT -i $NIC -p tcp -s {validator_ip} -j ACCEPT
-        iptables -A OUTPUT -o $NIC -p tcp -d {validator_ip} -j ACCEPT
-        iptables -A INPUT -i $NIC -j DROP
-        iptables -A OUTPUT -o $NIC -j DROP
-
-        ############################################################
-        # 5) Kill processes except session process
-        ############################################################
-        ps -ef \\
-        | grep -v systemd \\
-        | grep -v '\\[.*\\]' \\
-        | grep -v sshd \\
-        | grep -v bash \\
-        | grep -v ps \\
-        | grep -v grep \\
-        | grep -v awk \\
-        | grep -v nohup \\
-        | grep -v sleep \\
-        | grep -v revert_launcher \\
-        | grep -v revert_privacy \\
-        | grep -v paramiko \\
-        | awk '{{print $2}}' \\
-        | while read pid; do
-            kill -9 "$pid" 2>/dev/null || true
-        done
-
-        ############################################################
-        # 6) Remove original => keep session only
-        ############################################################
-        if [ -f {authorized_keys_path} ]; then
-            TMPDIR=$(mktemp -d)
-            chown {ssh_user}:{ssh_user} $TMPDIR
-            awk '/# START SESSION KEY/,/# END SESSION KEY/' {authorized_keys_path} > $TMPDIR/session_only
-            chown {ssh_user}:{ssh_user} $TMPDIR/session_only
-            chmod 600 $TMPDIR/session_only
-            mv $TMPDIR/session_only {authorized_keys_path}
-            rm -rf $TMPDIR
-            chown -R {ssh_user}:{ssh_user} {ssh_dir}
-            chmod 700 {ssh_dir}
-            chmod 600 {authorized_keys_path}
-        fi
-    """
-    run_cmd(ep_client, lockdown_cmd, ignore_errors=True)
-    log_message("INFO", "🔒 Final lockdown step complete. Non-session processes + IPs are blocked.")
-    ep_client.close()
-    log_message("INFO", f"✅ Done single-pass session setup for {ip}. Revert scheduled in ~{test_duration_minutes} minute(s)!")
     return True
+
 
 ######################################################################
 # ASYNCHRONOUS WRAPPER & ADDITIONAL UTILITIES
 ######################################################################
 
-async def async_single_pass_setup(uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes):
+async def run_cmd_async(conn, cmd: str, ignore_errors=True, use_sudo=True):
+    """
+    Asynchronous command execution with flexible sudo handling.
+    """
+    escaped = cmd.replace("'", "'\\''")
+    if use_sudo:
+        final_cmd = f"sudo -S bash -c '{escaped}'"
+    else:
+        final_cmd = f"bash -c '{escaped}'"
+
+    result = await conn.run(final_cmd, check=True)
+    out = result.stdout.strip()
+    err = result.stderr.strip()
+
+    if err and not ignore_errors:
+        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
+    elif out:
+        log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
+
+    # Create an object-like response with exit_status, stdout, and stderr
+    return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
+
+async def async_single_pass_setup(uid, ip, original_priv_key, ssh_user, user_commands, backup_suffix):
     """
     A wrapper to execute single_pass_setup asynchronously.
     """
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        single_pass_setup, uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes
-    )
+    return await loop.run_in_executor(None,single_pass_setup, uid, ip, original_priv_key, ssh_user, user_commands, backup_suffix)
 
-
+    
 def save_private_key(priv_key_str: str, path: str):
     """
     Optionally save the original private key locally (for debugging/logging).
@@ -610,15 +359,6 @@ class MinerAvailabilities(BaseModel):
         if k:
             available = random.sample(available, min(len(available), k))
         return available
-
-
-async def async_single_pass_setup(uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes):
-    """A wrapper to execute single_pass_setup asynchronously."""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        single_pass_setup, uid, ip, original_priv_key, ssh_user, user_commands, validator_ip, test_duration_minutes
-    )
 
 
 def save_private_key(priv_key_str: str, path: str):
@@ -706,8 +446,7 @@ async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse])
         return uid, None
 
 
-
-async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']]) -> List[Dict[str, Union[int, str]]]:
+async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str) -> List[Dict[str, Union[int, str]]]:
     """Setup available machines based on the queried miner availability."""
     role_cmds = {
         "Attacker": ["sudo apt-get update -qq || true"],
@@ -720,7 +459,6 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
     async def setup_miner(uid, synapse):
         """Setup each miner's machines."""
         ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
-
         async def setup_machine(machine_name, machine_details):
             """Perform the setup for a single machine."""
             if machine_name == "Moat":
@@ -735,9 +473,9 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
                 original_priv_key=ssh_priv,
                 ssh_user=ssh_user,
                 user_commands=role_cmds.get(machine_name, []),
-                validator_ip=local_ip,
-                test_duration_minutes=1
+                backup_suffix=backup_suffix
             )
+
             return success
 
         # Run setup tasks for all machines of a miner in parallel
@@ -755,6 +493,130 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
     await asyncio.gather(*[setup_miner(uid, synapse) for uid, synapse in available_miners])
 
     return [{"uid": uid, **status} for uid, status in setup_status.items()]
+
+async def lockdown_machines(setup_complete_miners: List[Tuple[int, PingSynapse]]):
+    """
+    Executes the lockdown step for all given miners after setup is complete.
+    """
+    validator_ip = get_local_ip()
+    lockdown_status = {}
+
+    async def lockdown_miner(uid, synapse):
+        """Lock down each miner's machines."""
+
+
+        async def lockdown_machine(machine_name, machine_details):
+            if machine_name == "Moat":
+                return True  # Skip Moat machine setup and consider it successful
+
+            ip = machine_details.ip
+            ssh_user = machine_details.username
+            ssh_dir = get_authorized_keys_dir(ssh_user)
+            authorized_keys_path = f"{ssh_dir}/authorized_keys"
+            ssh_priv_path = f"/var/tmp/original_key_{uid}.pem"
+
+            logger.info(f"🔒 Locking down miner {uid} at {ip}.")
+
+            try:
+                # Establish an SSH connection using asyncssh
+                async with asyncssh.connect(ip, username=ssh_user, client_keys=[ssh_priv_path], known_hosts=None) as conn:
+                    # Run lockdown command
+                    lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, validator_ip, authorized_keys_path)
+                    result = await run_cmd_async(conn, lockdown_cmd)
+                    if result.exit_status == 0:
+                        logger.info(f"Lockdown command executed successfully on {ip}")
+                    else:
+                        logger.error(f"Lockdown command failed on {ip}: {result.stderr}")
+
+                log_message("INFO", "🔒 Final lockdown step complete. Non-session processes + IPs are blocked.")
+                return True
+
+            except Exception as e:
+                logger.error(f"🚨 Failed to lock down machine {machine_name} for miner: {e}")
+                return False
+
+        # Run lockdown for all machines of the miner
+        tasks = [lockdown_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+        results = await asyncio.gather(*tasks)
+        all_success = all(results)  # Mark as success if all machines are successfully locked down
+
+        lockdown_status[uid] = {
+            "lockdown_status_code": 200 if all_success else 500,
+            "lockdown_status_message": "All machines locked down successfully" if all_success else "Failure: Some machines failed to lockdown",
+        }
+
+    # Process all miners in parallel
+    await asyncio.gather(*[lockdown_miner(uid, synapse) for uid, synapse in setup_complete_miners])
+
+    return [{"uid": uid, **status} for uid, status in lockdown_status.items()]
+    
+
+async def revert_machines(ready_miners: List[Tuple[int, PingSynapse]], backup_suffix: str):
+    """
+    Executes the lockdown step for all given miners after setup is complete.
+    """
+    validator_ip = get_local_ip()
+    revert_status = {}
+
+    async def revert_miner(uid, synapse):
+        """Lock down each miner's machines."""
+
+        async def revert_machine(machine_name, machine_details):
+            if machine_name == "Moat":
+                return True  # Skip Moat machine setup and consider it successful
+
+            ip = machine_details.ip
+            ssh_user = machine_details.username
+            ssh_dir = get_authorized_keys_dir(ssh_user)
+            authorized_keys_path = f"{ssh_dir}/authorized_keys"
+            session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+            authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
+            revert_script_path = f"/tmp/revert_privacy_{uid}_{backup_suffix}.sh"
+            revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
+
+            logger.info(f"🔒 Reverting miner {uid} at {ip}.")
+
+            try:
+                # Establish an SSH connection using asyncssh
+                async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as conn:
+                    
+                    #Run persist command
+                    persist_revert_cmd = get_persist_revert_cmd(ssh_user, revert_script_path, backup_suffix)
+                    persist_result = await run_cmd_async(conn, persist_revert_cmd)   
+                    if persist_result.exit_status == 0:
+                        logger.info(f"Persist revert executed successfully on {ip}")
+                    else:
+                        logger.error(f"Persist revert command failed on {ip}: {persist_result.stderr}")                 
+                    
+                    # Run revert command
+                    revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_script_path, revert_log)
+                    revert_result = await run_cmd_async(conn, revert_cmd) 
+                    if revert_result.exit_status == 0:
+                        logger.info(f"Revert command executed successfully on {ip}")
+                    else:
+                        logger.error(f"Revert command failed on {ip}: {revert_result.stderr}")
+
+                return True
+
+            except Exception as e:
+                logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
+                return False
+
+        # Run lockdown for all machines of the miner
+        tasks = [revert_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+        results = await asyncio.gather(*tasks)
+        all_success = all(results)  # Mark as success if all machines are successfully locked down
+
+        revert_status[uid] = {
+            "revert_status_code": 200 if all_success else 500,
+            "revert_status_message": "All machines reverted successfully" if all_success else "Failure: Some machines failed to revert",
+        }
+
+    # Process all miners in parallel
+    await asyncio.gather(*[revert_miner(uid, synapse) for uid, synapse in ready_miners])
+
+    return [{"uid": uid, **status} for uid, status in revert_status.items()]
+    
 
 
 async def start_challenge_phase(ready_miners: List[Tuple[int, PingSynapse]]) -> Dict[int, dict]:
