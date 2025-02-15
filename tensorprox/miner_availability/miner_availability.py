@@ -144,26 +144,6 @@ async def create_and_test_connection(ip: str, private_key_path: str, username: s
         logger.error(f"SSH connection failed for {ip}: {str(e)}")
         return None
 
-def run_cmd(client: paramiko.SSHClient, cmd: str, ignore_errors=False, use_sudo=True) -> (str, str):
-    """
-    Enhanced command execution with flexible sudo handling.
-    """
-    escaped = cmd.replace("'", "'\\''")
-    if use_sudo:
-        final_cmd = f"sudo -S bash -c '{escaped}'"
-    else:
-        final_cmd = f"bash -c '{escaped}'"
-    stdin, stdout, stderr = client.exec_command(final_cmd)
-    out = stdout.read().decode().strip()
-    err = stderr.read().decode().strip()
-    if err and not ignore_errors:
-        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-    elif out:
-        log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
-    return out, err
-
-
-
 async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: list[str]):
     """
     Asynchronously install missing packages via apt-get if not already installed.
