@@ -364,14 +364,14 @@ async def query_availability(uid: int) -> Tuple['PingSynapse', Dict[str, Union[i
     return synapse, uid_status_availability
 
 
-async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse]):
+async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse], timeout: int = settings.NEURON_TIMEOUT):
     """Query a single miner's availability."""
     try:
         axon = settings.METAGRAPH.axons[uid]
         response = await settings.DENDRITE(
             axons=[axon],
             synapse=synapse,
-            timeout=settings.NEURON_TIMEOUT,
+            timeout=timeout,
             deserialize=False,
         )
         return uid, response[0] if response else None  
@@ -569,29 +569,30 @@ async def revert_machines(ready_miners: List[Tuple[int, 'PingSynapse']], backup_
     
 
 
-async def start_challenge_phase(ready_miners: List[Tuple[int, PingSynapse]]) -> Dict[int, dict]:
+async def get_ready(ready_miners: List[Tuple[int, PingSynapse]]) -> Dict[int, dict]:
     """Sends ChallengeSynapse to miners before the challenge starts and collects responses."""
-    challenge_results = {}
+    ready_results = {}
 
-    async def send_challenge(uid, synapse):
+    async def inform_miners(uid, synapse):
         try:
-            moat_private_ip = synapse.machine_availabilities.machine_config["Moat"].private_ip
             king_private_ip = synapse.machine_availabilities.machine_config["King"].private_ip
-            challenge_duration = 60
-            challenge_synapse = ChallengeSynapse(
+            get_ready_synapse = ChallengeSynapse(
+                task="Defend The King",
+                state="Get Ready",
                 king_private_ip=king_private_ip,
-                moat_private_ip=moat_private_ip,
-                challenge_duration=challenge_duration
+                challenge_start_time=None,
+                challenge_end_time = None,
+                duration = None
             )
-            uid, response = await dendrite_call(uid, challenge_synapse)
+            uid, response = await dendrite_call(uid, get_ready_synapse, timeout=15)
 
-            challenge_results[uid] = response
+            ready_results[uid] = response
         except Exception as e:
             logger.error(f"Error sending challenge to miner {uid}: {e}")
-            challenge_results[uid] = {"error": str(e)}
+            ready_results[uid] = {"error": str(e)}
 
-    await asyncio.gather(*[send_challenge(uid, synapse) for uid, synapse in ready_miners])
-    return challenge_results
+    await asyncio.gather(*[inform_miners(uid, synapse) for uid, synapse in ready_miners])
+    return ready_results
 
 # Start availability checking
 miner_availabilities = MinerAvailabilities()

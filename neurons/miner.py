@@ -274,11 +274,10 @@ class Miner(BaseMinerNeuron):
 
         try:
             # Extract challenge information from the synapse
+            task = synapse.task
             king_private_ip = synapse.king_private_ip
-            moat_private_ip = synapse.moat_private_ip
-            challenge_duration = synapse.challenge_duration
             
-            logger.debug(f"Challenge details: King IP: {king_private_ip}, Moat IP: {moat_private_ip}, Duration: {challenge_duration} sec")
+            logger.debug(f"Getting ready for Challenge.. Task received : {task}")
 
             if not self.firewall_active:
                 self.firewall_active = True

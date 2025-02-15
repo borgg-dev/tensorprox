@@ -1,6 +1,6 @@
 from pydantic import Field, BaseModel
 import bittensor as bt
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 class MachineDetails(BaseModel):
     ip: str | None = None
@@ -76,24 +76,28 @@ class ChallengeSynapse(bt.Synapse):
     Synapse for sending necessary configuration details to miners before a challenge round begins.
     """
 
+    task: str = Field(
+        ..., title="Task Name", description="Description of the task assigned to miners."
+    )
+
+    state: str = Field(
+        ..., title="Task State", description="Status of the task assigned."
+    )
+
     king_private_ip: str = Field(
         ..., title="King Machine Private IP", description="The Private IP address of the King machine."
     )
 
-    king_port: int = Field(
-        8080, title="King Machine Port", description="The port on which the King machine is listening."
+    challenge_start_time: Optional[int] = Field(
+        None, title="Challenge Start Time", description="Start Time of the challenge (timestamp)."
     )
 
-    moat_private_ip: str = Field(
-        ..., title="Moat Machine Private IP", description="The Private IP address of the Moat machine."
+    challenge_end_time: Optional[int] = Field(
+        None, title="Challenge End Time", description="End Time of the challenge (timestamp)."
     )
 
-    moat_listen_port: int = Field(
-        8080, title="Moat Listening Port", description="The port on which the Moat should listen for incoming traffic."
-    )
-
-    challenge_duration: int = Field(
-        ..., title="Challenge Duration", description="Duration of the challenge round in seconds."
+    challenge_duration: Optional[int] = Field(
+        None, title="Challenge Duration", description="Duration of the challenge round in seconds."
     )
 
 
@@ -102,10 +106,11 @@ class ChallengeSynapse(bt.Synapse):
         Serializes the ChallengeSynapse into a dictionary.
         """
         return {
+            "task" : self.task,
+            "state" : self.state,
             "king_private_ip": self.king_private_ip,
-            "king_port": self.king_port,
-            "moat_private_ip": self.moat_private_ip,
-            "moat_listen_port": self.moat_listen_port,
+            "challenge_start_time": self.challenge_start_time,
+            "challenge_end_time": self.challenge_end_time,
             "challenge_duration": self.challenge_duration,
         }
 
@@ -115,62 +120,11 @@ class ChallengeSynapse(bt.Synapse):
         Deserializes a dictionary into a ChallengeSynapse instance.
         """
         return cls(
+            task=data["task"],
+            state=data["state"],
             king_private_ip=data["king_private_ip"],
-            king_port=data.get("king_port", 8080),
-            moat_private_ip=data["moat_private_ip"],
-            moat_listen_port=data.get("moat_listen_port", 8080),
+            challenge_start_time = data["challenge_start_time"],
+            challenge_end_time = data["challenge_end_time"],
             challenge_duration=data["challenge_duration"],
         )
 
-
-class TensorProxSynapse(bt.Synapse):
-    """
-    TensorProxSynapse is a specialized implementation of the `Synapse`. 
-    This class is intended to interact with a streaming response that contains a sequence of tokens,
-    which represent prompts or messages in a certain scenario.
-
-    As a developer, when using or extending the `TensorProxSynapse` class, you should be primarily focused on the structure
-    and behavior of the prompts you are working with. The class has been designed to seamlessly handle the streaming,
-    decoding, and accumulation of tokens that represent these prompts.
-
-    Attributes:
-
-    - `task_name` (str): Name of the task sent to miners. Immutable.
-        For now we only process one task type => DDoSDetectionTask
-
-    - `challenges` (List[dict]): These represent the actual input features in the DDoS Detection scenario. Immutable.
-
-    - `prediction` (int): Stores the result of the output label predicted by miners.
-
-    Note: While you can directly use the `TensorProxSynapse` class, it's designed to be extensible. Thus, you can create
-    subclasses to further customize behavior for specific scenarios or requirements.
-    """
-
-    task_name: str = Field(
-        ...,
-        title="Task",
-        description="The task for the current TensorProxSynapse object.",
-        allow_mutation=False,
-    )
-
-    challenges: List[dict] = Field(
-        ...,
-        title="Challenges",
-        description="A list of challenges.",
-        allow_mutation=False,
-    )
-
-    prediction: str = Field(
-        "",
-        title="Prediction",
-        description="Prediction for the output class. This attribute is mutable and can be updated.",
-    )
-
-    def deserialize(self) -> str:
-        """
-        Deserializes the response by returning the prediction attribute.
-
-        Returns:
-            str: The prediction result.
-        """
-        return self.prediction

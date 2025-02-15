@@ -13,7 +13,7 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, lockdown_machines, start_challenge_phase, revert_machines
+from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, lockdown_machines, get_ready, revert_machines
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -123,14 +123,14 @@ class Validator(BaseValidatorNeuron):
                     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
                 ]
 
-                # # Step 5: Start Challenge Phase
-                # with Timer() as challenge_timer:    
-                #     logger.info(f"🚀 Starting challenge phase for miners: {[uid for uid, _ in ready_miners]}")
-                #     challenge_results = await start_challenge_phase(ready_miners)
+                # Step 5: Start Challenge Phase
+                with Timer() as readiness_timer:    
+                    logger.info(f"🚀 Starting challenge phase for miners: {[uid for uid, _ in ready_miners]}")
+                    ready_results = await get_ready(ready_miners)
 
 
-                # logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
-                # logger.debug(challenge_results)
+                logger.debug(f"Challenge phase completed in {readiness_timer.elapsed_time:.2f} seconds")
+                logger.debug(ready_results)
                 
                 # Step 6: Revert
                 with Timer() as revert_timer:    
