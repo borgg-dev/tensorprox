@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     MINER_AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
     SUBTENSOR_NETWORK: Optional[str] = Field(None, env="SUBTENSOR_NETWORK")
 
+
     # Class variables for singleton.
     _instance: Optional["Settings"] = None
     _instance_mode: Optional[str] = None

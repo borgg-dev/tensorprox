@@ -1,6 +1,7 @@
 from pydantic import Field, BaseModel
 import bittensor as bt
 from typing import List, Dict, Tuple, Optional
+from datetime import datetime
 
 class MachineDetails(BaseModel):
     ip: str | None = None
@@ -84,15 +85,12 @@ class ChallengeSynapse(bt.Synapse):
         ..., title="Task State", description="Status of the task assigned."
     )
 
-    king_private_ip: str = Field(
-        ..., title="King Machine Private IP", description="The Private IP address of the King machine."
-    )
 
-    challenge_start_time: Optional[int] = Field(
+    challenge_start_time: Optional[datetime] = Field(
         None, title="Challenge Start Time", description="Start Time of the challenge (timestamp)."
     )
 
-    challenge_end_time: Optional[int] = Field(
+    challenge_end_time: Optional[datetime] = Field(
         None, title="Challenge End Time", description="End Time of the challenge (timestamp)."
     )
 
@@ -108,9 +106,8 @@ class ChallengeSynapse(bt.Synapse):
         return {
             "task" : self.task,
             "state" : self.state,
-            "king_private_ip": self.king_private_ip,
-            "challenge_start_time": self.challenge_start_time,
-            "challenge_end_time": self.challenge_end_time,
+            "challenge_start_time": self.challenge_start_time.isoformat() if self.challenge_start_time else None,
+            "challenge_end_time": self.challenge_end_time.isoformat() if self.challenge_end_time else None,
             "challenge_duration": self.challenge_duration,
         }
 
@@ -118,13 +115,13 @@ class ChallengeSynapse(bt.Synapse):
     def deserialize(cls, data: dict) -> "ChallengeSynapse":
         """
         Deserializes a dictionary into a ChallengeSynapse instance.
+        Converts ISO 8601 date strings to datetime.
         """
         return cls(
             task=data["task"],
             state=data["state"],
-            king_private_ip=data["king_private_ip"],
-            challenge_start_time = data["challenge_start_time"],
-            challenge_end_time = data["challenge_end_time"],
+            challenge_start_time=datetime.fromisoformat(data["challenge_start_time"]) if data.get("challenge_start_time") else None,
+            challenge_end_time=datetime.fromisoformat(data["challenge_end_time"]) if data.get("challenge_end_time") else None,
             challenge_duration=data["challenge_duration"],
         )
 

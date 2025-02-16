@@ -13,7 +13,7 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, lockdown_machines, get_ready, revert_machines
+from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, lockdown_machines, get_ready, run_challenge, revert_machines
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -110,31 +110,37 @@ class Validator(BaseValidatorNeuron):
                     if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
                 ]
 
-                # Step 4: Lockdown miner
-                with Timer() as lockdown_timer:
-                    logger.info(f"Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
-                    lockdown_results = await lockdown_machines(setup_complete_miners)
+                # # Step 4: Lockdown miner
+                # with Timer() as lockdown_timer:
+                #     logger.info(f"Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
+                #     lockdown_results = await lockdown_machines(setup_complete_miners)
 
-                logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
-                logger.debug(lockdown_results)
+                # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+                # logger.debug(lockdown_results)
 
-                ready_miners = [
-                    (uid, synapse) for uid, synapse in setup_complete_miners
-                    if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-                ]
+                # ready_miners = [
+                #     (uid, synapse) for uid, synapse in setup_complete_miners
+                #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+                # ]
+
+                ready_miners = setup_complete_miners
+                ready_uids = [uid for uid, _ in ready_miners]
 
                 # Step 5: Start Challenge Phase
-                with Timer() as readiness_timer:    
-                    logger.info(f"🚀 Starting challenge phase for miners: {[uid for uid, _ in ready_miners]}")
-                    ready_results = await get_ready(ready_miners)
+                with Timer() as challenge_timer:    
+                    logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}")
+                    ready_results = await get_ready(ready_uids)
+                    logger.debug(ready_results)
+                    ready_uids = [uid for uid in ready_results]
+                    challenge_results = await run_challenge(ready_uids)
 
 
-                logger.debug(f"Challenge phase completed in {readiness_timer.elapsed_time:.2f} seconds")
-                logger.debug(ready_results)
+                logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
+                logger.debug(challenge_results)
                 
                 # Step 6: Revert
                 with Timer() as revert_timer:    
-                    logger.info(f"🚀 Reverting miner's machines access : {[uid for uid, _ in ready_miners]}")
+                    logger.info(f"🚀 Reverting miner's machines access : {ready_uids}")
                     revert_results = await revert_machines(ready_miners, backup_suffix)
 
 

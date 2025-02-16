@@ -6,7 +6,7 @@ import random
 from typing import List, Dict, Tuple, Union, Optional
 from loguru import logger
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
 from tensorprox.base.loop_runner import AsyncLoopRunner
@@ -569,17 +569,15 @@ async def revert_machines(ready_miners: List[Tuple[int, 'PingSynapse']], backup_
     
 
 
-async def get_ready(ready_miners: List[Tuple[int, PingSynapse]]) -> Dict[int, dict]:
+async def get_ready(ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
     """Sends ChallengeSynapse to miners before the challenge starts and collects responses."""
     ready_results = {}
 
-    async def inform_miners(uid, synapse):
+    async def inform_miner(uid):
         try:
-            king_private_ip = synapse.machine_availabilities.machine_config["King"].private_ip
             get_ready_synapse = ChallengeSynapse(
                 task="Defend The King",
-                state="Get Ready",
-                king_private_ip=king_private_ip,
+                state="GET_READY",
                 challenge_start_time=None,
                 challenge_end_time = None,
                 duration = None
@@ -591,8 +589,44 @@ async def get_ready(ready_miners: List[Tuple[int, PingSynapse]]) -> Dict[int, di
             logger.error(f"Error sending challenge to miner {uid}: {e}")
             ready_results[uid] = {"error": str(e)}
 
-    await asyncio.gather(*[inform_miners(uid, synapse) for uid, synapse in ready_miners])
+    await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
     return ready_results
+
+
+async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> Dict[int, dict]:
+    """Sends ChallengeSynapse to miners after waiting for the challenge duration."""
+    challenge_results = {}
+
+    challenge_start_time = datetime.now()
+    challenge_duration_td = timedelta(seconds=challenge_duration)
+    challenge_end_time = challenge_start_time + challenge_duration_td
+
+    # Launch background script (for example, firewall activation or monitoring)
+    logger.info(f"Launching background script at {challenge_start_time}...")
+
+    # Wait for the challenge duration
+    logger.info(f"Challenge started. Waiting for {challenge_duration} seconds...")
+    await asyncio.sleep(challenge_duration)
+    logger.info("Challenge duration ended.")
+
+    # Send ChallengeSynapse to miners after waiting
+    async def challenge_miner(uid):
+        try:
+            get_ready_synapse = ChallengeSynapse(
+                task="Defend The King",
+                state="END_ROUND",
+                challenge_start_time=challenge_start_time,
+                challenge_end_time=challenge_end_time,
+                duration=challenge_duration
+            )
+            uid, response = await dendrite_call(uid, get_ready_synapse, timeout=15)
+            challenge_results[uid] = response
+        except Exception as e:
+            logger.error(f"Error sending challenge to miner {uid}: {e}")
+            challenge_results[uid] = {"error": str(e)}
+
+    await asyncio.gather(*[challenge_miner(uid) for uid in ready_uids])
+    return challenge_results
 
 # Start availability checking
 miner_availabilities = MinerAvailabilities()

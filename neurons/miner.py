@@ -275,17 +275,36 @@ class Miner(BaseMinerNeuron):
         try:
             # Extract challenge information from the synapse
             task = synapse.task
-            king_private_ip = synapse.king_private_ip
+            state=synapse.state
+            king_private_ip = os.environ.get("KING_PRIVATE_IP")
+            challenge_start_time = synapse.challenge_start_time
+            challenge_end_time = synapse.challenge_end_time
+            challenge_duration = synapse.challenge_duration
             
-            logger.debug(f"Getting ready for Challenge.. Task received : {task}")
+            if state=="GET_READY" :
+                logger.debug(f"Getting ready for Challenge.. Task received : {task}")
 
-            if not self.firewall_active:
-                self.firewall_active = True
-                firewall_thread = Thread(target=run_async_packet_stream, args=(king_private_ip, "eth0"))
-                firewall_thread.daemon = True
-                firewall_thread.start()
-            else :
-                logger.info("💥 Moat firewall already activated.")
+                if not self.firewall_active:
+                    self.firewall_active = True
+                    firewall_thread = Thread(target=run_async_packet_stream, args=(king_private_ip, "eth0"))
+                    firewall_thread.daemon = True
+                    firewall_thread.start()
+                else :
+                    logger.info("💥 Moat firewall already activated.")
+
+            elif state=="END_ROUND" :
+                logger.debug(f"🔚 Challenge ended . Summary - Start time : {challenge_start_time}, End time : {challenge_end_time}, Duration : {challenge_duration}.")
+
+                if self.firewall_active:
+                    self.firewall_active = False
+                    self.stop_thread.set()  # Signal the thread to stop
+                    if self.firewall_thread:
+                        self.firewall_thread.join()  # Ensure the thread stops
+                    logger.info("🛑 Moat firewall deactivated.")
+                else :
+                    logger.info("💥 Moat firewall already deactivated.")
+
+                logger.debug(f"Waiting for the next round..")
 
         except Exception as e:
             logger.exception(e)
