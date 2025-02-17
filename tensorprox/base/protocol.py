@@ -74,7 +74,7 @@ class PingSynapse(bt.Synapse):
 
 class ChallengeSynapse(bt.Synapse):
     """
-    Synapse for sending necessary configuration details to miners before a challenge round begins.
+    Synapse for sending challenge state to miners.
     """
 
     task: str = Field(
@@ -86,19 +86,6 @@ class ChallengeSynapse(bt.Synapse):
     )
 
 
-    challenge_start_time: Optional[datetime] = Field(
-        None, title="Challenge Start Time", description="Start Time of the challenge (timestamp)."
-    )
-
-    challenge_end_time: Optional[datetime] = Field(
-        None, title="Challenge End Time", description="End Time of the challenge (timestamp)."
-    )
-
-    challenge_duration: Optional[int] = Field(
-        None, title="Challenge Duration", description="Duration of the challenge round in seconds."
-    )
-
-
     def serialize(self) -> dict:
         """
         Serializes the ChallengeSynapse into a dictionary.
@@ -106,9 +93,6 @@ class ChallengeSynapse(bt.Synapse):
         return {
             "task" : self.task,
             "state" : self.state,
-            "challenge_start_time": self.challenge_start_time.isoformat() if self.challenge_start_time else None,
-            "challenge_end_time": self.challenge_end_time.isoformat() if self.challenge_end_time else None,
-            "challenge_duration": self.challenge_duration,
         }
 
     @classmethod
@@ -120,8 +104,5 @@ class ChallengeSynapse(bt.Synapse):
         return cls(
             task=data["task"],
             state=data["state"],
-            challenge_start_time=datetime.fromisoformat(data["challenge_start_time"]) if data.get("challenge_start_time") else None,
-            challenge_end_time=datetime.fromisoformat(data["challenge_end_time"]) if data.get("challenge_end_time") else None,
-            challenge_duration=data["challenge_duration"],
         )
 

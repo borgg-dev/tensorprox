@@ -578,31 +578,25 @@ async def get_ready(ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
             get_ready_synapse = ChallengeSynapse(
                 task="Defend The King",
                 state="GET_READY",
-                challenge_start_time=None,
-                challenge_end_time = None,
-                duration = None
             )
             uid, response = await dendrite_call(uid, get_ready_synapse, timeout=15)
 
             ready_results[uid] = response
         except Exception as e:
-            logger.error(f"Error sending challenge to miner {uid}: {e}")
+            logger.error(f"Error sending synapse to miner {uid}: {e}")
             ready_results[uid] = {"error": str(e)}
 
     await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
     return ready_results
 
 
-async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> Dict[int, dict]:
+async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> Dict[int, ChallengeSynapse]:
     """Sends ChallengeSynapse to miners after waiting for the challenge duration."""
     challenge_results = {}
 
     challenge_start_time = datetime.now()
     challenge_duration_td = timedelta(seconds=challenge_duration)
     challenge_end_time = challenge_start_time + challenge_duration_td
-
-    # Launch background script (for example, firewall activation or monitoring)
-    logger.info(f"Launching background script at {challenge_start_time}...")
 
     # Wait for the challenge duration
     logger.info(f"Challenge started. Waiting for {challenge_duration} seconds...")
@@ -612,17 +606,14 @@ async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> 
     # Send ChallengeSynapse to miners after waiting
     async def challenge_miner(uid):
         try:
-            get_ready_synapse = ChallengeSynapse(
+            end_round_synapse = ChallengeSynapse(
                 task="Defend The King",
                 state="END_ROUND",
-                challenge_start_time=challenge_start_time,
-                challenge_end_time=challenge_end_time,
-                duration=challenge_duration
             )
-            uid, response = await dendrite_call(uid, get_ready_synapse, timeout=15)
+            uid, response = await dendrite_call(uid, end_round_synapse, timeout=15)
             challenge_results[uid] = response
         except Exception as e:
-            logger.error(f"Error sending challenge to miner {uid}: {e}")
+            logger.error(f"Error sending synapse to miner {uid}: {e}")
             challenge_results[uid] = {"error": str(e)}
 
     await asyncio.gather(*[challenge_miner(uid) for uid in ready_uids])
