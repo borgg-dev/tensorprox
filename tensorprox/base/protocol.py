@@ -82,7 +82,7 @@ class ChallengeSynapse(bt.Synapse):
     )
 
     state: str = Field(
-        ..., title="Task State", description="Status of the task assigned."
+        ..., title="State", description="State of the task assigned."
     )
 
 

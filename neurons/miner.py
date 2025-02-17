@@ -107,8 +107,8 @@ class Miner(BaseMinerNeuron):
                 else:
                     logger.info("💥 Moat firewall already deactivated.")
 
-                # **Stop the miner after END_ROUND**
-                logger.warning("🚨 END_ROUND received, stopping miner...")    
+                #Stop the miner after END_ROUND
+                logger.warning("🚨 Round finished, waiting for next one...")    
 
                 self.step += 1               
 
@@ -285,10 +285,10 @@ class Miner(BaseMinerNeuron):
             try:
                 logger.info(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
 
-                # Step 1: Connect using the private key
+                #Connect using the private key
                 ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path, timeout=timeout)
 
-                # Step 2: Ensure the .ssh directory exists
+                #Ensure the .ssh directory exists
                 commands = [
                     f"mkdir -p {prefix_path}/.ssh",
                     f"chmod 700 {prefix_path}/.ssh",
@@ -299,14 +299,14 @@ class Miner(BaseMinerNeuron):
                 for cmd in commands:
                     ssh.exec_command(cmd)
 
-                # Step 3: Check if the public key already exists
+                #Check if the public key already exists
                 stdin, stdout, stderr = ssh.exec_command(f"cat {prefix_path}/.ssh/authorized_keys")
                 authorized_keys = stdout.read().decode().strip()
 
                 if ssh_public_key.strip() in authorized_keys:
                     logger.info(f"SSH key already exists on {machine_ip}.")
                 else:
-                    # Step 4: Add the new public key
+                    #Add the new public key
                     logger.info(f"Adding SSH key to {machine_ip}...")
                     stdin, stdout, stderr = ssh.exec_command(f'echo "{ssh_public_key.strip()}" >> {prefix_path}/.ssh/authorized_keys')
                     error = stderr.read().decode().strip()
@@ -318,7 +318,7 @@ class Miner(BaseMinerNeuron):
                     # Ensure correct permissions again
                     ssh.exec_command(f"chmod 600 {prefix_path}/.ssh/authorized_keys")
 
-                # Step 5: Update sudoers file for passwordless sudo
+                #Update sudoers file for passwordless sudo
                 sudoers_entry = f"{username} ALL=(ALL) NOPASSWD: ALL"
                 logger.info(f"Updating sudoers file for user {username}...")
                 stdin, stdout, stderr = ssh.exec_command(f'echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo')
