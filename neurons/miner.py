@@ -107,7 +107,6 @@ class Miner(BaseMinerNeuron):
                 else:
                     logger.info("💥 Moat firewall already deactivated.")
 
-                #Stop the miner after END_ROUND
                 logger.warning("🚨 Round finished, waiting for next one...")    
 
                 self.step += 1               
