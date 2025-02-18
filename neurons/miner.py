@@ -17,7 +17,8 @@ from threading import Thread, Event
 import asyncio
 import socket
 import struct
-from pydantic import Field
+from pydantic import Field, PrivateAttr
+from typing import List, Tuple
 import select
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
@@ -28,7 +29,17 @@ class Miner(BaseMinerNeuron):
     firewall_active: bool = False  # To prevent redundant setups
     firewall_thread: Thread = None  # To keep track of the sniffing thread
     stop_firewall_event: Event = Field(default_factory=Event)
+    packet_buffer: List[Tuple[bytes, int]] = Field(default_factory=list)
+    batch_interval: int = 1
+    
+    # Private attributes
+    _lock: asyncio.Lock = PrivateAttr()
 
+    # Define `lock` outside Pydantic's validation system
+    def __init__(self, **data):
+        super().__init__(**data)
+        self._lock = asyncio.Lock()  # Now safely initialized
+        
     def forward(self, synapse: PingSynapse) -> PingSynapse:
         """The forward function predicts class output for a set of features and forwards it to the validator."""
 
@@ -122,7 +133,7 @@ class Miner(BaseMinerNeuron):
 
 
     # Logic to check if packet is allowed (this can be customized)
-    def is_allowed_packet(self, packet):
+    def is_allowed_batch(self, batch):
         """
         This is where you define whether a packet should be allowed or blocked.
         For now, we just allow all packets.
@@ -174,30 +185,9 @@ class Miner(BaseMinerNeuron):
             # logger.error(f"Failed to forward packet to King ({destination_ip}:{destination_port}) - Error: {e}")
             pass
 
-    async def handle_moat_connection(self, packet_data, king_private_ip, destination_port, protocol):
-        """
-        Handle the incoming packet, validate it, and forward to King.
-        """
-        if packet_data:
-            # logger.info("Received packet for validation")
-
-            if self.is_allowed_packet(packet_data):
-                # logger.info("Packet allowed by Moat, forwarding to King...")
-                # Forward to King (replace 'KING_IP_ADDRESS' with the real IP of King)
-                await self.moat_forward_packet(packet_data, king_private_ip, destination_port, protocol)  # Example: King's IP and port 8080
-            # else:
-                # logger.warning("Packet blocked by Moat")
-
-
-        # Respond with a simple acknowledgment message
-        return b"Packet processed"
-
-
     # Sniff packets in a streamed manner and forward to Moat for processing
     async def process_packet_stream(self, packet_data, king_private_ip):
-        """
-        Processes packets in a streamed fashion and forwards them to Moat for validation.
-        """
+        """Store packet and its protocol in buffer instead of processing immediately."""
         eth_header = packet_data[0:14]
         eth_protocol = struct.unpack('!H', eth_header[12:14])[0]
 
@@ -211,31 +201,56 @@ class Miner(BaseMinerNeuron):
         if protocol not in (6, 17):
             return  # Ignore non-TCP and non-UDP packets
 
-        src_ip = socket.inet_ntoa(iph[8])  # Extract source IP
+        async with self._lock:
+            self.packet_buffer.append((packet_data, protocol))  # Store tuple
 
-        if src_ip == king_private_ip:
-            # logger.info("Decision engine processing...")
-            await self.handle_moat_connection(packet_data, king_private_ip, 8080, protocol)  # Moat listens on port 8081
+    async def batch_processing_loop(self, king_private_ip):
+        """Process the buffered packets every `batch_interval` seconds."""
+        try:
+            while not self.stop_firewall_event.is_set():
+                await asyncio.sleep(self.batch_interval)  # Wait for batch interval
+
+                async with self._lock:
+                    if not self.packet_buffer:
+                        continue  # No packets to process
+
+                    batch = self.packet_buffer[:]
+                    self.packet_buffer.clear()
+
+                logger.info(f"Processing batch of {len(batch)} packets...")
+
+                # Forward or block the packets based on decision
+                if self.is_allowed_batch(batch):
+                    for packet_data, protocol in batch:  # Extract packet and protocol
+                        await self.moat_forward_packet(packet_data, king_private_ip, 8080, protocol)
+                else:
+                    logger.info(f"Blocked {len(batch)} packets")
+        except Exception as e:
+            logger.error(f"Error in batch processing: {e}")
 
     # Function to continuously sniff packets and handle them in a stream
     async def sniff_packets_stream(self, king_private_ip, iface='eth0', stop_event=None):
-        """Sniffs packets in a continuous stream."""
+        """Sniffs packets and adds them to buffer instead of processing immediately."""
         logger.info(f"Sniffing packets for King Private IP: {king_private_ip} on interface {iface}")
 
         raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
         raw_socket.bind((iface, 0))
-        
-        # Ensure non-blocking socket
         raw_socket.setblocking(False)
 
+        # Start batch processing immediately and ensure it's non-blocking
+        asyncio.create_task(self.batch_processing_loop(king_private_ip))  # Create task to run concurrently
+
         while not stop_event.is_set():
-            ready, _, _ = select.select([raw_socket], [], [], 1)  # 1-second timeout
+            ready, _, _ = select.select([raw_socket], [], [], 1)  # 1s timeout
             if ready:
                 packet_data = raw_socket.recv(65535)
                 await self.process_packet_stream(packet_data, king_private_ip)
 
+            await asyncio.sleep(0)  # Yield control back to the event loop to run other tasks (like batch_processing_loop)
+
         logger.info("Stopping packet sniffing...")
         raw_socket.close()
+
 
     def generate_ssh_key_pair(self) -> tuple[str, str]:
         """
