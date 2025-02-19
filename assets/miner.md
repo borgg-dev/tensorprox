@@ -50,7 +50,7 @@ btcli s register --wallet.name borgg --wallet.hotkey miner --netuid 234 --subten
 You will also need to create a .env.miner environment file. It is necessary for you to provide the following :
 
 ```text
-**NETUID** = # The subnet UID (integer)
+__NETUID__ = # The subnet UID (integer)
 **SUBTENSOR_NETWORK** = # The network name [test, finney, local]
 **SUBTENSOR_CHAIN_ENDPOINT** = # The chain endpoint [test if running on test, finney if running on main, custom endpoint if running on local] 
 **WALLET_NAME** = # Name of your wallet (coldkey) 
