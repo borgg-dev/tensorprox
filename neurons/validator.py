@@ -110,19 +110,20 @@ class Validator(BaseValidatorNeuron):
                     if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
                 ]
 
-                # Step 4: Lockdown miner
-                with Timer() as lockdown_timer:
-                    logger.info(f"Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
-                    lockdown_results = await lockdown_machines(setup_complete_miners)
+                # # Step 4: Lockdown miner
+                # with Timer() as lockdown_timer:
+                #     logger.info(f"Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
+                #     lockdown_results = await lockdown_machines(setup_complete_miners)
 
-                logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
-                logger.debug(lockdown_results)
+                # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+                # logger.debug(lockdown_results)
 
-                ready_miners = [
-                    (uid, synapse) for uid, synapse in setup_complete_miners
-                    if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-                ]
+                # ready_miners = [
+                #     (uid, synapse) for uid, synapse in setup_complete_miners
+                #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+                # ]
 
+                ready_miners=setup_complete_miners
                 ready_uids = [uid for uid, _ in ready_miners]
 
                 # Step 5: Start Challenge Phase

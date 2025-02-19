@@ -18,8 +18,13 @@ import asyncio
 import socket
 import struct
 from pydantic import Field, PrivateAttr
-from typing import List, Tuple
+from typing import List, Tuple, Any
 import select
+from collections import defaultdict
+import numpy as np
+import joblib
+from sklearn.tree import DecisionTreeClassifier  # Add this import
+
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
@@ -35,11 +40,21 @@ class Miner(BaseMinerNeuron):
     # Private attributes
     _lock: asyncio.Lock = PrivateAttr()
 
+    # Models will be loaded in __init__
+    _model: DecisionTreeClassifier = PrivateAttr()
+    _imputer: Any = PrivateAttr()
+    _scaler: Any = PrivateAttr()
+
     # Define `lock` outside Pydantic's validation system
     def __init__(self, **data):
         super().__init__(**data)
         self._lock = asyncio.Lock()  # Now safely initialized
-        
+
+        # Load models during initialization
+        self._model = joblib.load("/home/azureuser/tensorprox/model/decision_tree_model.pkl")
+        self._imputer = joblib.load("/home/azureuser/tensorprox/model/imputer.pkl")
+        self._scaler = joblib.load("/home/azureuser/tensorprox/model/scaler.pkl")
+
     def forward(self, synapse: PingSynapse) -> PingSynapse:
         """The forward function predicts class output for a set of features and forwards it to the validator."""
 
@@ -120,8 +135,6 @@ class Miner(BaseMinerNeuron):
 
                 logger.warning("🚨 Round finished, waiting for next one...")    
 
-                self.step += 1               
-
         except Exception as e:
             logger.exception(e)
             logger.error(f"Error in challenge handling: {e}")
@@ -132,13 +145,22 @@ class Miner(BaseMinerNeuron):
         return synapse
 
 
-    # Logic to check if packet is allowed (this can be customized)
-    def is_allowed_batch(self, batch):
+    def is_allowed_batch(self, features):
         """
-        This is where you define whether a packet should be allowed or blocked.
-        For now, we just allow all packets.
+        Determines if a batch of packets should be allowed or blocked.
         """
-        return True  # Allow all packets (customize this with your logic)
+
+        prediction = self.predict_sample(features)  # Get prediction
+
+        # Extract the first element if prediction is a NumPy array
+        if isinstance(prediction, np.ndarray):
+            prediction = prediction[0]
+
+        # Check if the prediction is 1 or 2
+        if prediction in [1, 2]:
+            return False  #Block packets
+
+        return True  #Allow packets
     
     def run_packet_stream(self, king_private_ip, iface="eth0"):
         """Runs the firewall sniffing logic until stop event is set."""
@@ -204,6 +226,81 @@ class Miner(BaseMinerNeuron):
         async with self._lock:
             self.packet_buffer.append((packet_data, protocol))  # Store tuple
 
+    def extract_batch_features(self, packet_batch):
+        """Extract features from a batch of packets."""
+        if not packet_batch:
+            return None
+
+        # Initialize flow statistics
+        flow_stats = defaultdict(lambda: {
+            "tcp_syn_fwd_count": 0, "tcp_syn_bwd_count": 0,
+            "fwd_packet_count": 0, "bwd_packet_count": 0,
+            "unique_udp_source_ports": set(), "unique_udp_dest_ports": set(),
+            "total_fwd_pkt_size": 0, "total_bwd_pkt_size": 0,
+            "flow_packets_per_sec": 0, "flow_bytes_per_sec": 0,
+            "source_ip_entropy": 0, "dest_port_entropy": 0
+        })
+
+        for packet_data, protocol in packet_batch:
+            eth_protocol = struct.unpack('!H', packet_data[12:14])[0]
+            if eth_protocol != 0x0800:  # Ignore non-IPv4 packets
+                continue
+
+            ip_header = struct.unpack('!BBHHHBBH4s4s', packet_data[14:34])
+            protocol = ip_header[6]
+            src_ip = socket.inet_ntoa(ip_header[8])
+            dest_ip = socket.inet_ntoa(ip_header[9])
+
+            if protocol not in (6, 17):  # Only process TCP/UDP packets
+                continue
+
+            key = (src_ip, dest_ip)
+            entry = flow_stats[key]
+            entry["fwd_packet_count"] += 1
+
+            if protocol == 6:  # TCP
+                tcp_header = struct.unpack('!HHLLBBHHH', packet_data[34:54])
+                flags = tcp_header[5]
+                pkt_size = len(packet_data)
+                entry["total_fwd_pkt_size"] += pkt_size
+
+                if flags & 0x02:  # SYN flag
+                    entry["tcp_syn_fwd_count"] += 1
+
+            elif protocol == 17:  # UDP
+                udp_header = struct.unpack('!HHHH', packet_data[34:42])
+                src_port, dest_port = udp_header[0], udp_header[1]
+                pkt_size = len(packet_data)
+                entry["total_fwd_pkt_size"] += pkt_size
+
+                entry["unique_udp_source_ports"].add(src_port)
+                entry["unique_udp_dest_ports"].add(dest_port)
+
+        # Compute aggregated feature values
+        tcp_syn_flag_ratio = (
+            sum(e["tcp_syn_fwd_count"] + e["tcp_syn_bwd_count"] for e in flow_stats.values()) /
+            (sum(e["fwd_packet_count"] + e["bwd_packet_count"] for e in flow_stats.values()) + 1e-6)
+        )
+
+        udp_port_entropy = sum(len(e["unique_udp_source_ports"]) * len(e["unique_udp_dest_ports"]) for e in flow_stats.values())
+
+        avg_pkt_size = (
+            sum(e["total_fwd_pkt_size"] + e["total_bwd_pkt_size"] for e in flow_stats.values()) /
+            (2 * len(flow_stats) + 1e-6)
+        )
+
+        flow_density = sum(
+            e["flow_packets_per_sec"] / (e["flow_bytes_per_sec"] + 1e-6)
+            for e in flow_stats.values()
+        )
+
+        ip_entropy = sum(
+            e["source_ip_entropy"] + e["dest_port_entropy"]
+            for e in flow_stats.values()
+        )
+
+        return np.array([tcp_syn_flag_ratio, udp_port_entropy, avg_pkt_size, flow_density, ip_entropy])
+
     async def batch_processing_loop(self, king_private_ip):
         """Process the buffered packets every `batch_interval` seconds."""
         try:
@@ -219,8 +316,14 @@ class Miner(BaseMinerNeuron):
 
                 logger.info(f"Processing batch of {len(batch)} packets...")
 
+                # Extract batch-level features
+                features = self.extract_batch_features(batch)
+
+                # Predict whether batch is allowed
+                is_allowed = self.is_allowed_batch(features)  
+
                 # Forward or block the packets based on decision
-                if self.is_allowed_batch(batch):
+                if is_allowed:
                     for packet_data, protocol in batch:  # Extract packet and protocol
                         await self.moat_forward_packet(packet_data, king_private_ip, 8080, protocol)
                 else:
@@ -252,6 +355,21 @@ class Miner(BaseMinerNeuron):
         raw_socket.close()
 
 
+    # Perform ddos detection on a single batch of packets
+    def predict_sample(self, sample_data):
+        """Predicts whether a batch of packets should be allowed or blocked."""
+
+        # Impute missing values
+        sample_data_imputed = self._imputer.transform([sample_data])
+
+        # Standardize the sample
+        sample_data_scaled =self._scaler.transform(sample_data_imputed)
+
+        # Predict using the model
+        prediction = self._model.predict(sample_data_scaled)
+
+        return prediction
+    
     def generate_ssh_key_pair(self) -> tuple[str, str]:
         """
         Generates a random RSA SSH key pair and returns the private and public keys as strings.
