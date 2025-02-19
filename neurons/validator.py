@@ -29,24 +29,45 @@ from datetime import datetime
 app = web.Application()
 
 class Validator(BaseValidatorNeuron):
-    """Tensorprox validator neuron."""
+    """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
 
     def __init__(self, config=None):
+        """
+        Initializes the validator instance.
+
+        Args:
+            config (dict, optional): Configuration settings for the validator.
+        """
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
-        self.assigned_miners = []  # To store the assigned miners (UIDs)
-        self.playlist = []  # To store the playlist 
+        self.assigned_miners = []  # List of assigned miner UIDs
+        self.playlist = []  #Playlist for traffic generation
 
     async def check_miner(self, uid):
-        """Check the status of an individual miner."""
-        # Query the availability of a single miner
+        """
+        Checks the status and availability of a specific miner.
+
+        Args:
+            uid (int): Unique identifier of the miner.
+
+        Returns:
+            Tuple[Synapse, dict]: A tuple containing the synapse response and miner's availability status.
+        """
         synapse, uid_status_availability = await query_availability(uid)  # Get both lists from the query
         return synapse, uid_status_availability
 
 
     async def run_step(self, timeout: float) -> Tuple[DendriteResponseEvent, DendriteResponseEvent] | DendriteResponseEvent | None:
-        """Runs a single step to query the assigned miners' availability."""
+        """
+        Runs a validation step to query assigned miners, process availability, and initiate challenges.
+
+        Args:
+            timeout (float): Maximum allowed time for the step execution.
+
+        Returns:
+            DendriteResponseEvent | None: The response event with miner availability details or None if no miners are available.
+        """
         try:
             async with self._lock:
                 if not self.assigned_miners:
@@ -156,19 +177,28 @@ class Validator(BaseValidatorNeuron):
 
     async def forward(self):
         """Implements the abstract forward method."""
-        logger.info("Placeholder forward method called.")
-        await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
+        await asyncio.sleep(1)
+
 
     async def handle_challenge(self):
         """Implements the abstract handle challenge method."""
-        logger.info("Placeholder handle challenge method called.")
-        await asyncio.sleep(1)  # Prevents crash, can be modified for actual processing logic
+        await asyncio.sleep(1)
+
 
 # Define the validator instance
 validator_instance = Validator()
 
+
 async def ready(request):
-    """Receive readiness request from the orchestrator."""
+    """
+    Handles readiness checks from the orchestrator.
+
+    Args:
+        request (aiohttp.web.Request): Incoming HTTP request.
+
+    Returns:
+        aiohttp.web.Response: JSON response indicating readiness status.
+    """
     data = await request.json()
     message = data.get("message", "").lower()
 
@@ -176,9 +206,18 @@ async def ready(request):
         return web.json_response({"status": "ready"})
     else:
         return web.json_response({"status": "failed"}, status=400)
+    
 
 async def assign_miners(request):
-    """Receive assigned miners from the orchestrator and update Validator instance."""
+    """
+    Handles miner assignment requests from the orchestrator.
+
+    Args:
+        request (aiohttp.web.Request): Incoming HTTP request containing miner assignments.
+
+    Returns:
+        aiohttp.web.Response: JSON response confirming miner assignment.
+    """
     data = await request.json()
     assigned_miners = data.get("assigned_miners", [])
     playlist = data.get("playlist", [])
@@ -197,13 +236,19 @@ async def assign_miners(request):
 
     return web.json_response({"status": "miners_assigned"})
 
+
 # Add routes to the aiohttp app
 app.router.add_post('/ready', ready)
 app.router.add_post('/assign_miners', assign_miners)
 
+
 # Main function to start both the validator and aiohttp server
 async def main():
-    # Start the aiohttp server
+    """
+    Starts the validator's aiohttp server.
+
+    This function initializes and runs the web server to handle incoming requests.
+    """
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host="0.0.0.0", port=8000)

@@ -30,23 +30,28 @@ NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
 
 class Miner(BaseMinerNeuron):
+    """
+    A class representing a miner node in the TensorProx network. 
+    This node performs SSH key distribution to validators, packet inspection
+    and firewall management for secure network access.
+    """
     should_exit: bool = False
-    firewall_active: bool = False  # To prevent redundant setups
-    firewall_thread: Thread = None  # To keep track of the sniffing thread
+    firewall_active: bool = False
+    firewall_thread: Thread = None
     stop_firewall_event: Event = Field(default_factory=Event)
     packet_buffer: List[Tuple[bytes, int]] = Field(default_factory=list)
     batch_interval: int = 1
     
     # Private attributes
     _lock: asyncio.Lock = PrivateAttr()
-
-    # Models will be loaded in __init__
     _model: DecisionTreeClassifier = PrivateAttr()
     _imputer: Any = PrivateAttr()
     _scaler: Any = PrivateAttr()
 
-    # Define `lock` outside Pydantic's validation system
     def __init__(self, **data):
+        """
+        Initializes the Miner neuron with necessary machine learning models and configurations.
+        """
         super().__init__(**data)
         self._lock = asyncio.Lock()  # Now safely initialized
 
@@ -56,8 +61,15 @@ class Miner(BaseMinerNeuron):
         self._scaler = joblib.load("/home/azureuser/tensorprox/model/scaler.pkl")
 
     def forward(self, synapse: PingSynapse) -> PingSynapse:
-        """The forward function predicts class output for a set of features and forwards it to the validator."""
-
+        """
+        Handles incoming PingSynapse messages, sets up SSH key pairs, and distributes them to validator.
+        
+        Args:
+            synapse (PingSynapse): The synapse message containing machine details and configurations.
+        
+        Returns:
+            PingSynapse: The updated synapse message.
+        """
         logger.debug(f"📧 Ping received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
 
         try:
@@ -103,8 +115,15 @@ class Miner(BaseMinerNeuron):
         return synapse
 
     def handle_challenge(self, synapse: ChallengeSynapse) -> ChallengeSynapse:
-        """The forward function for ChallengeSynapse, processing challenge details and responding back."""
+        """
+        Handles challenge requests, including firewall activation and deactivation based on the challenge state.
 
+        Args:
+            synapse (ChallengeSynapse): The received challenge synapse containing task details and state information.
+
+        Returns:
+            ChallengeSynapse: The same `synapse` object after processing the challenge.
+        """
         try:
             # Extract challenge information from the synapse
             task = synapse.task
@@ -148,13 +167,16 @@ class Miner(BaseMinerNeuron):
     def is_allowed_batch(self, features):
         """
         Determines if a batch of packets should be allowed or blocked.
+
+        Args:
+            features (np.ndarray): A 1D NumPy array representing the extracted features of a batch of packets.
+
+        Returns:
+            bool: 
+                - `False` if the batch should be **blocked** (prediction is 1 or 2).  
+                - `True` if the batch should be **allowed** (prediction is -1 or 0).
         """
-
         prediction = self.predict_sample(features)  # Get prediction
-
-        # Extract the first element if prediction is a NumPy array
-        if isinstance(prediction, np.ndarray):
-            prediction = prediction[0]
 
         # Check if the prediction is 1 or 2
         if prediction in [1, 2]:
@@ -181,26 +203,18 @@ class Miner(BaseMinerNeuron):
             destination_ip (str): The IP address of King.
             destination_port (int): The port number of King.
             protocol (int): The protocol identifier (6 for TCP, 17 for UDP).
-
-        Logs:
-            - Success message when a packet is forwarded.
-            - Error message if forwarding fails.
         """
         try:
-            packet_size = len(packet)  # Get the packet size for logging.
-
             if protocol == 6:  # TCP protocol
                 # Create a TCP socket
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.connect((destination_ip, destination_port))  # Establish connection
                     s.sendall(packet)  # Send the full packet
-                    # logger.info(f"[TCP] Forwarded {packet_size} bytes to King at {destination_ip}:{destination_port}")
 
             elif protocol == 17:  # UDP protocol
                 # Create a UDP socket
                 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                     s.sendto(packet, (destination_ip, destination_port))  # Send the packet
-                    # logger.info(f"[UDP] Forwarded {packet_size} bytes to King at {destination_ip}:{destination_port}")
 
         except Exception as e:
             # Log any errors encountered during forwarding
@@ -209,7 +223,12 @@ class Miner(BaseMinerNeuron):
 
     # Sniff packets in a streamed manner and forward to Moat for processing
     async def process_packet_stream(self, packet_data, king_private_ip):
-        """Store packet and its protocol in buffer instead of processing immediately."""
+        """
+        Store packet and its protocol in buffer instead of processing immediately.
+        
+        Args:
+            packet_data (bytes): The network packet data to store.   
+        """
         eth_header = packet_data[0:14]
         eth_protocol = struct.unpack('!H', eth_header[12:14])[0]
 
@@ -227,7 +246,15 @@ class Miner(BaseMinerNeuron):
             self.packet_buffer.append((packet_data, protocol))  # Store tuple
 
     def extract_batch_features(self, packet_batch):
-        """Extract features from a batch of packets."""
+        """
+        Extract features from a batch of packets.
+        
+        Args:
+            packet_batch (bytes): The network packet buffer to process.
+
+        Returns:
+            np.array : output data sample with model input features.
+        """
         if not packet_batch:
             return None
 
@@ -302,7 +329,12 @@ class Miner(BaseMinerNeuron):
         return np.array([tcp_syn_flag_ratio, udp_port_entropy, avg_pkt_size, flow_density, ip_entropy])
 
     async def batch_processing_loop(self, king_private_ip):
-        """Process the buffered packets every `batch_interval` seconds."""
+        """
+        Process the buffered packets every `batch_interval` seconds.
+        
+        Args:
+            king_private_ip (str): The private IP of the King for batch packets forwarding.  
+        """
         try:
             while not self.stop_firewall_event.is_set():
                 await asyncio.sleep(self.batch_interval)  # Wait for batch interval
@@ -333,7 +365,15 @@ class Miner(BaseMinerNeuron):
 
     # Function to continuously sniff packets and handle them in a stream
     async def sniff_packets_stream(self, king_private_ip, iface='eth0', stop_event=None):
-        """Sniffs packets and adds them to buffer instead of processing immediately."""
+        """
+        Sniffs packets and adds them to the buffer.
+        
+        Args:
+            king_private_ip (str): The private IP of the King for batch packet forwarding.  
+            iface (str, optional): The network interface to sniff packets on. Defaults to 'eth0'.
+            stop_event (asyncio.Event, optional): An event to signal stopping the sniffing loop. 
+                If provided, the function will exit when stop_event is set. Defaults to None.
+        """
         logger.info(f"Sniffing packets for King Private IP: {king_private_ip} on interface {iface}")
 
         raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
@@ -357,8 +397,21 @@ class Miner(BaseMinerNeuron):
 
     # Perform ddos detection on a single batch of packets
     def predict_sample(self, sample_data):
-        """Predicts whether a batch of packets should be allowed or blocked."""
-
+        """
+        Predicts whether a batch of packets should be allowed or blocked.
+        
+        Args:
+            sample_data (np.ndarray): A 1D NumPy array representing the extracted features of a batch of packets.
+        
+        Returns:
+            int | None: The predicted class label, which can be one of [-1, 0, 1, 2].
+                - -1: UNKNOWN
+                -  0: BENIGN
+                -  1: UDP_FLOOD
+                -  2: TCP_SYN_FLOOD
+                
+                Returns `None` if the prediction fails.
+        """
         # Impute missing values
         sample_data_imputed = self._imputer.transform([sample_data])
 
@@ -368,11 +421,16 @@ class Miner(BaseMinerNeuron):
         # Predict using the model
         prediction = self._model.predict(sample_data_scaled)
 
-        return prediction
+        return prediction[0] if isinstance(prediction, np.ndarray) and len(prediction) > 0 else None
     
     def generate_ssh_key_pair(self) -> tuple[str, str]:
         """
         Generates a random RSA SSH key pair and returns the private and public keys as strings.
+
+        Returns:
+            tuple[str, str]: A tuple containing:
+                - public_key_str (str): The generated SSH public key in OpenSSH format.
+                - private_key_str (str): The generated RSA private key in PEM format.
         """
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -406,6 +464,15 @@ class Miner(BaseMinerNeuron):
         Connects to a remote machine via SSH using the initial private key, appends the given SSH public key 
         to the authorized_keys file if it does not already exist, and updates the sudoers file for passwordless sudo.
         Includes a retry mechanism in case of failure.
+
+        Args:
+            machine_ip (str): The Public IP of the machine.
+            ssh_public_key (str): The SSH public key to add to the remote machine's authorized_keys file.
+            initial_private_key_path (str): Path to the initial private key used for SSH authentication.
+            username (str): The username for the SSH connection.
+            timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
+            retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
+   
         """
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
