@@ -56,7 +56,7 @@ class Miner(BaseMinerNeuron):
         self._lock = asyncio.Lock()  # Now safely initialized
 
         # Load models during initialization
-        self._model = joblib.load("/home/azureuser/tensorprox/model/decision_tree_model.pkl")
+        self._model = joblib.load("/home/azureuser/tensorprox/model/decision_tree.pkl")
         self._imputer = joblib.load("/home/azureuser/tensorprox/model/imputer.pkl")
         self._scaler = joblib.load("/home/azureuser/tensorprox/model/scaler.pkl")
 
