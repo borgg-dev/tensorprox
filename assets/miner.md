@@ -45,8 +45,6 @@ Before running a miner, you will need register its hotkey to the subnet :
 btcli s register --wallet.name borgg --wallet.hotkey miner --netuid 234 --subtensor.network finney
 ```
 
-## Configuration
-
 You will also need to create a .env.miner environment file. It is necessary for you to provide the following :
 
 ```text
