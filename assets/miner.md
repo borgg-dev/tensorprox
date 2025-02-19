@@ -50,21 +50,21 @@ btcli s register --wallet.name borgg --wallet.hotkey miner --netuid 234 --subten
 You will also need to create a .env.miner environment file. It is necessary for you to provide the following :
 
 ```text
-**NETUID**= # The subnet UID (integer)
-**SUBTENSOR_NETWORK**= # The network name [test, finney, local]
-**SUBTENSOR_CHAIN_ENDPOINT**= # The chain endpoint [test if running on test, finney if running on main, custom endpoint if running on local] 
-**WALLET_NAME**= # Name of your wallet (coldkey) 
-**MINER_HOTKEY**= # Name of your hotkey associated with above wallet
-**MINER_AXON_PORT**= # TCP Port Number. The port must be open
-**ATTACKER_IP**= # Public IP of the attack traffic machine
-**BENIGN_IP**= # Public IP of the benign traffic machine
-**KING_IP**= # Public IP of the receiver machine (king)
-**KING_PRIVATE_IP**= # Private IP of the receiver machine (king)
-**MOAT_PRIVATE_IP**= # Private IP of the miner machine (Moat)
-**ATTACKER_USERNAME**= # Username of the attacker machine
-**BENIGN_USERNAME**= # Username of the benign machine
-**KING_USERNAME**= # Username of the king machine
-**PRIVATE_KEY_PATH**= # Private key generated for the machines' creation (king, attacker, benign) on your specific provider
+**NETUID** = # The subnet UID (integer)
+**SUBTENSOR_NETWORK** = # The network name [test, finney, local]
+**SUBTENSOR_CHAIN_ENDPOINT** = # The chain endpoint [test if running on test, finney if running on main, custom endpoint if running on local] 
+**WALLET_NAME** = # Name of your wallet (coldkey) 
+**MINER_HOTKEY** = # Name of your hotkey associated with above wallet
+**MINER_AXON_PORT** = # TCP Port Number. The port must be open
+**ATTACKER_IP** = # Public IP of the attack traffic machine
+**BENIGN_IP** = # Public IP of the benign traffic machine
+**KING_IP** = # Public IP of the receiver machine (king)
+**KING_PRIVATE_IP** = # Private IP of the receiver machine (king)
+**MOAT_PRIVATE_IP** = # Private IP of the miner machine (Moat)
+**ATTACKER_USERNAME** = # Username of the attacker machine
+**BENIGN_USERNAME** = # Username of the benign machine
+**KING_USERNAME** = # Username of the king machine
+**PRIVATE_KEY_PATH** = # Private key generated for the machines' creation (king, attacker, benign) on your specific provider
 
 ```
 
