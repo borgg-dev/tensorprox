@@ -879,7 +879,7 @@ async def get_ready(ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
                 task="Defend The King",
                 state="GET_READY",
             )
-            uid, response = await dendrite_call(uid, get_ready_synapse, timeout=15)
+            uid, response = await dendrite_call(uid, get_ready_synapse)
 
             ready_results[uid] = response
         except Exception as e:

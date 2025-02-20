@@ -69,7 +69,7 @@ import joblib
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
-
+import asyncssh
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
@@ -104,13 +104,13 @@ class Miner(BaseMinerNeuron):
         self._scaler = joblib.load("/home/azureuser/tensorprox/model/scaler.pkl")
 
 
-    def forward(self, synapse: PingSynapse) -> PingSynapse:
+    async def forward(self, synapse: PingSynapse) -> PingSynapse:
         """
         Handles incoming PingSynapse messages, sets up SSH key pairs, and distributes them to validator.
-        
+
         Args:
             synapse (PingSynapse): The synapse message containing machine details and configurations.
-        
+
         Returns:
             PingSynapse: The updated synapse message.
         """
@@ -122,30 +122,29 @@ class Miner(BaseMinerNeuron):
             attacker_username = os.environ.get("ATTACKER_USERNAME")
             benign_username = os.environ.get("BENIGN_USERNAME")
             king_username = os.environ.get("KING_USERNAME")
-            
+
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
             synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"), username=attacker_username)
             synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"), username=benign_username)
             synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"), username=king_username, private_ip=os.environ.get("KING_PRIVATE_IP"))
             synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=os.environ.get("MOAT_PRIVATE_IP"))
 
-            
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
 
-            # Add the public key to each machine
-            for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
-                if machine_name == "Moat":
-                    continue  # Skip the Moat machine
-                machine_ip = machine_details.ip
-                machine_username = machine_details.username
-                logger.debug(f"Adding SSH key to {machine_name} at IP {machine_ip}")
+            # Run SSH key addition in parallel
+            tasks = [
                 self.add_ssh_key_to_remote_machine(
-                    machine_ip=machine_ip,
+                    machine_ip=machine_details.ip,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
-                    username=machine_username,
+                    username=machine_details.username
                 )
+                for machine_name, machine_details in synapse.machine_availabilities.machine_config.items()
+                if machine_name != "Moat"  # Skip Moat machine
+            ]
+
+            await asyncio.gather(*tasks)
 
         except Exception as e:
             logger.exception(e)
@@ -153,7 +152,6 @@ class Miner(BaseMinerNeuron):
             log_event(ErrorLoggingEvent(error=str(e)))
             if NEURON_STOP_ON_FORWARD_EXCEPTION:
                 self.should_exit = True
-
 
         logger.debug(f"⏩ Forwarding Ping synapse with machine details to validator {synapse.dendrite.hotkey}: {synapse}.")
 
@@ -513,7 +511,7 @@ class Miner(BaseMinerNeuron):
         return public_key_str, private_key_str
 
 
-    def add_ssh_key_to_remote_machine(
+    async def add_ssh_key_to_remote_machine(
         self,
         machine_ip: str,
         ssh_public_key: str,
@@ -523,89 +521,75 @@ class Miner(BaseMinerNeuron):
         retries: int = 3,
     ):
         """
-        Connects to a remote machine via SSH using the initial private key, appends the given SSH public key 
-        to the authorized_keys file if it does not already exist, and updates the sudoers file for passwordless sudo.
-        Includes a retry mechanism in case of failure.
+        Asynchronously connects to a remote machine via SSH using asyncssh,
+        appends the given SSH public key to the authorized_keys file, and updates sudoers.
 
         Args:
-            machine_ip (str): The Public IP of the machine.
-            ssh_public_key (str): The SSH public key to add to the remote machine's authorized_keys file.
+            machine_ip (str): The public IP of the machine.
+            ssh_public_key (str): The SSH public key to add to the remote machine.
             initial_private_key_path (str): Path to the initial private key used for SSH authentication.
             username (str): The username for the SSH connection.
             timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
             retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
-   
         """
-
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         prefix_path = f"/root" if username == "root" else f"/home/{username}"
         
-        attempt = 0
-        while attempt < retries:
+        for attempt in range(retries):
             try:
-                logger.info(f"Connecting to {machine_ip} using initial private key at {initial_private_key_path}...")
+                logger.info(f"Attempting SSH connection to {machine_ip} with user {username} (Attempt {attempt + 1}/{retries})...")
 
-                #Connect using the private key
-                ssh.connect(machine_ip, username=username, key_filename=initial_private_key_path, timeout=timeout)
-
-                #Ensure the .ssh directory exists
-                commands = [
-                    f"mkdir -p {prefix_path}/.ssh",
-                    f"chmod 700 {prefix_path}/.ssh",
-                    f"touch {prefix_path}/.ssh/authorized_keys",
-                    f"chmod 600 {prefix_path}/.ssh/authorized_keys",
-                    f"chown -R {username}:{username} {prefix_path}/.ssh"
-                ]
-                for cmd in commands:
-                    ssh.exec_command(cmd)
-
-                #Check if the public key already exists
-                stdin, stdout, stderr = ssh.exec_command(f"cat {prefix_path}/.ssh/authorized_keys")
-                authorized_keys = stdout.read().decode().strip()
-
-                if ssh_public_key.strip() in authorized_keys:
-                    logger.info(f"SSH key already exists on {machine_ip}.")
-                else:
-                    #Add the new public key
-                    logger.info(f"Adding SSH key to {machine_ip}...")
-                    stdin, stdout, stderr = ssh.exec_command(f'echo "{ssh_public_key.strip()}" >> {prefix_path}/.ssh/authorized_keys')
-                    error = stderr.read().decode().strip()
-                    if error:
-                        logger.error(f"Error adding SSH key: {error}")
-                    else:
-                        logger.info(f"SSH key successfully added to {machine_ip}.")
+                async with asyncssh.connect(
+                    machine_ip,
+                    username=username,
+                    client_keys=[initial_private_key_path],
+                    known_hosts=None,
+                    connect_timeout=timeout
+                ) as conn:
                     
-                    # Ensure correct permissions again
-                    ssh.exec_command(f"chmod 600 {prefix_path}/.ssh/authorized_keys")
+                    logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
-                #Update sudoers file for passwordless sudo
-                sudoers_entry = f"{username} ALL=(ALL) NOPASSWD: ALL"
-                logger.info(f"Updating sudoers file for user {username}...")
-                stdin, stdout, stderr = ssh.exec_command(f'echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo')
-                err = stderr.read().decode().strip()
-                if err:
-                    logger.error(f"Error updating sudoers file: {err}")
-                else:
+                    # Ensure .ssh directory exists
+                    commands = [
+                        f"mkdir -p {prefix_path}/.ssh",
+                        f"chmod 700 {prefix_path}/.ssh",
+                        f"touch {prefix_path}/.ssh/authorized_keys",
+                        f"chmod 600 {prefix_path}/.ssh/authorized_keys",
+                        f"chown -R {username}:{username} {prefix_path}/.ssh"
+                    ]
+                    for cmd in commands:
+                        await conn.run(cmd)
+
+                    # Check if the public key already exists
+                    result = await conn.run(f"cat {prefix_path}/.ssh/authorized_keys", check=False)
+                    authorized_keys = result.stdout.strip()
+
+                    if ssh_public_key.strip() in authorized_keys:
+                        logger.info(f"SSH key already exists on {machine_ip}.")
+                    else:
+                        # Add the new public key
+                        logger.info(f"Adding SSH key to {machine_ip}...")
+                        await conn.run(f'echo "{ssh_public_key.strip()}" >> {prefix_path}/.ssh/authorized_keys')
+
+                        # Ensure correct permissions again
+                        await conn.run(f"chmod 600 {prefix_path}/.ssh/authorized_keys")
+
+                    # Update sudoers file for passwordless sudo
+                    sudoers_entry = f"{username} ALL=(ALL) NOPASSWD: ALL"
+                    logger.info(f"Updating sudoers file for user {username}...")
+                    await conn.run(f'echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo', check=False)
+
                     logger.info(f"Sudoers file updated on {machine_ip} for user {username}.")
-                    ssh.exec_command('sudo systemctl restart sudo || echo "Skipping sudo restart"')
+                    await conn.run('sudo systemctl restart sudo || echo "Skipping sudo restart"', check=False)
 
-                break  # Exit loop if successful
+                    return  # Exit function on success
 
-            except paramiko.ssh_exception.SSHException as e:
-                attempt += 1
-                logger.error(f"Error while connecting to {machine_ip} on attempt {attempt}/{retries}: {e}")
-                if attempt == retries:
+            except (asyncssh.Error, OSError) as e:
+                logger.error(f"Error connecting to {machine_ip} on attempt {attempt+1}/{retries}: {e}")
+                if attempt == retries - 1:
                     logger.error(f"Failed to connect to {machine_ip} after {retries} attempts.")
 
-            except socket.error as e:
-                logger.error(f"Network error while connecting to {machine_ip}: {e}")
-                if attempt == retries:
-                    logger.error(f"Failed to connect to {machine_ip} after {retries} attempts.")
-
-            finally:
-                ssh.close()
+        return
 
 if __name__ == "__main__":
     with Miner() as miner:
