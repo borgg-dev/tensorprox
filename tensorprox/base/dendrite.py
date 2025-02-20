@@ -3,15 +3,7 @@
 import numpy as np
 from tensorprox.base.protocol import PingSynapse
 from pydantic import BaseModel, model_validator, ConfigDict
-import os
-import random
-import string
-import re
-from typing import Dict, Union
-
-def is_valid_ip(ip: str) -> bool:
-    pattern = r"^((25[0-5]|2[0-4][0-9]|[01]?\d?\d?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?\d?\d?)$"
-    return re.match(pattern, ip) is not None
+from typing import Dict, Union, List
 
 ######################################################################
 # 5) MODEL CLASS
@@ -21,29 +13,55 @@ class DendriteResponseEvent(BaseModel):
     uids: np.ndarray | list[int]
     synapses: list[PingSynapse]
     all_miners_availability: list[Dict[str, Union[int, str]]] = []
-    setup_status: list[Dict[str, Dict[str, Union[int, str]]]] = []
+    setup_status: list[Dict[str, Union[int, str]]] = []
+    lockdown_status: list[Dict[str, Union[int, str]]] = []
+    revert_status: list[Dict[str, Union[int, str]]] = []
     ping_status_messages: list[str] = []
     ping_status_codes: list[int] = []
-    setup_status_by_uid: dict[int, Dict[str, Dict[str, Union[int, str]]]] = {}
+    setup_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
+    lockdown_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
+    revert_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode="after")
     def process_results(self) -> "DendriteResponseEvent":
         """
-        Processes miner availability and extracts relevant ping and setup status details.
-        This ensures response_event_1 and response_event_2 are handled separately.
+        Processes miner availability and extracts relevant status details for each step.
         """
         if self.all_miners_availability:
             for avail in self.all_miners_availability:
                 self.ping_status_messages.append(avail.get("ping_status_message", ""))
                 self.ping_status_codes.append(avail.get("ping_status_code", 0))
-        
 
+        # Setup Step
         if self.setup_status:
-            for uid, setup in zip(self.uids, self.setup_status):
-                self.setup_status_by_uid[uid] = {}
-                self.setup_status_by_uid[uid]["setup_status_message"] = setup.get("setup_status_message", f"UID {uid} missed availability check. Not selected for this round.")
-                self.setup_status_by_uid[uid]["setup_status_code"] = setup.get("setup_status_code", 400)
-        
+            for setup in self.setup_status:
+                uid = setup.get("uid")
+                if uid is not None:
+                    self.setup_status_by_uid[uid] = {
+                        "setup_status_message": setup.get("setup_status_message", f"UID {uid} not set up."),
+                        "setup_status_code": setup.get("setup_status_code", 400),
+                    }
+
+        # Lockdown Step
+        if self.lockdown_status:
+            for lockdown in self.lockdown_status:
+                uid = lockdown.get("uid")
+                if uid is not None:
+                    self.lockdown_status_by_uid[uid] = {
+                        "lockdown_status_message": lockdown.get("lockdown_status_message", f"UID {uid} not locked down."),
+                        "lockdown_status_code": lockdown.get("lockdown_status_code", 400),
+                    }
+
+        # Revert Step
+        if self.revert_status:
+            for revert in self.revert_status:
+                uid = revert.get("uid")
+                if uid is not None:
+                    self.revert_status_by_uid[uid] = {
+                        "revert_status_message": revert.get("revert_status_message", f"UID {uid} not reverted."),
+                        "revert_status_code": revert.get("revert_status_code", 400),
+                    }
+
         return self

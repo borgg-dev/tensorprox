@@ -95,7 +95,7 @@ class Validator(BaseValidatorNeuron):
         return synapse, uid_status_availability
 
 
-    async def run_step(self, timeout: float) -> Tuple[DendriteResponseEvent, DendriteResponseEvent] | DendriteResponseEvent | None:
+    async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
         """
         Runs a validation step to query assigned miners, process availability, and initiate challenges.
 
@@ -105,41 +105,31 @@ class Validator(BaseValidatorNeuron):
         Returns:
             DendriteResponseEvent | None: The response event with miner availability details or None if no miners are available.
         """
+
         try:
             async with self._lock:
                 if not self.assigned_miners:
                     logger.warning("No miners assigned. Skipping availability check.")
                     return None
 
-                backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
-
-                # Step 1: Query availabilities of the assigned miners in parallel
+                # Step 1: Query miner availability
                 with Timer() as timer:
-                    
+
                     #hardcoded for testing purpose
                     if 7 not in self.assigned_miners :
                         self.assigned_miners += [7]
 
+                    backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+                    
                     logger.debug(f"🔍 Querying machine availabilities for UIDs: {self.assigned_miners}")
 
-                    # Gather all the results of the availability checks concurrently
                     tasks = [self.check_miner(uid) for uid in self.assigned_miners]
                     results = await asyncio.gather(*tasks)
                     synapses, all_miners_availability = zip(*results) if results else ([], [])
 
-
                 logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
+                logger.debug(all_miners_availability)
 
-                # Encapsulate the responses in a response event
-                response_event_1 = DendriteResponseEvent(
-                    synapses=synapses, 
-                    all_miners_availability=all_miners_availability,
-                    uids=self.assigned_miners
-                )
-
-                logger.debug(response_event_1)
-
-                # Step 2: Process miner availability results
                 available_miners = [
                     (uid, synapse) for uid, synapse, availability in zip(self.assigned_miners, synapses, all_miners_availability)
                     if availability["ping_status_code"] == 200
@@ -149,16 +139,10 @@ class Validator(BaseValidatorNeuron):
                     logger.warning("No miners are available after availability check.")
                     return None  # Return None if no miners are available
 
-                # Step 3: Setup available miners
+                # Step 2: Setup
                 with Timer() as setup_timer:
                     logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
                     setup_results = await setup_available_machines(available_miners, backup_suffix)
-
-                # response_event_2 = DendriteResponseEvent(
-                #     synapses=synapses,  # Keep original synapses
-                #     setup_status=setup_status,  # Updated availability after setup
-                #     uids=[uid for uid, _ in available_miners],  # Extract only UIDs
-                # )
 
                 logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
                 logger.debug(setup_results)
@@ -168,7 +152,7 @@ class Validator(BaseValidatorNeuron):
                     if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
                 ]
 
-                # Step 4: Lockdown miner
+                # Step 3: Lockdown
                 with Timer() as lockdown_timer:
                     logger.info(f"Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
                     lockdown_results = await lockdown_machines(setup_complete_miners)
@@ -183,7 +167,7 @@ class Validator(BaseValidatorNeuron):
 
                 ready_uids = [uid for uid, _ in ready_miners]
 
-                # Step 5: Start Challenge Phase
+                # Step 4: Challenge
                 with Timer() as challenge_timer:    
                     logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}")
                     ready_results = await get_ready(ready_uids)
@@ -191,20 +175,30 @@ class Validator(BaseValidatorNeuron):
                     ready_uids = [uid for uid in ready_results]
                     challenge_results = await run_challenge(ready_uids)
 
-
                 logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
                 logger.debug(challenge_results)
-                
-                # Step 6: Revert
+
+                # Step 5: Revert
                 with Timer() as revert_timer:    
                     logger.info(f"🚀 Reverting miner's machines access : {ready_uids}")
                     revert_results = await revert_machines(ready_miners, backup_suffix)
 
-
                 logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
                 logger.debug(revert_results)
 
-                return response_event_1
+                # Create a complete response event
+                response_event = DendriteResponseEvent(
+                    synapses=synapses,
+                    all_miners_availability=all_miners_availability,
+                    setup_status=setup_results,
+                    lockdown_status=lockdown_results,
+                    revert_status=revert_results,
+                    uids=self.assigned_miners,
+                )
+
+                logger.debug(response_event)
+                
+                return response_event
 
         except Exception as ex:
             logger.exception(ex)
