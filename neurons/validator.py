@@ -1,3 +1,40 @@
+
+"""
+================================================================================
+
+TensorProx Validator
+
+This module initializes a TensorProx validator responsible for managing miners and running validation tasks. 
+It sets up the necessary dependencies, configurations, and the aiohttp web server for orchestrator communication.
+
+Key Responsibilities:
+- Check miner's availability.
+- Manages the lifecycle of validation tasks, including setup, lockdown, challenge, and revert phases.
+- Provides an API for readiness checks and miner assignments.
+
+Dependencies:
+- `aiohttp`: For handling asynchronous web requests.
+- `asyncio`: For managing concurrent tasks.
+- `loguru`: For structured logging.
+- `tensorprox`: Core TensorProx framework for miner management and validation.
+
+License:
+This software is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+You are free to use, share, and modify the code for non-commercial purposes only.
+
+Commercial Usage:
+The only authorized commercial use of this software is for mining or validating within the TensorProx subnet.
+For any other commercial licensing requests, please contact Shugo LTD.
+
+See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+
+Author: Shugo LTD
+Version: 0.1.0
+
+================================================================================
+"""
+
+
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
 
@@ -13,7 +50,7 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.miner_availability.miner_availability import query_availability, setup_available_machines, lockdown_machines, get_ready, run_challenge, revert_machines
+from tensorprox.core.miner_management import query_availability, setup_available_machines, lockdown_machines, get_ready, run_challenge, revert_machines
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars

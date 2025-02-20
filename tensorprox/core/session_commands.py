@@ -1,6 +1,48 @@
-def get_insert_key_cmd(ssh_user: str, ssh_dir: str, session_pub: str, authorized_keys_path: str, authorized_keys_bak: str) -> str:
-    """Generates the command to insert the session key into authorized_keys."""
+"""
+================================================================================
 
+SSH Security Command Generator
+
+This module provides functions to generate shell commands for managing SSH security,
+including inserting session keys, setting up sudo permissions, reverting security
+changes, and locking down SSH access.
+
+Functions:
+    - get_insert_key_cmd: Generates a command to insert a session key into authorized_keys.
+    - get_sudo_setup_cmd: Generates a command to allow passwordless sudo for a temporary period.
+    - get_revert_script_cmd: Generates a revert script for restoring SSH and system configurations.
+    - get_lockdown_cmd: Generates a command to restrict SSH access to a specific validator IP.
+
+License:
+This software is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+You are free to use, share, and modify the code for non-commercial purposes only.
+
+Commercial Usage:
+The only authorized commercial use of this software is for mining or validating within the TensorProx subnet.
+For any other commercial licensing requests, please contact Shugo LTD.
+
+See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+
+Author: Shugo LTD
+Version: 0.1.0
+
+================================================================================
+"""
+
+def get_insert_key_cmd(ssh_user: str, ssh_dir: str, session_pub: str, authorized_keys_path: str, authorized_keys_bak: str) -> str:
+    """
+    Generates the command to insert the session key into authorized_keys.
+
+    Args:
+        ssh_user (str): The SSH username.
+        ssh_dir (str): The SSH directory path.
+        session_pub (str): The public session key to be added.
+        authorized_keys_path (str): The path to the authorized_keys file.
+        authorized_keys_bak (str): The backup path for the authorized_keys file.
+
+    Returns:
+        str: The shell command to insert the session key.
+    """
     
     return f"""
         export TMPDIR=$(mktemp -d /tmp/.ssh_setup_XXXXXX)
@@ -35,7 +77,16 @@ def get_insert_key_cmd(ssh_user: str, ssh_dir: str, session_pub: str, authorized
     """
 
 def get_sudo_setup_cmd(ssh_user: str) -> str:
-    """Generates the sudo setup command to allow passwordless sudo for a temporary period."""
+    """
+    Generates the sudo setup command to allow passwordless sudo for a temporary period.
+
+    Args:
+        ssh_user (str): The SSH username.
+
+    Returns:
+        str: The shell command to configure passwordless sudo.
+    """
+
     return f"""
         echo '{ssh_user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/99_{ssh_user}_temp
         chmod 440 /etc/sudoers.d/99_{ssh_user}_temp
@@ -43,7 +94,19 @@ def get_sudo_setup_cmd(ssh_user: str) -> str:
 
 
 def get_revert_script_cmd(ip: str, authorized_keys_bak: str, authorized_keys_path: str, revert_log: str) -> str:
-    """Generates the revert script content to be executed later."""
+    """
+    Generates the revert script content to restore SSH and system configurations.
+
+    Args:
+        ip (str): The IP address of the system being reverted.
+        authorized_keys_bak (str): The path to the backup authorized_keys file.
+        authorized_keys_path (str): The path to the authorized_keys file.
+        revert_log (str): The path to the revert log file.
+
+    Returns:
+        str: The shell script for reverting security changes.
+    """
+
     return f"""
 #!/bin/bash
 # Revert script for {ip}
@@ -152,7 +215,19 @@ echo "Done revert on {ip}"
 
 
 def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_keys_path: str) -> str:
-    """Generates the command to persist the revert script in sudoers."""
+    """
+    Generates the command to persist the revert script in sudoers and lock down SSH.
+
+    Args:
+        ssh_user (str): The SSH username.
+        ssh_dir (str): The SSH directory path.
+        validator_ip (str): The IP address allowed for SSH access.
+        authorized_keys_path (str): The path to the authorized_keys file.
+
+    Returns:
+        str: The shell command to restrict SSH access and lock down the system.
+    """
+
     return f"""
         ############################################################
         # 1) Minimal services

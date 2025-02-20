@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     # Neuron.
     NEURON_EPOCH_LENGTH: int = Field(100, env="NEURON_EPOCH_LENGTH")
 
-
     # Logging.
     LOGGING_DONT_SAVE_EVENTS: bool = Field(False, env="LOGGING_DONT_SAVE_EVENTS")
     LOG_WEIGHTS: bool = Field(True, env="LOG_WEIGHTS")
@@ -46,7 +45,6 @@ class Settings(BaseSettings):
     NEURON_QUERY_UNIQUE_IPS: bool = Field(False, env="NEURON_QUERY_UNIQUE_IPS")
     NEURON_FORWARD_MAX_TIME: int = Field(240, env="NEURON_FORWARD_MAX_TIME")
 
-
     TASK_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="TASK_QUEUE_LENGTH_THRESHOLD")
     SCORING_QUEUE_LENGTH_THRESHOLD: int = Field(10, env="SCORING_QUEUE_LENGTH_THRESHOLD")
 
@@ -58,7 +56,6 @@ class Settings(BaseSettings):
     MINER_HOTKEY: Optional[str] = Field(None, env="HOTKEY")
     MINER_AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
     SUBTENSOR_NETWORK: Optional[str] = Field(None, env="SUBTENSOR_NETWORK")
-
 
     # Class variables for singleton.
     _instance: Optional["Settings"] = None

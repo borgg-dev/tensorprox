@@ -1,12 +1,12 @@
 <div align="center">
 
-# **Bittensor SNX** <!-- omit in toc -->
+# **Bittensor SN234** <!-- omit in toc -->
 [![Discord Chat](https://img.shields.io/discord/308323056592486420.svg)](https://discord.gg/bittensor)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-### The Incentivized Internet <!-- omit in toc -->
+### TensorProx : The Incentivized Scrubbing center <!-- omit in toc -->
 
 [Discord](https://discord.gg/bittensor) • [Taostats](https://taostats.io/) •
 
@@ -14,7 +14,7 @@
 
 ---
 
-This repository is the **official codebase for Bittensor Subnet X (SNX) v0.1.0+.**. To learn more about the Bittensor project and the underlying mechanics, [read here.](https://docs.bittensor.com/).
+This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1.0+.**. To learn more about the Bittensor project and the underlying mechanics, [read here.](https://docs.bittensor.com/).
 
 # Introduction
 

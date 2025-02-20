@@ -1,3 +1,74 @@
+"""
+================================================================================
+TensorProx Miner Availability and SSH Session Setup
+
+This script provides functionalities for managing miner availability, handling
+SSH session setup, and automating firewall rule adjustments for Bittensor miners.
+It utilizes asyncssh for efficient asynchronous SSH connections and ensures 
+secure access control through key management.
+
+--------------------------------------------------------------------------------
+FEATURES:
+- **Logging & Debugging:** Provides structured logging via Loguru and Python’s 
+  built-in logging module.
+- **SSH Session Management:** Supports key-based authentication, session key 
+  generation, and automated secure key insertion.
+- **Firewall & System Utilities:** Ensures miners have necessary dependencies 
+  installed, configures firewall rules, and manages sudo privileges.
+- **Miner Availability Tracking:** Maintains a live status of miners' readiness 
+  using the PingSynapse protocol.
+- **Resilient Command Execution:** Executes commands safely with error handling 
+  to prevent system lockouts.
+- **Asynchronous Execution:** Uses asyncio and asyncssh for efficient remote 
+  command execution and key management.
+
+--------------------------------------------------------------------------------
+USAGE:
+1. **Miner Availability Tracking**  
+   The `MinerManagement` class tracks the status of miners via the 
+   `PingSynapse` protocol.
+   
+2. **SSH Session Key Management**  
+   - Generates an ED25519 session key pair.
+   - Inserts the session key into the authorized_keys file of remote miners.
+   - Establishes an SSH session using the generated key.
+   - Automates firewall and system setup tasks.
+
+3. **Remote Configuration Management**  
+   - Installs missing packages required for network security.
+   - Ensures `iptables` and other network security tools are available.
+   - Configures passwordless sudo execution where necessary.
+
+--------------------------------------------------------------------------------
+DEPENDENCIES:
+- Python 3.10
+- `asyncssh`: For managing SSH connections asynchronously.
+- `paramiko`: Fallback for SSH key handling.
+- `pydantic`: For structured data validation.
+- `loguru`: Advanced logging capabilities.
+
+--------------------------------------------------------------------------------
+SECURITY CONSIDERATIONS:
+- The script enforces strict permissions on session keys.
+- Firewall configurations and sudo privileges are managed carefully.
+- SSH keys are handled securely to prevent exposure.
+
+License:
+This software is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+You are free to use, share, and modify the code for non-commercial purposes only.
+
+Commercial Usage:
+The only authorized commercial use of this software is for mining or validating within the TensorProx subnet.
+For any other commercial licensing requests, please contact Shugo LTD.
+
+See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+
+Author: Shugo LTD
+Version: 0.1.0
+
+================================================================================
+"""
+
 #!/usr/bin/env python3
 
 import asyncio
@@ -24,7 +95,7 @@ import logging
 import string
 import asyncssh
 import traceback
-from tensorprox.miner_availability.session_commands import (
+from tensorprox.core.session_commands import (
     get_insert_key_cmd,
     get_sudo_setup_cmd,
     get_revert_script_cmd,
@@ -38,17 +109,18 @@ from tensorprox.miner_availability.session_commands import (
 
 dotenv.load_dotenv()
 
-def log(message: str, log_file_path: str = "/var/log/validator_session.log"):
-    """
-    Simple logger for local console + local log file.
-    """
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    logging.info(message)
-    print(f"{now} - {message}")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def log_message(level: str, message: str):
+    """
+    Logs a message with the specified logging level.
+
+    Args:
+        level (str): The logging level (INFO, WARNING, ERROR, DEBUG).
+        message (str): The message to log.
+    """
+
     if level.upper() == "INFO":
         logging.info(message)
     elif level.upper() == "WARNING":
@@ -58,17 +130,33 @@ def log_message(level: str, message: str):
     else:
         logging.debug(message)
 
+
 def is_valid_ip(ip: str) -> bool:
+    """
+    Validates whether the given string is a valid IPv4 address.
+
+    Args:
+        ip (str): The IP address to validate.
+
+    Returns:
+        bool: True if valid, False otherwise.
+    """
+
     if not isinstance(ip, str):  # Check if ip is None or not a string
         return False
     pattern = r"^((25[0-5]|2[0-4][0-9]|[01]?\d?\d?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?\d?\d?)$"
     return re.match(pattern, ip) is not None
 
+
 def get_local_ip() -> str:
     """
-    Attempt to get IP for firewall rules on remote, using public IP first,
-    then falling back to local IP if public IP check fails.
+    Retrieves the local machine's public IP address if available.
+    Falls back to the internal IP if the public IP cannot be retrieved.
+
+    Returns:
+        str: The detected IP address, or "127.0.0.1" if unavailable.
     """
+
     try:
         import requests
         public_ip = requests.get('https://api.ipify.org').text.strip()
@@ -98,11 +186,17 @@ if not os.path.exists(SESSION_KEY_DIR):
         log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
         raise
 
-async def generate_local_session_keypair(key_path: str) -> (str, str):
+async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     """
-    Asynchronously generate an ED25519 keypair. Return (private_key_str, public_key_str).
-    Ensures correct file permissions for session keys.
+    Asynchronously generates an ED25519 SSH key pair and stores it securely.
+
+    Args:
+        key_path (str): The file path where the private key should be stored.
+
+    Returns:
+        Tuple[str, str]: A tuple containing the private and public keys as strings.
     """
+
     if os.path.exists(key_path):
         os.remove(key_path)
     if os.path.exists(f"{key_path}.pub"):
@@ -128,15 +222,24 @@ async def generate_local_session_keypair(key_path: str) -> (str, str):
     log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
+
 ######################################################################
 # 2) SUPPORTING UTILS
 ######################################################################
 
-async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> asyncssh.SSHClientConnection:
+async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
     """
-    Create and test SSH connection using asyncssh.
-    Returns the SSH client connection if successful, None otherwise.
+    Establishes and tests an SSH connection using asyncssh.
+
+    Args:
+        ip (str): The target machine's IP address.
+        private_key_path (str): The path to the private key used for authentication.
+        username (str): The SSH user to authenticate as.
+
+    Returns:
+        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
     """
+
     try:
         client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
         return client
@@ -144,10 +247,16 @@ async def create_and_test_connection(ip: str, private_key_path: str, username: s
         logger.error(f"SSH connection failed for {ip}: {str(e)}")
         return None
 
-async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: list[str]):
+async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: List[str]):
     """
-    Asynchronously install missing packages via apt-get if not already installed.
+    Checks for missing system packages and installs them if necessary.
+
+    Args:
+        client (asyncssh.SSHClientConnection): An active SSH client connection.
+        packages (List[str]): A list of package names to verify and install if missing.
+
     """
+
     for pkg in packages:
         check_cmd = f"dpkg -s {pkg} >/dev/null 2>&1"
         result = await client.run(check_cmd, check=False)
@@ -160,18 +269,45 @@ async def install_packages_if_missing(client: asyncssh.SSHClientConnection, pack
 
 def get_authorized_keys_dir(ssh_user: str) -> str:
     """
-    Return the path to .ssh for the given user.
+    Retrieves the correct .ssh directory path based on the SSH user.
+
+    Args:
+        ssh_user (str): The username of the SSH user.
+
+    Returns:
+        str: The absolute path to the .ssh directory.
     """
+
     return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
+
 
 ######################################################################
 # 3) SINGLE-PASS SESSION SETUP
 ######################################################################
 
-async def async_single_pass_setup(uid, ip, original_key_path, ssh_user, user_commands, backup_suffix):
+async def async_single_pass_setup(uid: int, ip: str, original_key_path: str, ssh_user: str, user_commands: List[str], backup_suffix: str) -> bool:
     """
-    Single-pass session setup with asyncssh for SSH handling.
+    Performs a single-pass SSH session setup on a remote miner.
+
+    Steps:
+    - Generates a temporary session key pair.
+    - Connects using the original SSH key to insert the session key.
+    - Configures system settings for passwordless sudo.
+    - Installs required packages.
+    - Runs user-specified commands.
+
+    Args:
+        uid (int): Unique identifier for the miner.
+        ip (str): The IP address of the miner.
+        original_key_path (str): Path to the original SSH key used for initial access.
+        ssh_user (str): The SSH user account on the miner.
+        user_commands (List[str]): Custom user commands to execute during setup.
+        backup_suffix (str): Suffix used for backing up SSH configuration files.
+
+    Returns:
+        bool: True if setup was successful, False otherwise.
     """
+
     logger.info(f"🔒 Single-pass session setup for {ip} as '{ssh_user}' start...")
 
     # A) CONNECT WITH ORIGINAL KEY + PREPARE
@@ -235,10 +371,20 @@ async def async_single_pass_setup(uid, ip, original_key_path, ssh_user, user_com
 # ASYNCHRONOUS WRAPPER & ADDITIONAL UTILITIES
 ######################################################################
 
-async def run_cmd_async(conn, cmd: str, ignore_errors=True, use_sudo=True):
+async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, use_sudo: bool = True) -> object:
     """
-    Asynchronous command execution with flexible sudo handling.
+    Executes a command on a remote machine asynchronously using SSH.
+
+    Args:
+        conn (asyncssh.SSHClientConnection): An active SSH connection.
+        cmd (str): The command to execute.
+        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
+        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
+
+    Returns:
+        object: A response object with stdout, stderr, and exit_status.
     """
+
     escaped = cmd.replace("'", "'\\''")
     if use_sudo:
         final_cmd = f"sudo -S bash -c '{escaped}'"
@@ -257,10 +403,16 @@ async def run_cmd_async(conn, cmd: str, ignore_errors=True, use_sudo=True):
     # Create an object-like response with exit_status, stdout, and stderr
     return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
 
+
 def save_private_key(priv_key_str: str, path: str):
     """
-    Optionally save the original private key locally (for debugging/logging).
+    Saves a private SSH key to a specified file with secure permissions.
+
+    Args:
+        priv_key_str (str): The private key content.
+        path (str): The file path where the private key should be stored.
     """
+
     try:
         with open(path, "w") as f:
             f.write(priv_key_str)
@@ -269,45 +421,87 @@ def save_private_key(priv_key_str: str, path: str):
     except Exception as e:
         log_message("ERROR", f"Error saving private key: {e}")
 
-class MinerAvailabilities(BaseModel):
-    """Tracks all miners' availability using PingSynapse."""
+
+class MinerManagement(BaseModel):
+    """
+    Tracks the availability of miners using the PingSynapse protocol.
+    
+    Attributes:
+        miners (Dict[int, PingSynapse]): A dictionary mapping miner UIDs to their availability status.
+    """
+
     miners: Dict[int, 'PingSynapse'] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
+        """
+        Checks whether a specific miner machine is available.
+
+        Args:
+            machine_name (str, optional): The machine name to check. Defaults to None.
+            uid (int, optional): The UID of the miner. Defaults to None.
+
+        Returns:
+            bool: True if the machine is available, False otherwise.
+        """
+
         if machine_name == "Moat":
             return True  #Skip Moat
         ip_machine = self.miners[uid].machine_availabilities[machine_name]
         return bool(ip_machine)
 
+
     def is_miner_ready(self, uid: int = None) -> bool:
+        """
+        Checks if a miner is fully ready by verifying all associated machines.
+
+        Args:
+            uid (int, optional): The UID of the miner. Defaults to None.
+
+        Returns:
+            bool: True if all machines are available, False otherwise.
+        """
+
         for machine_name in self.miners[uid].machine_availabilities.keys():
             if machine_name == "Moat":
                 continue  #Skip Moat
             if not self.check_machine_availability(machine_name=machine_name, uid=uid):
                 return False
         return True
+    
 
     def get_uid_status_availability(self, k: int = None) -> List[int]:
+        """
+        Retrieves a list of available miners.
+
+        Args:
+            k (int, optional): The number of available miners to return. Defaults to None.
+
+        Returns:
+            List[int]: A list of UIDs of available miners.
+        """
+
         available = [uid for uid in self.miners.keys() if self.is_miner_ready(uid)]
         if k:
             available = random.sample(available, min(len(available), k))
         return available
 
 
-def save_private_key(priv_key_str: str, path: str):
-    """Optionally save the original private key locally (for debugging/logging)."""
-    try:
-        with open(path, "w") as f:
-            f.write(priv_key_str)
-        os.chmod(path, 0o600)
-        logger.info(f"Saved private key to {path}")
-    except Exception as e:
-        logger.error(f"Error saving private key: {e}")
-
-
 async def query_availability(uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
-    """Query availability for a given UID."""
+    """Query the availability of a given UID.
     
+    This function attempts to retrieve machine availability information for a miner
+    identified by `uid`. It validates the response, checks for SSH key pairs, and 
+    verifies SSH connectivity to each machine.
+    
+    Args:
+        uid (int): The unique identifier of the miner.
+
+    Returns:
+        Tuple[PingSynapse, Dict[str, Union[int, str]]]:
+            - A `PingSynapse` object containing the miner's availability details.
+            - A dictionary with the UID's availability status, including status code and message.
+    """
+
     # Initialize a dummy synapse for example purposes
     synapse = PingSynapse(machine_availabilities=MachineConfig())
     uid, synapse = await dendrite_call(uid, synapse)
@@ -365,7 +559,18 @@ async def query_availability(uid: int) -> Tuple['PingSynapse', Dict[str, Union[i
 
 
 async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse], timeout: int = settings.NEURON_TIMEOUT):
-    """Query a single miner's availability."""
+    """
+    Query a single miner's availability.
+        
+    Args:
+        uid (int): Unique identifier for the miner.
+        synapse (Union[PingSynapse, ChallengeSynapse]): The synapse message to send.
+        timeout (int, optional): Timeout duration in seconds. Defaults to settings.NEURON_TIMEOUT.
+    
+    Returns:
+        Tuple[int, Optional[Response]]: The miner's UID and response, if available.
+    """
+
     try:
         axon = settings.METAGRAPH.axons[uid]
         response = await settings.DENDRITE(
@@ -382,7 +587,18 @@ async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse],
 
 
 async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
-    """Setup available machines based on the queried miner availability."""
+    """
+    Setup available machines based on the queried miner availability.
+    
+    Args:
+        available_miners (List[Tuple[int, PingSynapse]]): List of miners and their availability synapses.
+        backup_suffix (str): Backup suffix for machine configurations.
+        timeout (int, optional): Timeout duration for setup. Defaults to 240 seconds.
+    
+    Returns:
+        List[Dict[str, Union[int, str]]]: Status of setup completion for each miner.
+    """
+
     role_cmds = {
         "Attacker": ["sudo apt-get update -qq || true"],
         "Benign": ["sudo apt update", "sudo apt install -y npm"],
@@ -392,10 +608,26 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
     setup_status = {}
 
     async def setup_miner(uid, synapse):
-        """Setup each miner's machines."""
+        """
+        Setup each miner's machines.
+        
+        Args:
+            uid (int): Unique identifier for the miner.
+            synapse (PingSynapse): The synapse containing machine availability information.
+        """
         
         async def setup_machine(machine_name, machine_details):
-            """Perform the setup for a single machine."""
+            """
+            Perform the setup for a single machine.
+            
+            Args:
+                machine_name (str): Name of the machine.
+                machine_details (MachineDetails): Machine configuration details.
+            
+            Returns:
+                bool: True if setup is successful, False otherwise.
+            """
+
             if machine_name == "Moat":
                 return True  # Skip Moat machine setup and consider it successful
 
@@ -427,7 +659,14 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
         }
 
     async def setup_miner_with_timeout(uid, synapse):
-        """Setup miner with timeout."""
+        """
+        Setup miner with a timeout.
+        
+        Args:
+            uid (int): Unique identifier for the miner.
+            synapse (PingSynapse): The synapse containing machine availability information.
+        """
+
         try:
             # Apply timeout to the entire setup_miner function for each miner
             await asyncio.wait_for(setup_miner(uid, synapse), timeout=timeout)
@@ -443,17 +682,42 @@ async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynaps
 
     return [{"uid": uid, **status} for uid, status in setup_status.items()]
 
+
 async def lockdown_machines(setup_complete_miners: List[Tuple[int, 'PingSynapse']]):
     """
     Executes the lockdown step for all given miners after setup is complete.
+    
+    Args:
+        setup_complete_miners (List[Tuple[int, PingSynapse]]): List of miners that completed setup.
+    
+    Returns:
+        List[Dict[str, Union[int, str]]]: Status of lockdown completion for each miner.
     """
+
     validator_ip = get_local_ip()
     lockdown_status = {}
 
     async def lockdown_miner(uid, synapse):
-        """Lock down each miner's machines."""
+        """
+        Lock down each miner's machines.
+        
+        Args:
+            uid (int): Unique identifier for the miner.
+            synapse (PingSynapse): The synapse containing machine availability information.
+        """
 
         async def lockdown_machine(machine_name, machine_details):
+            """
+            Perform lockdown for a single machine.
+            
+            Args:
+                machine_name (str): Name of the machine.
+                machine_details (MachineDetails): Machine configuration details.
+            
+            Returns:
+                bool: True if lockdown is successful, False otherwise.
+            """
+
             if machine_name == "Moat":
                 return True  # Skip Moat machine setup and consider it successful
 
@@ -488,8 +752,6 @@ async def lockdown_machines(setup_complete_miners: List[Tuple[int, 'PingSynapse'
                 logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
                 return False
 
-
-
         # Run lockdown for all machines of the miner
         tasks = [lockdown_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
         results = await asyncio.gather(*tasks)
@@ -508,14 +770,42 @@ async def lockdown_machines(setup_complete_miners: List[Tuple[int, 'PingSynapse'
 
 async def revert_machines(ready_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str):
     """
-    Executes the revert step for all given miners after setup is complete.
+    Reverts machines to their original state for all given miners after setup is complete.
+
+    Args:
+        ready_miners (List[Tuple[int, 'PingSynapse']]): A list of tuples containing miner UID and PingSynapse instance.
+        backup_suffix (str): A suffix used to identify backup files for reversion.
+
+    Returns:
+        List[Dict[str, Union[int, str]]]: A list of dictionaries containing the UID and the status of the revert operation.
     """
+
     revert_status = {}
 
     async def revert_miner(uid, synapse):
-        """Revert each miner's machines."""
+        """
+        Reverts all machines for a given miner.
+        
+        Args:
+            uid (int): The unique identifier of the miner.
+            synapse (PingSynapse): The synapse object containing machine configurations.
+        
+        Returns:
+            None: Updates the revert_status dictionary with the outcome.
+        """
 
         async def revert_machine(machine_name, machine_details):
+            """
+            Perform the revert on a specific machine.
+            
+            Args:
+                machine_name (str): The name of the machine.
+                machine_details: Object containing machine connection details.
+            
+            Returns:
+                bool: True if the revert operation is successful, False otherwise.
+            """
+
             if machine_name == "Moat":
                 return True  # Skip Moat machine setup and consider it successful
 
@@ -570,7 +860,16 @@ async def revert_machines(ready_miners: List[Tuple[int, 'PingSynapse']], backup_
 
 
 async def get_ready(ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
-    """Sends ChallengeSynapse to miners before the challenge starts and collects responses."""
+    """
+    Sends a "GET_READY" ChallengeSynapse to miners before the challenge starts and collects responses.
+
+    Args:
+        ready_uids (List[int]): A list of miner UIDs that need to receive the readiness signal.
+
+    Returns:
+        Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
+    """
+
     ready_results = {}
 
     async def inform_miner(uid):
@@ -591,7 +890,17 @@ async def get_ready(ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
 
 
 async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> Dict[int, ChallengeSynapse]:
-    """Sends ChallengeSynapse to miners after waiting for the challenge duration."""
+    """
+    Sends an "END_ROUND" ChallengeSynapse to miners after waiting for the challenge duration.
+
+    Args:
+        ready_uids (List[int]): A list of miner UIDs participating in the challenge.
+        challenge_duration (int, optional): The duration of the challenge in seconds. Defaults to 60.
+
+    Returns:
+        Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
+    """
+
     challenge_results = {}
 
     challenge_start_time = datetime.now()
@@ -620,4 +929,4 @@ async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> 
     return challenge_results
 
 # Start availability checking
-miner_availabilities = MinerAvailabilities()
+miner_availabilities = MinerManagement()

@@ -1,3 +1,46 @@
+"""
+================================================================================
+
+TensorProx Miner Implementation
+
+Copyright (c) 2025 Shugo LTD. All Rights Reserved.
+
+This module defines the `Miner` class, which represents a mining node within the TensorProx network. 
+The miner is responsible for secure SSH key distribution to validators, packet sniffing, 
+firewall management, and real-time DDoS detection.
+
+Key Features:
+- **SSH Key Management:** Generates and distributes SSH key pairs to authorized machines.
+- **Packet Inspection:** Captures and processes network packets using raw sockets.
+- **Firewall Control:** Dynamically enables or disables firewall functionality based on challenge states.
+- **Machine Learning-Based Traffic Filtering:** Uses a trained Decision Tree model to classify network traffic 
+  and determine whether to allow or block packets.
+- **Batch Processing:** Aggregates packets over a configurable interval and evaluates them using feature extraction.
+
+Dependencies:
+- `tensorprox`: Provides core functionalities and network protocols.
+- `paramiko`: Used for SSH key distribution and management.
+- `sklearn`, `joblib`: Used for loading and running machine learning models.
+- `numpy`: Supports feature extraction and data manipulation.
+- `loguru`: Handles logging and debugging information.
+
+License:
+This software is licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+You are free to use, share, and modify the code for non-commercial purposes only.
+
+Commercial Usage:
+The only authorized commercial use of this software is for mining or validating within the TensorProx subnet.
+For any other commercial licensing requests, please contact Shugo LTD.
+
+See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+
+Author: Shugo LTD
+Version: 0.1.0
+
+================================================================================
+"""
+
+
 # ruff: noqa: E402
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
@@ -23,7 +66,9 @@ import select
 from collections import defaultdict
 import numpy as np
 import joblib
-from sklearn.tree import DecisionTreeClassifier  # Add this import
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
 
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
@@ -35,30 +80,29 @@ class Miner(BaseMinerNeuron):
     This node performs SSH key distribution to validators, packet inspection
     and firewall management for secure network access.
     """
+
     should_exit: bool = False
     firewall_active: bool = False
     firewall_thread: Thread = None
     stop_firewall_event: Event = Field(default_factory=Event)
     packet_buffer: List[Tuple[bytes, int]] = Field(default_factory=list)
-    batch_interval: int = 1
+    batch_interval: int = 10
     
     # Private attributes
     _lock: asyncio.Lock = PrivateAttr()
     _model: DecisionTreeClassifier = PrivateAttr()
-    _imputer: Any = PrivateAttr()
-    _scaler: Any = PrivateAttr()
+    _imputer: SimpleImputer = PrivateAttr()
+    _scaler: StandardScaler = PrivateAttr()
 
     def __init__(self, **data):
-        """
-        Initializes the Miner neuron with necessary machine learning models and configurations.
-        """
-        super().__init__(**data)
-        self._lock = asyncio.Lock()  # Now safely initialized
+        """Initializes the Miner neuron with necessary machine learning models and configurations."""
 
-        # Load models during initialization
+        super().__init__(**data)
+        self._lock = asyncio.Lock()
         self._model = joblib.load("/home/azureuser/tensorprox/model/decision_tree.pkl")
         self._imputer = joblib.load("/home/azureuser/tensorprox/model/imputer.pkl")
         self._scaler = joblib.load("/home/azureuser/tensorprox/model/scaler.pkl")
+
 
     def forward(self, synapse: PingSynapse) -> PingSynapse:
         """
@@ -70,6 +114,7 @@ class Miner(BaseMinerNeuron):
         Returns:
             PingSynapse: The updated synapse message.
         """
+
         logger.debug(f"📧 Ping received from {synapse.dendrite.hotkey}, IP: {synapse.dendrite.ip}.")
 
         try:
@@ -114,6 +159,7 @@ class Miner(BaseMinerNeuron):
 
         return synapse
 
+
     def handle_challenge(self, synapse: ChallengeSynapse) -> ChallengeSynapse:
         """
         Handles challenge requests, including firewall activation and deactivation based on the challenge state.
@@ -124,6 +170,7 @@ class Miner(BaseMinerNeuron):
         Returns:
             ChallengeSynapse: The same `synapse` object after processing the challenge.
         """
+
         try:
             # Extract challenge information from the synapse
             task = synapse.task
@@ -176,6 +223,7 @@ class Miner(BaseMinerNeuron):
                 - `False` if the batch should be **blocked** (prediction is 1 or 2).  
                 - `True` if the batch should be **allowed** (prediction is -1 or 0).
         """
+
         prediction = self.predict_sample(features)  # Get prediction
 
         # Check if the prediction is 1 or 2
@@ -184,8 +232,16 @@ class Miner(BaseMinerNeuron):
 
         return True  #Allow packets
     
+    
     def run_packet_stream(self, king_private_ip, iface="eth0"):
-        """Runs the firewall sniffing logic until stop event is set."""
+        """
+        Runs the firewall sniffing logic in an asynchronous event loop.
+
+        Args:
+            king_private_ip (str): The private IP address of the King node to forward packets to.
+            iface (str, optional): The network interface to sniff packets from. Defaults to "eth0".
+        """
+
         loop = asyncio.new_event_loop()  # Create a new event loop for the sniffing thread
         asyncio.set_event_loop(loop)  # Set the new loop as the current one for this thread
         
@@ -193,7 +249,7 @@ class Miner(BaseMinerNeuron):
         loop.create_task(self.sniff_packets_stream(king_private_ip, iface, self.stop_firewall_event))
         loop.run_forever()  # Ensure the loop keeps running
 
-    # Moat logic: intercepts and forwards packets to King
+
     async def moat_forward_packet(self, packet, destination_ip, destination_port, protocol):
         """
         Forward the packet to King based on its protocol (TCP/UDP).
@@ -204,6 +260,7 @@ class Miner(BaseMinerNeuron):
             destination_port (int): The port number of King.
             protocol (int): The protocol identifier (6 for TCP, 17 for UDP).
         """
+
         try:
             if protocol == 6:  # TCP protocol
                 # Create a TCP socket
@@ -221,7 +278,7 @@ class Miner(BaseMinerNeuron):
             # logger.error(f"Failed to forward packet to King ({destination_ip}:{destination_port}) - Error: {e}")
             pass
 
-    # Sniff packets in a streamed manner and forward to Moat for processing
+
     async def process_packet_stream(self, packet_data, king_private_ip):
         """
         Store packet and its protocol in buffer instead of processing immediately.
@@ -229,6 +286,7 @@ class Miner(BaseMinerNeuron):
         Args:
             packet_data (bytes): The network packet data to store.   
         """
+
         eth_header = packet_data[0:14]
         eth_protocol = struct.unpack('!H', eth_header[12:14])[0]
 
@@ -245,6 +303,7 @@ class Miner(BaseMinerNeuron):
         async with self._lock:
             self.packet_buffer.append((packet_data, protocol))  # Store tuple
 
+
     def extract_batch_features(self, packet_batch):
         """
         Extract features from a batch of packets.
@@ -255,6 +314,7 @@ class Miner(BaseMinerNeuron):
         Returns:
             np.array : output data sample with model input features.
         """
+
         if not packet_batch:
             return None
 
@@ -327,6 +387,7 @@ class Miner(BaseMinerNeuron):
         )
 
         return np.array([tcp_syn_flag_ratio, udp_port_entropy, avg_pkt_size, flow_density, ip_entropy])
+    
 
     async def batch_processing_loop(self, king_private_ip):
         """
@@ -335,6 +396,7 @@ class Miner(BaseMinerNeuron):
         Args:
             king_private_ip (str): The private IP of the King for batch packets forwarding.  
         """
+
         try:
             while not self.stop_firewall_event.is_set():
                 await asyncio.sleep(self.batch_interval)  # Wait for batch interval
@@ -346,7 +408,7 @@ class Miner(BaseMinerNeuron):
                     batch = self.packet_buffer[:]
                     self.packet_buffer.clear()
 
-                logger.info(f"Processing batch of {len(batch)} packets...")
+                logger.info(f"Allowing batch of {len(batch)} packets...")
 
                 # Extract batch-level features
                 features = self.extract_batch_features(batch)
@@ -363,7 +425,6 @@ class Miner(BaseMinerNeuron):
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
 
-    # Function to continuously sniff packets and handle them in a stream
     async def sniff_packets_stream(self, king_private_ip, iface='eth0', stop_event=None):
         """
         Sniffs packets and adds them to the buffer.
@@ -395,7 +456,6 @@ class Miner(BaseMinerNeuron):
         raw_socket.close()
 
 
-    # Perform ddos detection on a single batch of packets
     def predict_sample(self, sample_data):
         """
         Predicts whether a batch of packets should be allowed or blocked.
@@ -412,6 +472,7 @@ class Miner(BaseMinerNeuron):
                 
                 Returns `None` if the prediction fails.
         """
+
         # Impute missing values
         sample_data_imputed = self._imputer.transform([sample_data])
 
@@ -432,6 +493,7 @@ class Miner(BaseMinerNeuron):
                 - public_key_str (str): The generated SSH public key in OpenSSH format.
                 - private_key_str (str): The generated RSA private key in PEM format.
         """
+
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
         # Serialize private key
@@ -474,6 +536,7 @@ class Miner(BaseMinerNeuron):
             retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
    
         """
+
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
