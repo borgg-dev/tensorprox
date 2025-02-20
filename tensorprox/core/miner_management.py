@@ -109,6 +109,9 @@ from tensorprox.core.session_commands import (
 
 dotenv.load_dotenv()
 
+# Disable all asyncssh logging by setting its level to CRITICAL
+asyncssh_logger = logging.getLogger('asyncssh')
+asyncssh_logger.setLevel(logging.CRITICAL)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -371,7 +374,7 @@ async def async_single_pass_setup(uid: int, ip: str, original_key_path: str, ssh
 # ASYNCHRONOUS WRAPPER & ADDITIONAL UTILITIES
 ######################################################################
 
-async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, use_sudo: bool = True) -> object:
+async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
     """
     Executes a command on a remote machine asynchronously using SSH.
 
@@ -397,7 +400,7 @@ async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_err
 
     if err and not ignore_errors:
         log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-    elif out:
+    elif out and logging_output:
         log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
 
     # Create an object-like response with exit_status, stdout, and stderr
@@ -728,8 +731,6 @@ async def lockdown_machines(setup_complete_miners: List[Tuple[int, 'PingSynapse'
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
                 session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
 
-                logger.info(f"🔒 Locking down miner {uid} at {ip}.")
-
                 # Use create_and_test_connection for SSH connection
                 client = await create_and_test_connection(ip, session_key_path, ssh_user)
 
@@ -751,6 +752,7 @@ async def lockdown_machines(setup_complete_miners: List[Tuple[int, 'PingSynapse'
             except Exception as e:
                 logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
                 return False
+
 
         # Run lockdown for all machines of the miner
         tasks = [lockdown_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
@@ -810,7 +812,6 @@ async def revert_machines(ready_miners: List[Tuple[int, 'PingSynapse']], backup_
                 return True  # Skip Moat machine setup and consider it successful
 
             ip = machine_details.ip
-            logger.info(f"🔄 Reverting miner {uid} at {ip}.")
 
             try:
 

@@ -137,7 +137,7 @@ class Validator(BaseValidatorNeuron):
 
                 if not available_miners:
                     logger.warning("No miners are available after availability check.")
-                    return None  # Return None if no miners are available
+                    return None
 
                 # Step 2: Setup
                 with Timer() as setup_timer:
@@ -152,9 +152,13 @@ class Validator(BaseValidatorNeuron):
                     if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
                 ]
 
+                if not setup_complete_miners:
+                    logger.warning("No miners left after the setup attempt.")
+                    return None
+                
                 # Step 3: Lockdown
                 with Timer() as lockdown_timer:
-                    logger.info(f"Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
+                    logger.info(f"🔒 Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
                     lockdown_results = await lockdown_machines(setup_complete_miners)
 
                 logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
@@ -165,6 +169,10 @@ class Validator(BaseValidatorNeuron):
                     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
                 ]
 
+                if not ready_miners:
+                    logger.warning("No miners are available for challenge phase.")
+                    return None
+                
                 ready_uids = [uid for uid, _ in ready_miners]
 
                 # Step 4: Challenge
@@ -180,7 +188,7 @@ class Validator(BaseValidatorNeuron):
 
                 # Step 5: Revert
                 with Timer() as revert_timer:    
-                    logger.info(f"🚀 Reverting miner's machines access : {ready_uids}")
+                    logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
                     revert_results = await revert_machines(ready_miners, backup_suffix)
 
                 logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
@@ -197,7 +205,7 @@ class Validator(BaseValidatorNeuron):
                 )
 
                 logger.debug(response_event)
-                
+
                 return response_event
 
         except Exception as ex:
