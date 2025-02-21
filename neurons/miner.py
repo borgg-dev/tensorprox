@@ -99,9 +99,9 @@ class Miner(BaseMinerNeuron):
 
         super().__init__(**data)
         self._lock = asyncio.Lock()
-        self._model = joblib.load("/home/azureuser/tensorprox/model/decision_tree.pkl")
-        self._imputer = joblib.load("/home/azureuser/tensorprox/model/imputer.pkl")
-        self._scaler = joblib.load("/home/azureuser/tensorprox/model/scaler.pkl")
+        self._model = joblib.load("/root/tensorprox/model/decision_tree.pkl")
+        self._imputer = joblib.load("/root/tensorprox/model/imputer.pkl")
+        self._scaler = joblib.load("/root/tensorprox/model/scaler.pkl")
 
 
     async def forward(self, synapse: PingSynapse) -> PingSynapse:
@@ -132,10 +132,14 @@ class Miner(BaseMinerNeuron):
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
 
+            # Use the initial private key for initial connection
+            password = os.environ.get("PASSWORD")
+
             # Run SSH key addition in parallel
             tasks = [
                 self.add_ssh_key_to_remote_machine(
                     machine_ip=machine_details.ip,
+                    password=password,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
                     username=machine_details.username
@@ -220,15 +224,21 @@ class Miner(BaseMinerNeuron):
             bool: 
                 - `False` if the batch should be **blocked** (prediction is 1 or 2).  
                 - `True` if the batch should be **allowed** (prediction is -1 or 0).
+            label_type: `UDP_FLOOD`, `TCP_SYN_FLOOD`, `BENIGN` or None
         """
 
         prediction = self.predict_sample(features)  # Get prediction
+        label_type = None
+        allowed = True
 
-        # Check if the prediction is 1 or 2
-        if prediction in [1, 2]:
-            return False  #Block packets
+        if prediction == 1 :
+            label_type = "UDP_FLOOD"
+            allowed = False
+        elif prediction == 2 :
+            label_type = "TCP_SYN_FLOOD"
+            allowed = False
 
-        return True  #Allow packets
+        return allowed, label_type
     
     
     def run_packet_stream(self, king_private_ip, iface="eth0"):
@@ -406,20 +416,19 @@ class Miner(BaseMinerNeuron):
                     batch = self.packet_buffer[:]
                     self.packet_buffer.clear()
 
-                logger.info(f"Allowing batch of {len(batch)} packets...")
-
                 # Extract batch-level features
                 features = self.extract_batch_features(batch)
 
                 # Predict whether batch is allowed
-                is_allowed = self.is_allowed_batch(features)  
+                is_allowed, label_type = self.is_allowed_batch(features)  
 
                 # Forward or block the packets based on decision
                 if is_allowed:
+                    logger.info(f"Allowing batch of {len(batch)} packets...")
                     for packet_data, protocol in batch:  # Extract packet and protocol
                         await self.moat_forward_packet(packet_data, king_private_ip, 8080, protocol)
                 else:
-                    logger.info(f"Blocked {len(batch)} packets")
+                    logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
 
@@ -517,6 +526,7 @@ class Miner(BaseMinerNeuron):
         ssh_public_key: str,
         initial_private_key_path: str,
         username: str,
+        password: str = None,  # Add a password parameter
         timeout: int = 5,
         retries: int = 3,
     ):
@@ -529,24 +539,33 @@ class Miner(BaseMinerNeuron):
             ssh_public_key (str): The SSH public key to add to the remote machine.
             initial_private_key_path (str): Path to the initial private key used for SSH authentication.
             username (str): The username for the SSH connection.
+            password (str, optional): The password for SSH login (defaults to None).
             timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
             retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
         """
 
         prefix_path = f"/root" if username == "root" else f"/home/{username}"
-        
+
         for attempt in range(retries):
             try:
                 logger.info(f"Attempting SSH connection to {machine_ip} with user {username} (Attempt {attempt + 1}/{retries})...")
 
-                async with asyncssh.connect(
-                    machine_ip,
-                    username=username,
-                    client_keys=[initial_private_key_path],
-                    known_hosts=None,
-                    connect_timeout=timeout
-                ) as conn:
-                    
+                # Use password if provided, otherwise fall back to key-based authentication
+                connection_params = {
+                    "host": machine_ip,
+                    "username": username,
+                    "known_hosts": None,
+                    "connect_timeout": timeout
+                }
+
+                # Add password or private key based on what's provided
+                if password:
+                    connection_params["password"] = password
+                else:
+                    connection_params["client_keys"] = [initial_private_key_path]
+
+                async with asyncssh.connect(**connection_params) as conn:
+
                     logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
                     # Ensure .ssh directory exists
@@ -590,6 +609,7 @@ class Miner(BaseMinerNeuron):
                     logger.error(f"Failed to connect to {machine_ip} after {retries} attempts.")
 
         return
+
 
 if __name__ == "__main__":
     with Miner() as miner:

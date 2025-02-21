@@ -1,4 +1,4 @@
-#!/bin/bash
+# #!/bin/bash
 
 # # Update system packages and install Python pip/venv
 # sudo apt update && sudo apt install python3-pip -y && apt install python3-venv -y
@@ -6,7 +6,7 @@
 # # Install npm and pm2 for process management
 # sudo apt install npm -y && sudo npm install -g pm2 
 
-# Activate virtual env
+# #Activate virtual env
 # python3 -m venv tp && source tp/bin/activate
 
 # # Install Python dependencies from requirements.txt
@@ -30,4 +30,4 @@ pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator
 pm2 start "python3 ~/generate_udp_traffic.py" --name traffic
 
 # Display the logs of pm2 processes
-pm2 logs miner
+pm2 logs validator

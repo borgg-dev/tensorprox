@@ -50,7 +50,8 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
 from tensorprox.base.protocol import MachineConfig
 from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
-from tensorprox.core.miner_management import query_availability, setup_available_machines, lockdown_machines, get_ready, run_challenge, revert_machines
+
+from tensorprox.core.miner_management import MinerManagement
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
@@ -64,6 +65,7 @@ from datetime import datetime
 
 # Create an aiohttp app for validator
 app = web.Application()
+miner_manager = MinerManagement()
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -91,7 +93,7 @@ class Validator(BaseValidatorNeuron):
         Returns:
             Tuple[Synapse, dict]: A tuple containing the synapse response and miner's availability status.
         """
-        synapse, uid_status_availability = await query_availability(uid)  # Get both lists from the query
+        synapse, uid_status_availability = await miner_manager.query_availability(uid)  # Get both lists from the query
         return synapse, uid_status_availability
 
 
@@ -142,7 +144,7 @@ class Validator(BaseValidatorNeuron):
                 # Step 2: Setup
                 with Timer() as setup_timer:
                     logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
-                    setup_results = await setup_available_machines(available_miners, backup_suffix)
+                    setup_results = await miner_manager.setup_available_machines(available_miners, backup_suffix)
 
                 logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
                 logger.debug(setup_results)
@@ -156,40 +158,43 @@ class Validator(BaseValidatorNeuron):
                     logger.warning("No miners left after the setup attempt.")
                     return None
                 
-                # Step 3: Lockdown
-                with Timer() as lockdown_timer:
-                    logger.info(f"🔒 Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
-                    lockdown_results = await lockdown_machines(setup_complete_miners)
+                # # Step 3: Lockdown
+                # with Timer() as lockdown_timer:
+                #     logger.info(f"🔒 Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
+                #     lockdown_results = await lockdown_machines(setup_complete_miners)
 
-                logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
-                logger.debug(lockdown_results)
+                # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+                # logger.debug(lockdown_results)
 
-                ready_miners = [
-                    (uid, synapse) for uid, synapse in setup_complete_miners
-                    if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-                ]
+                # ready_miners = [
+                #     (uid, synapse) for uid, synapse in setup_complete_miners
+                #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+                # ]
 
-                if not ready_miners:
-                    logger.warning("No miners are available for challenge phase.")
-                    return None
+                # if not ready_miners:
+                #     logger.warning("No miners are available for challenge phase.")
+                #     return None
+
+                ready_miners = setup_complete_miners
                 
                 ready_uids = [uid for uid, _ in ready_miners]
 
                 # Step 4: Challenge
                 with Timer() as challenge_timer:    
                     logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}")
-                    ready_results = await get_ready(ready_uids)
+                    ready_results = await miner_manager.get_ready(ready_uids)
                     logger.debug(ready_results)
                     ready_uids = [uid for uid in ready_results]
-                    challenge_results = await run_challenge(ready_uids)
+                    challenge_results, machine_based_setup_status = await miner_manager.run_challenge(ready_miners)
 
                 logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
+                logger.debug(machine_based_setup_status)
                 logger.debug(challenge_results)
 
                 # Step 5: Revert
                 with Timer() as revert_timer:    
                     logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
-                    revert_results = await revert_machines(ready_miners, backup_suffix)
+                    revert_results = await miner_manager.revert_machines(ready_miners, backup_suffix)
 
                 logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
                 logger.debug(revert_results)
@@ -199,7 +204,7 @@ class Validator(BaseValidatorNeuron):
                     synapses=synapses,
                     all_miners_availability=all_miners_availability,
                     setup_status=setup_results,
-                    lockdown_status=lockdown_results,
+                    # lockdown_status=lockdown_results,
                     revert_status=revert_results,
                     uids=self.assigned_miners,
                 )

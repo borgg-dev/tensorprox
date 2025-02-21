@@ -100,6 +100,7 @@ from tensorprox.core.session_commands import (
     get_sudo_setup_cmd,
     get_revert_script_cmd,
     get_lockdown_cmd,
+    get_pcap_file_cmd
 )
 
 
@@ -431,9 +432,12 @@ class MinerManagement(BaseModel):
     
     Attributes:
         miners (Dict[int, PingSynapse]): A dictionary mapping miner UIDs to their availability status.
+        ip (str): The local IP address of the machine running this instance.
     """
 
     miners: Dict[int, 'PingSynapse'] = {}
+    local_ip: str = get_local_ip()
+
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         """
@@ -489,445 +493,505 @@ class MinerManagement(BaseModel):
         return available
 
 
-async def query_availability(uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
-    """Query the availability of a given UID.
-    
-    This function attempts to retrieve machine availability information for a miner
-    identified by `uid`. It validates the response, checks for SSH key pairs, and 
-    verifies SSH connectivity to each machine.
-    
-    Args:
-        uid (int): The unique identifier of the miner.
-
-    Returns:
-        Tuple[PingSynapse, Dict[str, Union[int, str]]]:
-            - A `PingSynapse` object containing the miner's availability details.
-            - A dictionary with the UID's availability status, including status code and message.
-    """
-
-    # Initialize a dummy synapse for example purposes
-    synapse = PingSynapse(machine_availabilities=MachineConfig())
-    uid, synapse = await dendrite_call(uid, synapse)
-
-    uid_status_availability = {"uid": uid, "ping_status_message" : None, "ping_status_code" : None}
-
-    if synapse is None:
-        logger.error(f"❌ Miner {uid} query failed.")
-        uid_status_availability["ping_status_message"] = "Query failed."
-        uid_status_availability["ping_status_code"] = 500
-        return synapse, uid_status_availability
-
-    if not synapse.machine_availabilities.key_pair:
-        logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
-        uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
-        uid_status_availability["ping_status_code"] = 400
-        return synapse, uid_status_availability
-
-    # Extract SSH key pair safely
-    ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
-    original_key_path = f"/var/tmp/original_key_{uid}.pem"
-    save_private_key(ssh_priv, original_key_path)
-
-    all_machines_available = True
-
-    for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
-
-        if machine_name == "Moat":
-            continue  # Skip the Moat machine
-
-        ip = machine_details.ip
-        ssh_user = machine_details.username
-
-        if not is_valid_ip(ip):
-            logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
-            all_machines_available = False
-            uid_status_availability["ping_status_message"] = "Invalid IP format."
-            uid_status_availability["ping_status_code"] = 400
-            break
-
-        # Test SSH Connection with asyncssh
-        client = await create_and_test_connection(ip, original_key_path, ssh_user)
-        if not client:
-            logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
-            all_machines_available = False
-            uid_status_availability["ping_status_message"] = "SSH connection failed."
-            uid_status_availability["ping_status_code"] = 500
-            break
-
-    if all_machines_available:
-        uid_status_availability["ping_status_message"] = f"✅ All machines are accessible for UID {uid}."
-        uid_status_availability["ping_status_code"] = 200
-
-    return synapse, uid_status_availability
-
-
-async def dendrite_call(uid: int, synapse: Union[PingSynapse, ChallengeSynapse], timeout: int = settings.NEURON_TIMEOUT):
-    """
-    Query a single miner's availability.
+    async def query_availability(self, uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
+        """Query the availability of a given UID.
         
-    Args:
-        uid (int): Unique identifier for the miner.
-        synapse (Union[PingSynapse, ChallengeSynapse]): The synapse message to send.
-        timeout (int, optional): Timeout duration in seconds. Defaults to settings.NEURON_TIMEOUT.
-    
-    Returns:
-        Tuple[int, Optional[Response]]: The miner's UID and response, if available.
-    """
-
-    try:
-        axon = settings.METAGRAPH.axons[uid]
-        response = await settings.DENDRITE(
-            axons=[axon],
-            synapse=synapse,
-            timeout=timeout,
-            deserialize=False,
-        )
-        return uid, response[0] if response else None  
-
-    except Exception as e:
-        logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
-        return uid, None
-
-
-async def setup_available_machines(available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
-    """
-    Setup available machines based on the queried miner availability.
-    
-    Args:
-        available_miners (List[Tuple[int, PingSynapse]]): List of miners and their availability synapses.
-        backup_suffix (str): Backup suffix for machine configurations.
-        timeout (int, optional): Timeout duration for setup. Defaults to 240 seconds.
-    
-    Returns:
-        List[Dict[str, Union[int, str]]]: Status of setup completion for each miner.
-    """
-
-    role_cmds = {
-        "Attacker": ["sudo apt-get update -qq || true"],
-        "Benign": ["sudo apt update", "sudo apt install -y npm"],
-        "King": ["sudo apt update", "sudo apt install -y npm"],
-    }
-    local_ip = get_local_ip()
-    setup_status = {}
-
-    async def setup_miner(uid, synapse):
-        """
-        Setup each miner's machines.
-        
-        Args:
-            uid (int): Unique identifier for the miner.
-            synapse (PingSynapse): The synapse containing machine availability information.
-        """
-        
-        async def setup_machine(machine_name, machine_details):
-            """
-            Perform the setup for a single machine.
-            
-            Args:
-                machine_name (str): Name of the machine.
-                machine_details (MachineDetails): Machine configuration details.
-            
-            Returns:
-                bool: True if setup is successful, False otherwise.
-            """
-
-            if machine_name == "Moat":
-                return True  # Skip Moat machine setup and consider it successful
-
-            ip = machine_details.ip
-            ssh_user = machine_details.username
-            original_key_path = f"/var/tmp/original_key_{uid}.pem"
-
-            logger.info(f"🎯 Setting up '{machine_name}' at {ip}, user={ssh_user}.")
-            success = await async_single_pass_setup(
-                uid=uid,
-                ip=ip,
-                original_key_path=original_key_path,
-                ssh_user=ssh_user,
-                user_commands=role_cmds.get(machine_name, []),
-                backup_suffix=backup_suffix
-            )
-
-            return success
-
-        # Run setup tasks for all machines of a miner in parallel
-        tasks = [setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
-        results = await asyncio.gather(*tasks)
-
-        # Determine overall status
-        all_success = all(results)
-        setup_status[uid] = {
-            "setup_status_code": 200 if all_success else 500,
-            "setup_status_message": "All machines setup successfully" if all_success else "Failure: Some machines failed to setup",
-        }
-
-    async def setup_miner_with_timeout(uid, synapse):
-        """
-        Setup miner with a timeout.
-        
-        Args:
-            uid (int): Unique identifier for the miner.
-            synapse (PingSynapse): The synapse containing machine availability information.
-        """
-
-        try:
-            # Apply timeout to the entire setup_miner function for each miner
-            await asyncio.wait_for(setup_miner(uid, synapse), timeout=timeout)
-        except asyncio.TimeoutError:
-            logger.error(f"⏰ Timeout reached for setting up miner {uid}.")
-            setup_status[uid] = {
-                "setup_status_code": 408,
-                "setup_status_message": f"Timeout: Miner setup aborted. Skipping miner {uid} for this round."
-            }
-
-    # Process all miners in parallel, applying the timeout
-    await asyncio.gather(*[setup_miner_with_timeout(uid, synapse) for uid, synapse in available_miners])
-
-    return [{"uid": uid, **status} for uid, status in setup_status.items()]
-
-
-async def lockdown_machines(setup_complete_miners: List[Tuple[int, 'PingSynapse']]):
-    """
-    Executes the lockdown step for all given miners after setup is complete.
-    
-    Args:
-        setup_complete_miners (List[Tuple[int, PingSynapse]]): List of miners that completed setup.
-    
-    Returns:
-        List[Dict[str, Union[int, str]]]: Status of lockdown completion for each miner.
-    """
-
-    validator_ip = get_local_ip()
-    lockdown_status = {}
-
-    async def lockdown_miner(uid, synapse):
-        """
-        Lock down each miner's machines.
-        
-        Args:
-            uid (int): Unique identifier for the miner.
-            synapse (PingSynapse): The synapse containing machine availability information.
-        """
-
-        async def lockdown_machine(machine_name, machine_details):
-            """
-            Perform lockdown for a single machine.
-            
-            Args:
-                machine_name (str): Name of the machine.
-                machine_details (MachineDetails): Machine configuration details.
-            
-            Returns:
-                bool: True if lockdown is successful, False otherwise.
-            """
-
-            if machine_name == "Moat":
-                return True  # Skip Moat machine setup and consider it successful
-
-            try:
-                ip = machine_details.ip
-                ssh_user = machine_details.username
-                ssh_dir = get_authorized_keys_dir(ssh_user)
-                authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-
-                # Use create_and_test_connection for SSH connection
-                client = await create_and_test_connection(ip, session_key_path, ssh_user)
-
-                if not client:
-                    logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                    return False
-
-                # Run lockdown command
-                lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, validator_ip, authorized_keys_path)
-                result = await run_cmd_async(client, lockdown_cmd)
-
-                if result.exit_status == 0:
-                    logger.info(f"✅ Lockdown command executed successfully on {ip}")
-                else:
-                    logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
-            
-                return True
-        
-            except Exception as e:
-                logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
-                return False
-
-
-        # Run lockdown for all machines of the miner
-        tasks = [lockdown_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
-        results = await asyncio.gather(*tasks)
-        all_success = all(results)  # Mark as success if all machines are successfully locked down
-
-        lockdown_status[uid] = {
-            "lockdown_status_code": 200 if all_success else 500,
-            "lockdown_status_message": "All machines locked down successfully" if all_success else "Failure: Some machines failed to lockdown",
-        }
-
-    # Process all miners in parallel
-    await asyncio.gather(*[lockdown_miner(uid, synapse) for uid, synapse in setup_complete_miners])
-
-    return [{"uid": uid, **status} for uid, status in lockdown_status.items()]
-
-
-async def revert_machines(ready_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str):
-    """
-    Reverts machines to their original state for all given miners after setup is complete.
-
-    Args:
-        ready_miners (List[Tuple[int, 'PingSynapse']]): A list of tuples containing miner UID and PingSynapse instance.
-        backup_suffix (str): A suffix used to identify backup files for reversion.
-
-    Returns:
-        List[Dict[str, Union[int, str]]]: A list of dictionaries containing the UID and the status of the revert operation.
-    """
-
-    revert_status = {}
-
-    async def revert_miner(uid, synapse):
-        """
-        Reverts all machines for a given miner.
+        This function attempts to retrieve machine availability information for a miner
+        identified by `uid`. It validates the response, checks for SSH key pairs, and 
+        verifies SSH connectivity to each machine.
         
         Args:
             uid (int): The unique identifier of the miner.
-            synapse (PingSynapse): The synapse object containing machine configurations.
-        
+
         Returns:
-            None: Updates the revert_status dictionary with the outcome.
+            Tuple[PingSynapse, Dict[str, Union[int, str]]]:
+                - A `PingSynapse` object containing the miner's availability details.
+                - A dictionary with the UID's availability status, including status code and message.
         """
 
-        async def revert_machine(machine_name, machine_details):
-            """
-            Perform the revert on a specific machine.
-            
-            Args:
-                machine_name (str): The name of the machine.
-                machine_details: Object containing machine connection details.
-            
-            Returns:
-                bool: True if the revert operation is successful, False otherwise.
-            """
+        # Initialize a dummy synapse for example purposes
+        synapse = PingSynapse(machine_availabilities=MachineConfig())
+        uid, synapse = await self.dendrite_call(uid, synapse)
+
+        uid_status_availability = {"uid": uid, "ping_status_message" : None, "ping_status_code" : None}
+
+        if synapse is None:
+            logger.error(f"❌ Miner {uid} query failed.")
+            uid_status_availability["ping_status_message"] = "Query failed."
+            uid_status_availability["ping_status_code"] = 500
+            return synapse, uid_status_availability
+
+        if not synapse.machine_availabilities.key_pair:
+            logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
+            uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
+            uid_status_availability["ping_status_code"] = 400
+            return synapse, uid_status_availability
+
+        # Extract SSH key pair safely
+        ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
+        original_key_path = f"/var/tmp/original_key_{uid}.pem"
+        save_private_key(ssh_priv, original_key_path)
+
+        all_machines_available = True
+
+        for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
 
             if machine_name == "Moat":
-                return True  # Skip Moat machine setup and consider it successful
+                continue  # Skip the Moat machine
 
             ip = machine_details.ip
+            ssh_user = machine_details.username
 
-            try:
+            if not is_valid_ip(ip):
+                logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
+                all_machines_available = False
+                uid_status_availability["ping_status_message"] = "Invalid IP format."
+                uid_status_availability["ping_status_code"] = 400
+                break
 
-                ssh_user = machine_details.username
-                ssh_dir = get_authorized_keys_dir(ssh_user)
-                authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-                authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
-                revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
-                revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_log)
+            # Test SSH Connection with asyncssh
+            client = await create_and_test_connection(ip, original_key_path, ssh_user)
+            if not client:
+                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
+                all_machines_available = False
+                uid_status_availability["ping_status_message"] = "SSH connection failed."
+                uid_status_availability["ping_status_code"] = 500
+                break
 
-                # Use create_and_test_connection for SSH connection
-                client = await create_and_test_connection(ip, session_key_path, ssh_user)
+        if all_machines_available:
+            uid_status_availability["ping_status_message"] = f"✅ All machines are accessible for UID {uid}."
+            uid_status_availability["ping_status_code"] = 200
 
-                if not client:
-                    logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                    return False
+        return synapse, uid_status_availability
 
-                # Run revert command
-                result = await run_cmd_async(client, revert_cmd)
-                if result.exit_status == 0:
-                    logger.info(f"✅ Revert command executed successfully on {ip}")
-                else:
-                    logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
+
+    async def dendrite_call(self, uid: int, synapse: Union[PingSynapse, ChallengeSynapse], timeout: int = settings.NEURON_TIMEOUT):
+        """
+        Query a single miner's availability.
             
-                return True
+        Args:
+            uid (int): Unique identifier for the miner.
+            synapse (Union[PingSynapse, ChallengeSynapse]): The synapse message to send.
+            timeout (int, optional): Timeout duration in seconds. Defaults to settings.NEURON_TIMEOUT.
+        
+        Returns:
+            Tuple[int, Optional[Response]]: The miner's UID and response, if available.
+        """
 
-            except Exception as e:
-                logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
-                return False
+        try:
+            axon = settings.METAGRAPH.axons[uid]
+            response = await settings.DENDRITE(
+                axons=[axon],
+                synapse=synapse,
+                timeout=timeout,
+                deserialize=False,
+            )
+            return uid, response[0] if response else None  
 
-        # Run revert for all machines of the miner
-        tasks = [revert_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
-        results = await asyncio.gather(*tasks)
-        all_success = all(results)  # Mark as success if all machines are successfully reverted
+        except Exception as e:
+            logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
+            return uid, None
 
-        revert_status[uid] = {
-            "revert_status_code": 200 if all_success else 500,
-            "revert_status_message": "All machines reverted successfully" if all_success else "Failure: Some machines failed to revert",
+
+    async def setup_available_machines(self, available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
+        """
+        Setup available machines based on the queried miner availability.
+        
+        Args:
+            available_miners (List[Tuple[int, PingSynapse]]): List of miners and their availability synapses.
+            backup_suffix (str): Backup suffix for machine configurations.
+            timeout (int, optional): Timeout duration for setup. Defaults to 240 seconds.
+        
+        Returns:
+            List[Dict[str, Union[int, str]]]: Status of setup completion for each miner.
+        """
+
+        role_cmds = {
+            "Attacker": ["sudo apt-get update -qq || true"],
+            "Benign": ["sudo apt update", "sudo apt install -y npm"],
+            "King": ["sudo apt update", "sudo apt install -y npm"],
         }
 
-    # Process all miners in parallel
-    await asyncio.gather(*[revert_miner(uid, synapse) for uid, synapse in ready_miners])
+        setup_status = {}
 
-    return [{"uid": uid, **status} for uid, status in revert_status.items()]
-    
+        async def setup_miner(uid, synapse):
+            """
+            Setup each miner's machines.
+            
+            Args:
+                uid (int): Unique identifier for the miner.
+                synapse (PingSynapse): The synapse containing machine availability information.
+            """
+            
+            async def setup_machine(machine_name, machine_details):
+                """
+                Perform the setup for a single machine.
+                
+                Args:
+                    machine_name (str): Name of the machine.
+                    machine_details (MachineDetails): Machine configuration details.
+                
+                Returns:
+                    bool: True if setup is successful, False otherwise.
+                """
+
+                if machine_name == "Moat":
+                    return True  # Skip Moat machine setup and consider it successful
+
+                ip = machine_details.ip
+                ssh_user = machine_details.username
+                original_key_path = f"/var/tmp/original_key_{uid}.pem"
+
+                logger.info(f"🎯 Setting up '{machine_name}' at {ip}, user={ssh_user}.")
+                success = await async_single_pass_setup(
+                    uid=uid,
+                    ip=ip,
+                    original_key_path=original_key_path,
+                    ssh_user=ssh_user,
+                    user_commands=role_cmds.get(machine_name, []),
+                    backup_suffix=backup_suffix
+                )
+
+                return success
+
+            # Run setup tasks for all machines of a miner in parallel
+            tasks = [setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            results = await asyncio.gather(*tasks)
+
+            # Determine overall status
+            all_success = all(results)
+            setup_status[uid] = {
+                "setup_status_code": 200 if all_success else 500,
+                "setup_status_message": "All machines setup successfully" if all_success else "Failure: Some machines failed to setup",
+            }
+
+        async def setup_miner_with_timeout(uid, synapse):
+            """
+            Setup miner with a timeout.
+            
+            Args:
+                uid (int): Unique identifier for the miner.
+                synapse (PingSynapse): The synapse containing machine availability information.
+            """
+
+            try:
+                # Apply timeout to the entire setup_miner function for each miner
+                await asyncio.wait_for(setup_miner(uid, synapse), timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.error(f"⏰ Timeout reached for setting up miner {uid}.")
+                setup_status[uid] = {
+                    "setup_status_code": 408,
+                    "setup_status_message": f"Timeout: Miner setup aborted. Skipping miner {uid} for this round."
+                }
+
+        # Process all miners in parallel, applying the timeout
+        await asyncio.gather(*[setup_miner_with_timeout(uid, synapse) for uid, synapse in available_miners])
+
+        return [{"uid": uid, **status} for uid, status in setup_status.items()]
 
 
-async def get_ready(ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
-    """
-    Sends a "GET_READY" ChallengeSynapse to miners before the challenge starts and collects responses.
+    async def lockdown_machines(self, setup_complete_miners: List[Tuple[int, 'PingSynapse']]):
+        """
+        Executes the lockdown step for all given miners after setup is complete.
+        
+        Args:
+            setup_complete_miners (List[Tuple[int, PingSynapse]]): List of miners that completed setup.
+        
+        Returns:
+            List[Dict[str, Union[int, str]]]: Status of lockdown completion for each miner.
+        """
 
-    Args:
-        ready_uids (List[int]): A list of miner UIDs that need to receive the readiness signal.
+        lockdown_status = {}
 
-    Returns:
-        Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
-    """
+        async def lockdown_miner(uid, synapse):
+            """
+            Lock down each miner's machines.
+            
+            Args:
+                uid (int): Unique identifier for the miner.
+                synapse (PingSynapse): The synapse containing machine availability information.
+            """
 
-    ready_results = {}
+            async def lockdown_machine(machine_name, machine_details):
+                """
+                Perform lockdown for a single machine.
+                
+                Args:
+                    machine_name (str): Name of the machine.
+                    machine_details (MachineDetails): Machine configuration details.
+                
+                Returns:
+                    bool: True if lockdown is successful, False otherwise.
+                """
 
-    async def inform_miner(uid):
-        try:
-            get_ready_synapse = ChallengeSynapse(
-                task="Defend The King",
-                state="GET_READY",
-            )
-            uid, response = await dendrite_call(uid, get_ready_synapse)
+                if machine_name == "Moat":
+                    return True  # Skip Moat machine setup and consider it successful
 
-            ready_results[uid] = response
-        except Exception as e:
-            logger.error(f"Error sending synapse to miner {uid}: {e}")
-            ready_results[uid] = {"error": str(e)}
+                try:
+                    ip = machine_details.ip
+                    ssh_user = machine_details.username
+                    ssh_dir = get_authorized_keys_dir(ssh_user)
+                    authorized_keys_path = f"{ssh_dir}/authorized_keys"
+                    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
 
-    await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
-    return ready_results
+                    # Use create_and_test_connection for SSH connection
+                    client = await create_and_test_connection(ip, session_key_path, ssh_user)
+
+                    if not client:
+                        logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                        return False
+
+                    # Run lockdown command
+                    lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.local_ip, authorized_keys_path)
+                    result = await run_cmd_async(client, lockdown_cmd)
+
+                    if result.exit_status == 0:
+                        logger.info(f"✅ Lockdown command executed successfully on {ip}")
+                    else:
+                        logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
+                
+                    return True
+            
+                except Exception as e:
+                    logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
+                    return False
 
 
-async def run_challenge(ready_uids: List[int], challenge_duration: int = 60) -> Dict[int, ChallengeSynapse]:
-    """
-    Sends an "END_ROUND" ChallengeSynapse to miners after waiting for the challenge duration.
+            # Run lockdown for all machines of the miner
+            tasks = [lockdown_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            results = await asyncio.gather(*tasks)
+            all_success = all(results)  # Mark as success if all machines are successfully locked down
 
-    Args:
-        ready_uids (List[int]): A list of miner UIDs participating in the challenge.
-        challenge_duration (int, optional): The duration of the challenge in seconds. Defaults to 60.
+            lockdown_status[uid] = {
+                "lockdown_status_code": 200 if all_success else 500,
+                "lockdown_status_message": "All machines locked down successfully" if all_success else "Failure: Some machines failed to lockdown",
+            }
 
-    Returns:
-        Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
-    """
+        # Process all miners in parallel
+        await asyncio.gather(*[lockdown_miner(uid, synapse) for uid, synapse in setup_complete_miners])
 
-    challenge_results = {}
+        return [{"uid": uid, **status} for uid, status in lockdown_status.items()]
 
-    challenge_start_time = datetime.now()
-    challenge_duration_td = timedelta(seconds=challenge_duration)
-    challenge_end_time = challenge_start_time + challenge_duration_td
 
-    # Wait for the challenge duration
-    logger.info(f"Challenge started. Waiting for {challenge_duration} seconds...")
-    await asyncio.sleep(challenge_duration)
-    logger.info("Challenge duration ended.")
+    async def revert_machines(self, ready_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str):
+        """
+        Reverts machines to their original state for all given miners after setup is complete.
 
-    # Send ChallengeSynapse to miners after waiting
-    async def challenge_miner(uid):
-        try:
-            end_round_synapse = ChallengeSynapse(
-                task="Defend The King",
-                state="END_ROUND",
-            )
-            uid, response = await dendrite_call(uid, end_round_synapse, timeout=15)
-            challenge_results[uid] = response
-        except Exception as e:
-            logger.error(f"Error sending synapse to miner {uid}: {e}")
-            challenge_results[uid] = {"error": str(e)}
+        Args:
+            ready_miners (List[Tuple[int, 'PingSynapse']]): A list of tuples containing miner UID and PingSynapse instance.
+            backup_suffix (str): A suffix used to identify backup files for reversion.
 
-    await asyncio.gather(*[challenge_miner(uid) for uid in ready_uids])
-    return challenge_results
+        Returns:
+            List[Dict[str, Union[int, str]]]: A list of dictionaries containing the UID and the status of the revert operation.
+        """
+
+        revert_status = {}
+
+        async def revert_miner(uid, synapse):
+            """
+            Reverts all machines for a given miner.
+            
+            Args:
+                uid (int): The unique identifier of the miner.
+                synapse (PingSynapse): The synapse object containing machine configurations.
+            
+            Returns:
+                None: Updates the revert_status dictionary with the outcome.
+            """
+
+            async def revert_machine(machine_name, machine_details):
+                """
+                Perform the revert on a specific machine.
+                
+                Args:
+                    machine_name (str): The name of the machine.
+                    machine_details: Object containing machine connection details.
+                
+                Returns:
+                    bool: True if the revert operation is successful, False otherwise.
+                """
+
+                if machine_name == "Moat":
+                    return True  # Skip Moat machine setup and consider it successful
+
+                ip = machine_details.ip
+
+                try:
+
+                    ssh_user = machine_details.username
+                    ssh_dir = get_authorized_keys_dir(ssh_user)
+                    authorized_keys_path = f"{ssh_dir}/authorized_keys"
+                    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                    authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
+                    revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
+                    revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_log)
+
+                    # Use create_and_test_connection for SSH connection
+                    client = await create_and_test_connection(ip, session_key_path, ssh_user)
+
+                    if not client:
+                        logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                        return False
+
+                    # Run revert command
+                    result = await run_cmd_async(client, revert_cmd)
+                    if result.exit_status == 0:
+                        logger.info(f"✅ Revert command executed successfully on {ip}")
+                    else:
+                        logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
+                
+                    return True
+
+                except Exception as e:
+                    logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
+                    return False
+
+            # Run revert for all machines of the miner
+            tasks = [revert_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            results = await asyncio.gather(*tasks)
+            all_success = all(results)  # Mark as success if all machines are successfully reverted
+
+            revert_status[uid] = {
+                "revert_status_code": 200 if all_success else 500,
+                "revert_status_message": "All machines reverted successfully" if all_success else "Failure: Some machines failed to revert",
+            }
+
+        # Process all miners in parallel
+        await asyncio.gather(*[revert_miner(uid, synapse) for uid, synapse in ready_miners])
+
+        return [{"uid": uid, **status} for uid, status in revert_status.items()]
+        
+
+
+    async def get_ready(self, ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
+        """
+        Sends a "GET_READY" ChallengeSynapse to miners before the challenge starts and collects responses.
+
+        Args:
+            ready_uids (List[int]): A list of miner UIDs that need to receive the readiness signal.
+
+        Returns:
+            Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
+        """
+
+        ready_results = {}
+
+        async def inform_miner(uid):
+                
+            try:
+                get_ready_synapse = ChallengeSynapse(
+                    task="Defend The King",
+                    state="GET_READY",
+                )
+                uid, response = await self.dendrite_call(uid, get_ready_synapse)
+
+                ready_results[uid] = response
+            except Exception as e:
+                logger.error(f"Error sending synapse to miner {uid}: {e}")
+                ready_results[uid] = {"error": str(e)}
+
+        await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
+        return ready_results
+
+
+    async def run_challenge(self, ready_miners: List[Tuple[int, 'PingSynapse']], challenge_duration: int = 60):
+        """
+        Sends an "END_ROUND" ChallengeSynapse to miners after waiting for the challenge duration.
+
+        Args:
+            ready_uids (List[int]): A list of miner UIDs participating in the challenge.
+            challenge_duration (int, optional): The duration of the challenge in seconds. Defaults to 60.
+
+        Returns:
+            Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
+        """
+
+        machine_based_setup_status = {}
+        challenge_results = {}
+
+        # Send ChallengeSynapse to miners after waiting
+        async def challenge_miner(uid, synapse):
+
+            async def run_machine_based_commands(machine_name, machine_details):
+                """
+                Perform the revert on a specific machine.
+                
+                Args:
+                    machine_name (str): The name of the machine.
+                    machine_details: Object containing machine connection details.
+                
+                Returns:
+                    bool: True if the revert operation is successful, False otherwise.
+                """
+
+                if machine_name == "Moat":
+                    return True  # Skip Moat machine setup and consider it successful
+
+                ip = machine_details.ip
+
+                try:
+
+                    ssh_user = machine_details.username
+                    validator_username = os.getlogin()
+                    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                    capture_file = "/tmp/"+machine_name+"_capture.pcap"
+
+                    # Get the path of the private key from environment variable
+                    validator_key_path = os.environ.get("VALIDATOR_KEY_PATH")
+
+                    try:
+                        # Open and read the private key file
+                        with open(validator_key_path, "r") as key_file:
+                            validator_private_key = key_file.read()
+                    except Exception as e:
+                        logger.error(f"❌ Error reading private key: {e}")
+
+                    pcap_cmd = get_pcap_file_cmd(validator_username, validator_private_key, self.local_ip, challenge_duration, capture_file)
+
+                    # Use create_and_test_connection for SSH connection
+                    client = await create_and_test_connection(ip, session_key_path, ssh_user)
+
+                    if not client:
+                        logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                        return False
+
+                    # Run revert command
+                    result = await run_cmd_async(client, pcap_cmd)
+                    if result.exit_status == 0:
+                        logger.info(f"✅ Machine based commands executed successfully on {ip}")
+                    else:
+                        logger.error(f"❌ Machine based commands failed on {ip}: {result.stderr}")
+                
+                    return True
+
+                except Exception as e:
+                    logger.error(f"🚨 Failed to run commands on {machine_name} for miner {uid} : {e}")
+                    return False
+
+
+            # Run machine based commands for all machines of the miner
+            tasks = [run_machine_based_commands(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            results = await asyncio.gather(*tasks)
+            all_success = all(results)  # Mark as success if all machine setups are successfully done
+
+            machine_based_setup_status[uid] = {
+                "machine_based_setup_status_code": 200 if all_success else 500,
+                "machine_based_setup_status_message": "All machines based setups successfully done" if all_success else "Failure: Some machines failed to setup",
+            }
+
+            try:
+                end_round_synapse = ChallengeSynapse(
+                    task="Defend The King",
+                    state="END_ROUND",
+                )
+                uid, response = await self.dendrite_call(uid, end_round_synapse, timeout=15)
+                challenge_results[uid] = response
+            except Exception as e:
+                logger.error(f"Error sending synapse to miner {uid}: {e}")
+                challenge_results[uid] = {"error": str(e)}
+
+        await asyncio.gather(*[challenge_miner(uid, synapse) for uid, synapse in ready_miners])
+        return challenge_results, [{"uid": uid, **status} for uid, status in machine_based_setup_status.items()]
 
 # Start availability checking
 miner_availabilities = MinerManagement()

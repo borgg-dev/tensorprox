@@ -29,6 +29,10 @@ Version: 0.1.0
 ================================================================================
 """
 
+import tempfile
+import os
+
+
 def get_insert_key_cmd(ssh_user: str, ssh_dir: str, session_pub: str, authorized_keys_path: str, authorized_keys_bak: str) -> str:
     """
     Generates the command to insert the session key into authorized_keys.
@@ -311,3 +315,47 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
             chmod 600 {authorized_keys_path}
         fi
     """
+
+def get_pcap_file_cmd(validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, capture_file: str, iface: str = "eth0") -> str:
+    """
+    Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP.
+
+    Args:
+        validator_username (str): The SSH username for the validator.
+        validator_private_key (str): The private key content as a string.
+        validator_ip (str): The IP address of the remote validator.
+        challenge_duration (str): Duration of the pcap capture.
+        capture_file (str): The name of the pcap file.
+        iface (str, optional): The network interface to capture traffic. Defaults to "eth0".
+
+    Returns:
+        str: The command string to execute on the remote machine.
+    """
+
+    # Generate the remote command
+    cmd = f"""
+    # Ensure tcpdump is installed
+    if ! command -v tcpdump &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y tcpdump
+    fi
+
+    # Capture network traffic for a duration
+    sudo tcpdump -i {iface} -w {capture_file} -G {challenge_duration} -W 1 'tcp or udp'
+
+    # Create a temporary private key file
+    echo -e "{validator_private_key}" > /tmp/validator_key
+    chmod 600 /tmp/validator_key  # Set correct permissions
+
+    # Securely transfer the pcap file via SCP
+    scp -i /tmp/validator_key {capture_file} {validator_username}@{validator_ip}:/root/tensorprox/tensorprox/rewards/
+
+    # Cleanup
+    rm -f {capture_file}
+    rm -f /tmp/validator_key  # Remove original key
+    """
+
+    return cmd
+
+
+
+
