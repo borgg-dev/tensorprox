@@ -44,23 +44,16 @@ import time
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
-from typing import Tuple
 from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
-from tensorprox.base.dendrite import DendriteResponseEvent, PingSynapse
-from tensorprox.base.protocol import MachineConfig
-from tensorprox.utils.logging import ValidatorLoggingEvent, ErrorLoggingEvent
+from tensorprox.base.dendrite import DendriteResponseEvent
+from tensorprox.utils.logging import ErrorLoggingEvent
 
 from tensorprox.core.miner_management import MinerManagement
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox import global_vars
-from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.rewards.weight_setter import weight_setter
-from tensorprox.tasks.traffic_data import TrafficData
-from tensorprox.tasks.task_creation import task_loop
-from tensorprox.utils.uids import extract_axons_ips
-from tensorprox.utils.utils import get_location_from_maxmind, get_my_public_ip, haversine_distance
 from datetime import datetime
 
 # Create an aiohttp app for validator
@@ -83,19 +76,6 @@ class Validator(BaseValidatorNeuron):
         self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
 
-    async def check_miner(self, uid):
-        """
-        Checks the status and availability of a specific miner.
-
-        Args:
-            uid (int): Unique identifier of the miner.
-
-        Returns:
-            Tuple[Synapse, dict]: A tuple containing the synapse response and miner's availability status.
-        """
-        synapse, uid_status_availability = await miner_manager.query_availability(uid)  # Get both lists from the query
-        return synapse, uid_status_availability
-
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
         """
@@ -107,6 +87,10 @@ class Validator(BaseValidatorNeuron):
         Returns:
             DendriteResponseEvent | None: The response event with miner availability details or None if no miners are available.
         """
+
+        while len(global_vars.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
+            logger.debug("Scoring queue is full. Waiting 1 second...")
+            await asyncio.sleep(1)
 
         try:
             async with self._lock:
@@ -125,9 +109,7 @@ class Validator(BaseValidatorNeuron):
                     
                     logger.debug(f"🔍 Querying machine availabilities for UIDs: {self.assigned_miners}")
 
-                    tasks = [self.check_miner(uid) for uid in self.assigned_miners]
-                    results = await asyncio.gather(*tasks)
-                    synapses, all_miners_availability = zip(*results) if results else ([], [])
+                    synapses, all_miners_availability = await miner_manager.check_machines_availability(self.assigned_miners)
 
                 logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
                 logger.debug(all_miners_availability)
@@ -191,6 +173,9 @@ class Validator(BaseValidatorNeuron):
                 logger.debug(machine_based_setup_status)
                 logger.debug(challenge_results)
 
+                # Scoring manager will score the round
+                task_scorer.add_to_queue(uids = self.assigned_miners, block=self.block, step=self.step)
+
                 # Step 5: Revert
                 with Timer() as revert_timer:    
                     logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
@@ -211,11 +196,12 @@ class Validator(BaseValidatorNeuron):
 
                 logger.debug(response_event)
 
-                return response_event
-
+            
         except Exception as ex:
             logger.exception(ex)
-            return None
+            return ErrorLoggingEvent(
+                error=str(ex),
+            )
 
 
     async def forward(self):
@@ -292,6 +278,7 @@ async def main():
 
     This function initializes and runs the web server to handle incoming requests.
     """
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host="0.0.0.0", port=8000)
@@ -299,6 +286,10 @@ async def main():
 
     logger.info("Validator aiohttp server started.")
 
+    # Start background tasks
+    asyncio.create_task(weight_setter.start())
+    asyncio.create_task(task_scorer.start())
+    
     try:
         await asyncio.Event().wait()  # Keeps the server running indefinitely
     finally:

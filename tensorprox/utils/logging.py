@@ -12,7 +12,7 @@ from wandb.wandb_run import Run
 
 import tensorprox
 from tensorprox.base.dendrite import DendriteResponseEvent
-from tensorprox.rewards.reward import DDoSDetectionRewardEvent
+from tensorprox.rewards.reward import ChallengeRewardEvent
 from tensorprox.settings import settings
 
 WANDB: Run
@@ -138,44 +138,13 @@ class ErrorLoggingEvent(BaseEvent):
     forward_time: float | None = None
 
 
-class ValidatorLoggingEvent(BaseEvent):
-    block: int
-    step: int
-    step_time: float
-    response_event: DendriteResponseEvent
-    task_id: str
-    forward_time: float | None = None
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, copy_on_model_validation=False)
-
-    def __str__(self):
-        sample_predictions = [prediction for prediction in self.response_event.predictions if prediction != '']
-        sample_prediction = sample_predictions[0] if sample_predictions else "All predictions are empty"
-        return f"""ValidatorLoggingEvent:
-            Block: {self.block}
-            Step: {self.step}
-            Step Time: {self.step_time}
-            forward_time: {self.forward_time}
-            task_id: {self.task_id}
-            Number of total predictions: {len(self.response_event.predictions)}
-            Number of non-empty predictions: {len(sample_predictions)}
-            Predictions: {sample_predictions}
-            Sample prediction: {sample_prediction}"""
-
-
 class RewardLoggingEvent(BaseEvent):
     block: int
     step: int
-    reference: str
-    challenge: Dict[str, Any]
-    task_id: str
-    task: str
     uids: list[int]
     rewards: list[float]
-    timings: list[float]
-    adjusted_timings: list[float]
-    status_codes: list[int]
-    status_messages: list[str]
+    # status_codes: list[int]
+    # status_messages: list[str]
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -190,8 +159,7 @@ class RewardLoggingEvent(BaseEvent):
                 Min: {np.min(rewards) if len(rewards) > 0 else None}
                 Max: {np.max(rewards) if len(rewards) > 0 else None}
                 Average: {np.mean(rewards) if len(rewards) > 0 else None}
-            task_id: {self.task_id}
-            task_name: {self.task}"""
+        """
 
 
 class MinerLoggingEvent(BaseEvent):

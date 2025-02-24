@@ -12,7 +12,7 @@ from tensorprox.base.neuron import BaseNeuron
 from tensorprox.settings import settings
 from tensorprox.utils.exceptions import MaxRetryError
 from tensorprox.utils.logging import init_wandb
-from tensorprox.rewards.reward import DDoSDetectionRewardEvent
+from tensorprox.rewards.reward import ChallengeRewardEvent
 
 
 class BaseValidatorNeuron(BaseNeuron):

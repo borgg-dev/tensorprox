@@ -13,7 +13,7 @@ class MachineDetails(BaseModel):
     
 class MachineConfig(BaseModel):
     key_pair: Tuple[str, str] = ("", "")
-    machine_config: Dict[str, MachineDetails] = {name: MachineDetails() for name in ["Attacker", "Benign", "King", "Moat"]}
+    machine_config: Dict[str, MachineDetails] = {name: MachineDetails() for name in ["Attacker", "King", "Moat"]}
 
 
 class AvailabilitySynapse(bt.Synapse):

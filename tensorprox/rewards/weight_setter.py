@@ -1,3 +1,47 @@
+"""
+================================================================================
+
+TensorProx Weight Setting and Scoring Module
+
+This module provides functionality for setting validator weights and scoring tasks
+in the TensorProx subnetwork. It includes classes and functions to manage the
+weight-setting process and task scoring based on miner performance.
+
+Key Components:
+- `TaskScorer`: Manages the scoring of tasks and logging of rewards.
+- `WeightSetter`: Manages the setting of validator weights based on reward events.
+- `set_weights`: Function to set validator weights based on miner scoring.
+
+Dependencies:
+- `asyncio`: For asynchronous operations.
+- `threading`: To manage background threads.
+- `numpy`: For numerical operations and array handling.
+- `pandas`: For data manipulation and analysis.
+- `os`: For interacting with the operating system, particularly in handling file paths.
+- `pydantic`: For data validation and settings management.
+- `loguru`: For structured logging and debugging.
+- `dataclasses`: To define simple data structures.
+- `typing`: For type hinting and annotations.
+- `tensorprox`: Specifically, modules from `tensorprox.base`, `tensorprox.utils`, and `tensorprox.rewards` for network operations, logging, and reward computations.
+
+License:
+This software is licensed under the Creative Commons Attribution-NonCommercial
+4.0 International (CC BY-NC 4.0). You are free to use, share, and modify the code
+for non-commercial purposes only.
+
+Commercial Usage:
+The only authorized commercial use of this software is for mining or validating
+within the TensorProx subnet. For any other commercial licensing requests, please
+contact Shugo LTD.
+
+See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+
+Author: Shugo LTD
+Version: 0.1.0
+
+================================================================================
+"""
+
 from loguru import logger
 import bittensor as bt
 import numpy as np
@@ -18,8 +62,16 @@ WEIGHTS_HISTORY_LENGTH = 24
 
 def set_weights(weights: np.ndarray, step: int = 0):
     """
-    Sets the validator weights to the metagraph hotkeys based on the scoring of the miners. The weights determine the trust and incentive level the validator assigns to miner nodes on the network.
+    Set validator weights for metagraph hotkeys based on miner scoring.
+
+    Args:
+        weights (np.ndarray): Array of weights assigned to each miner.
+        step (int, optional): Current step or iteration in the process. Defaults to 0.
+
+    Returns:
+        None
     """
+
     log_event(WeightSetEvent(weight_set_event=list(weights)))
     # Check if self.scores contains any NaN values and log a warning if it does.
     try:
@@ -28,11 +80,15 @@ def set_weights(weights: np.ndarray, step: int = 0):
                 f"Scores contain NaN values. This may be due to a lack of responses from miners, or a bug in your reward functions. Scores: {weights}"
             )
 
+        # Replace any NaN values with 0
+        weights = np.nan_to_num(weights, nan=0.0)
+
         # Calculate the average reward for each uid across non-zero values.
         # Replace any NaN values with 0.
         PAST_WEIGHTS.append(weights)
         if len(PAST_WEIGHTS) > WEIGHTS_HISTORY_LENGTH:
             PAST_WEIGHTS.pop(0)
+
         averaged_weights = np.average(np.array(PAST_WEIGHTS), axis=0)
 
         # Process the raw weights to final_weights via subtensor limitations.
@@ -45,8 +101,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
 
         # Convert to uint16 weights and uids.
         (uint_uids,uint_weights) = bt.utils.weight_utils.convert_weights_and_uids_for_emit(uids=processed_weight_uids, weights=processed_weights)
-        logger.debug("uint_weights", uint_weights)
-        logger.debug("uint_uids", uint_uids)
+
     except Exception as ex:
         logger.exception(f"Issue with setting weights: {ex}")
 
@@ -75,6 +130,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
         logger.debug(f"Set weights disabled: {settings.NEURON_DISABLE_SET_WEIGHTS}")
         return
 
+
     # Set the weights on chain via our subtensor connection.
     result = settings.SUBTENSOR.set_weights(
         wallet=settings.WALLET,
@@ -86,19 +142,36 @@ def set_weights(weights: np.ndarray, step: int = 0):
         version_key=__spec_version__,
     )
 
-    if result is True:
-        logger.info("set_weights on chain successfully!")
+    if result[0]:
+        logger.info("Successfully set weights on chain")
     else:
-        logger.error("set_weights failed")
+        logger.error(f"Failed to set weights on chain: {result}")
 
 
 class WeightSetter(AsyncLoopRunner):
-    """The weight setter looks at RewardEvents in the global_vars.reward_events queue and sets the weights of the miners accordingly."""
+    """
+    Manages the setting of validator weights based on reward events.
+
+    Attributes:
+        interval (int): Time interval (in minutes) between weight updates.
+    """
 
     interval: int = 1440 #updating weights every 120 blocks
 
     async def run_step(self):
-        
+        """
+        Execute a single step in the weight-setting loop.
+
+        This method processes reward events, calculates final rewards,
+        and sets the corresponding weights on the chain.
+
+        Args:
+            None
+
+        Returns:
+            np.ndarray: Array of final rewards calculated for each miner.
+        """
+
         await asyncio.sleep(0.01)
         
         # Initialize final_rewards as None or a default array
