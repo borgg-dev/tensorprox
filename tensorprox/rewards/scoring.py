@@ -7,21 +7,18 @@ from pydantic import ConfigDict
 from loguru import logger
 from dataclasses import dataclass
 from typing import ClassVar
-from tensorprox.tasks.base_task import DDoSDetectionTask
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import RewardLoggingEvent, log_event
 from tensorprox import global_vars
 from tensorprox.base.loop_runner import AsyncLoopRunner
 import asyncio
-from tensorprox.rewards.reward import BaseRewardConfig, DDoSDetectionRewardModel
+from tensorprox.rewards.reward import BaseRewardConfig, ChallengeRewardModel
 
 @dataclass
 class ScoringConfig:
-    task: DDoSDetectionTask
-    response: DendriteResponseEvent
+    uids: int
     block: int
     step: int
-    task_id: str
 
 
 class TaskScorer(AsyncLoopRunner):
@@ -32,30 +29,25 @@ class TaskScorer(AsyncLoopRunner):
     thread: threading.Thread = None
     interval: int = 10
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=DDoSDetectionRewardModel())
+    base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=ChallengeRewardModel())
 
 
     def add_to_queue(
         self,
-        task: DDoSDetectionTask,
-        response: DendriteResponseEvent,
+        uids : int,
         block: int,
         step: int,
-        task_id: str,
     ) -> None:
 
         
-        logger.debug(f"SCORING: Added to queue: {task.__class__.__name__} {task.task_id}")
+        # logger.debug(f"SCORING: Added to queue: {task.__class__.__name__}")
         global_vars.scoring_queue.append(
             ScoringConfig(
-                task=task,
-                response=response,
+                uids=uids,
                 block=block,
                 step=step,
-                task_id=task_id,
             )
         )
-
 
     async def run_step(self) -> RewardLoggingEvent:
         
@@ -71,32 +63,20 @@ class TaskScorer(AsyncLoopRunner):
         global_vars.scoring_queue.remove(scorable[0])
         scoring_config: ScoringConfig = scorable.pop(0)
         
-        logger.debug(f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}""")
+        # logger.debug(f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}""")
 
         #Calculate the reward
-        reward_event = self.base_reward_model.apply(
-            response_event=scoring_config.response,
-            reference=scoring_config.task.reference,
-            task=scoring_config.task,
-        )
+        reward_event = self.base_reward_model.apply(uids=scoring_config.uids)
 
         global_vars.reward_events.append(reward_event)
 
-        logger.debug(f"SCORING: Scored {scoring_config.task.__class__.__name__} {scoring_config.task.task_id} with reward")
+        # logger.debug(f"SCORING: Scored {scoring_config.task.__class__.__name__} {scoring_config.task.task_id} with reward")
 
         log_event(RewardLoggingEvent(
             block=scoring_config.block,
             step=scoring_config.step,
-            reference=scoring_config.task.reference,
-            challenge=scoring_config.task.query,
-            task_id=scoring_config.task_id,
-            task=scoring_config.task.name,
             uids=reward_event.uids,
             rewards=reward_event.rewards,
-            timings = reward_event.timings,
-            adjusted_timings=reward_event.adjusted_timings,
-            status_codes=scoring_config.response.status_codes,
-            status_messages=scoring_config.response.status_messages,
 
         ))
 

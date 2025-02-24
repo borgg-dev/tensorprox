@@ -28,11 +28,15 @@ def set_weights(weights: np.ndarray, step: int = 0):
                 f"Scores contain NaN values. This may be due to a lack of responses from miners, or a bug in your reward functions. Scores: {weights}"
             )
 
+        # Replace any NaN values with 0
+        weights = np.nan_to_num(weights, nan=0.0)
+
         # Calculate the average reward for each uid across non-zero values.
         # Replace any NaN values with 0.
         PAST_WEIGHTS.append(weights)
         if len(PAST_WEIGHTS) > WEIGHTS_HISTORY_LENGTH:
             PAST_WEIGHTS.pop(0)
+
         averaged_weights = np.average(np.array(PAST_WEIGHTS), axis=0)
 
         # Process the raw weights to final_weights via subtensor limitations.
@@ -45,8 +49,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
 
         # Convert to uint16 weights and uids.
         (uint_uids,uint_weights) = bt.utils.weight_utils.convert_weights_and_uids_for_emit(uids=processed_weight_uids, weights=processed_weights)
-        logger.debug("uint_weights", uint_weights)
-        logger.debug("uint_uids", uint_uids)
+
     except Exception as ex:
         logger.exception(f"Issue with setting weights: {ex}")
 
@@ -75,6 +78,7 @@ def set_weights(weights: np.ndarray, step: int = 0):
         logger.debug(f"Set weights disabled: {settings.NEURON_DISABLE_SET_WEIGHTS}")
         return
 
+
     # Set the weights on chain via our subtensor connection.
     result = settings.SUBTENSOR.set_weights(
         wallet=settings.WALLET,
@@ -86,10 +90,10 @@ def set_weights(weights: np.ndarray, step: int = 0):
         version_key=__spec_version__,
     )
 
-    if result is True:
-        logger.info("set_weights on chain successfully!")
+    if result[0]:
+        logger.info("Successfully set weights on chain")
     else:
-        logger.error("set_weights failed")
+        logger.error(f"Failed to set weights on chain: {result}")
 
 
 class WeightSetter(AsyncLoopRunner):

@@ -316,7 +316,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_pcap_file_cmd(validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, capture_file: str, iface: str = "eth0") -> str:
+def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, capture_file: str, iface: str = "eth0") -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP.
 
@@ -346,8 +346,11 @@ def get_pcap_file_cmd(validator_username: str, validator_private_key: str, valid
     echo -e "{validator_private_key}" > /tmp/validator_key
     chmod 600 /tmp/validator_key  # Set correct permissions
 
+    # Ensure the destination directories exist on the remote machine
+    ssh -i /tmp/validator_key {validator_username}@{validator_ip} "mkdir -p ~/tensorprox/tensorprox/rewards/pcap_files/{uid}/"
+
     # Securely transfer the pcap file via SCP
-    scp -i /tmp/validator_key {capture_file} {validator_username}@{validator_ip}:/root/tensorprox/tensorprox/rewards/
+    scp -C -i /tmp/validator_key {capture_file} {validator_username}@{validator_ip}:~/tensorprox/tensorprox/rewards/pcap_files/{uid}/
 
     # Cleanup
     rm -f {capture_file}

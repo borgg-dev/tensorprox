@@ -12,37 +12,41 @@ class PacketAnalyzer:
     def __init__(self, pcap_file: str):
         self.pcap_file = pcap_file
 
-    def process_packet(self, args: Tuple[float, bytes, str]) -> Tuple[Dict[str, int], Dict[str, int], int, int]:
-        ts, buf, search_string = args
-        local_tcp_rates = defaultdict(int)
-        local_udp_rates = defaultdict(int)
+    def get_time_range(self) -> Tuple[str, str]:
+        """Extract the start and end timestamps from the pcap file."""
+        with open(self.pcap_file, 'rb') as f:
+            pcap = dpkt.pcap.Reader(f)
+            timestamps = [ts for ts, _ in pcap]
+
+        if timestamps:
+            start_date = datetime.datetime.fromtimestamp(timestamps[0]).strftime("%Y-%m-%d %H:%M:%S.%f")
+            end_date = datetime.datetime.fromtimestamp(timestamps[-1]).strftime("%Y-%m-%d %H:%M:%S.%f")
+            return start_date, end_date
+        return None, None
+
+    def process_packet(self, args: Tuple[float, bytes, List[str]]) -> Tuple[Dict[str, int], int]:
+        ts, buf, search_labels = args
+        match_counts = {search_string: 0 for search_string in search_labels}
         total_packets = 0
-        matched_packets = 0
 
         try:
             eth = dpkt.ethernet.Ethernet(buf)
             if not isinstance(eth.data, dpkt.ip.IP):
-                return local_tcp_rates, local_udp_rates, total_packets, matched_packets
+                return match_counts, total_packets
 
             ip = eth.data
             total_packets += 1
-            dt = datetime.datetime.fromtimestamp(ts)
-            time_key = dt.strftime('%Y-%m-%d %H:%M:%S')
 
-            if isinstance(ip.data, dpkt.tcp.TCP):
-                tcp = ip.data
-                if hasattr(tcp, 'data') and search_string.encode() in tcp.data:
-                    local_tcp_rates[time_key] += 1
-                    matched_packets += 1
-            elif isinstance(ip.data, dpkt.udp.UDP):
-                udp = ip.data
-                if hasattr(udp, 'data') and search_string.encode() in udp.data:
-                    local_udp_rates[time_key] += 1
-                    matched_packets += 1
+            if isinstance(ip.data, (dpkt.tcp.TCP, dpkt.udp.UDP)):
+                payload = ip.data.data if hasattr(ip.data, 'data') else b""
+                for search_string in search_labels:
+                    if search_string.encode() in payload:
+                        match_counts[search_string] += 1
+
         except Exception as e:
             print(f"Error processing packet: {e}", file=sys.stderr)
 
-        return local_tcp_rates, local_udp_rates, total_packets, matched_packets
+        return match_counts, total_packets
 
     def chunked_read(self, chunk_size: int) -> Iterator[List[Tuple[float, bytes]]]:
         with open(self.pcap_file, 'rb') as f:
@@ -56,16 +60,14 @@ class PacketAnalyzer:
             if chunk:
                 yield chunk
 
-    def analyze(self, search_string: str = None, start_date: str = None, end_date: str = None):
-        tcp_rates = defaultdict(int)
-        udp_rates = defaultdict(int)
+    def analyze(self, search_labels: List[str], start_date: str = None, end_date: str = None) -> Tuple[Dict[str, int], int]:
+        match_counts = {search_string: 0 for search_string in search_labels}
         total_packets = 0
-        matched_packets = 0
 
         if isinstance(start_date, str):
-            start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S")
+            start_date = datetime.datetime.strptime(start_date, "%Y-%m-%d %H:%M:%S.%f")
         if isinstance(end_date, str):
-            end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S")
+            end_date = datetime.datetime.strptime(end_date, "%Y-%m-%d %H:%M:%S.%f")
 
         start_date = start_date or datetime.datetime.min
         end_date = end_date or datetime.datetime.max
@@ -78,17 +80,15 @@ class PacketAnalyzer:
         with Pool(processes=num_cores) as pool:
             for chunk in self.chunked_read(chunk_size):
                 filtered_chunk = [(ts, buf) for ts, buf in chunk if start_date <= datetime.datetime.fromtimestamp(ts) <= end_date]
-                args = [(ts, buf, search_string) for ts, buf in filtered_chunk]
+                args = [(ts, buf, search_labels) for ts, buf in filtered_chunk]
                 results = pool.map(self.process_packet, args)
-                for local_tcp_rates, local_udp_rates, chunk_total, chunk_matched in results:
-                    for timestamp, count in local_tcp_rates.items():
-                        tcp_rates[timestamp] += count
-                    for timestamp, count in local_udp_rates.items():
-                        udp_rates[timestamp] += count
-                    total_packets += chunk_total
-                    matched_packets += chunk_matched
 
-        return self.get_dataframe_results(tcp_rates, udp_rates, total_packets)
+                for packet_match_counts, chunk_total in results:
+                    for search_string in search_labels:
+                        match_counts[search_string] += packet_match_counts[search_string]
+                    total_packets += chunk_total
+
+        return match_counts
 
     def estimate_average_packet_size(self, sample_size: int = 10000) -> float:
         total_size, count = 0, 0
@@ -101,27 +101,15 @@ class PacketAnalyzer:
                     break
         return total_size / count if count else 0.0
 
-    def get_dataframe_results(self, tcp_rates, udp_rates, total_packets):
-        timestamps = sorted(set(tcp_rates.keys()).union(udp_rates.keys()))
-        data = {"timestamp": timestamps, "tcp_packets/s": [], "udp_packets/s": []}
-
-        for timestamp in timestamps:
-            data["tcp_packets/s"].append(tcp_rates.get(timestamp, 0))
-            data["udp_packets/s"].append(udp_rates.get(timestamp, 0))
-        
-        df = pd.DataFrame(data)
-        total_tcp_packets = df["tcp_packets/s"].sum()
-        total_udp_packets = df["udp_packets/s"].sum()
-        
-        return df, total_tcp_packets, total_udp_packets
 
 
-analyzer = PacketAnalyzer("King_capture.pcap")
-search_string=""
-start_date="2025-02-21 15:10:00"
-end_date="2025-02-21 23:15:00"
-df, total_tcp_packets, total_udp_packets = analyzer.analyze(search_string=search_string,start_date=start_date, end_date=end_date)
-print(f'Period : {start_date} -> {end_date}')
-print(df)
-print(f"Total TCP Packets with the Payload Substring : {total_tcp_packets}")
-print(f"Total UDP Packets with the Payload Substring : {total_udp_packets}")
+# # Example usage
+# analyzer = PacketAnalyzer("./pcap_files/7/King_capture.pcap")
+# labels = ["UDP_FLOOD", "SYN_ATTACK", "MALWARE"]  # Example keywords
+# start_date, end_date = analyzer.get_time_range()
+
+# matched_packets = analyzer.analyze(search_labels=labels, start_date=start_date, end_date=end_date)
+
+# print(f'Period: {start_date} -> {end_date}')
+# print("Count of Packets with Matching Strings:")
+# print(matched_packets)

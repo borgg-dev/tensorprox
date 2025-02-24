@@ -591,8 +591,46 @@ class MinerManagement(BaseModel):
         except Exception as e:
             logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
             return uid, None
+        
 
+    async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:
+        """
+        Asynchronously checks the availability of a list of miners by their unique IDs.
 
+        This method queries each miner's status concurrently and aggregates the results.
+
+        Args:
+            uids (List[int]): A list of unique identifiers (UIDs) corresponding to the miners.
+
+        Returns:
+            Tuple[List[Synapse], List[dict]]: 
+                - A list of Synapse responses from each miner.
+                - A list of dictionaries containing availability status for each miner.
+        """
+        tasks = [self.check_miner(uid) for uid in uids]  # Call the existing check_miner method
+        results = await asyncio.gather(*tasks)
+        
+        if results:
+            synapses, all_miners_availability = zip(*results)
+        else:
+            synapses, all_miners_availability = [], []
+
+        return list(synapses), list(all_miners_availability)
+
+    async def check_miner(self, uid: int) -> Tuple[PingSynapse, dict]:
+        """
+        Checks the status and availability of a specific miner.
+
+        Args:
+            uid (int): Unique identifier of the miner.
+
+        Returns:
+            Tuple[Synapse, dict]: A tuple containing the synapse response and miner's availability status.
+        """
+        synapse, uid_status_availability = await self.query_availability(uid)  
+        return synapse, uid_status_availability
+    
+    
     async def setup_available_machines(self, available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
         """
         Setup available machines based on the queried miner availability.
@@ -946,7 +984,7 @@ class MinerManagement(BaseModel):
                     except Exception as e:
                         logger.error(f"❌ Error reading private key: {e}")
 
-                    pcap_cmd = get_pcap_file_cmd(validator_username, validator_private_key, self.local_ip, challenge_duration, capture_file)
+                    pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, capture_file)
 
                     # Use create_and_test_connection for SSH connection
                     client = await create_and_test_connection(ip, session_key_path, ssh_user)

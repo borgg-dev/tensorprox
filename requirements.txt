@@ -18,3 +18,4 @@ asyncssh==2.19.0
 joblib==1.4.2
 scikit-learn==1.6.1
 dpkt==1.9.8
+pyshark==0.6

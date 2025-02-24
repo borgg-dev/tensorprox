@@ -1,9 +1,5 @@
-import asyncio
-from tensorprox.rewards.reward import DDoSDetectionRewardEvent
-from tensorprox.tasks.base_task import DDoSDetectionTask
+from tensorprox.rewards.reward import ChallengeRewardEvent
 
 # Define shared mutable globals
-reward_events: list[DDoSDetectionRewardEvent] = []
+reward_events: list[ChallengeRewardEvent] = []
 scoring_queue: list = []
-task_queue: list[DDoSDetectionTask] = []
-feature_queue: asyncio.Queue = asyncio.Queue()  # Use asyncio.Queue for feature_queue
