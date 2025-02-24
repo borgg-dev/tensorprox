@@ -1,3 +1,52 @@
+"""
+================================================================================
+
+Asynchronous Task Scoring Module
+
+This module defines classes and functions for managing and scoring tasks in an
+asynchronous environment. It utilizes Python's `asyncio` library to handle
+concurrent operations, ensuring efficient task processing without blocking the
+event loop.
+
+Key Components:
+- `ScoringConfig`: A data class that encapsulates configuration details for
+  scoring, including user IDs (`uids`), block numbers, and step counts.
+- `TaskScorer`: An asynchronous loop runner that maintains a queue of tasks and
+  responses to be scored. It processes the queue in a background thread,
+  computes rewards using the specified reward model, and logs the results.
+- `WeightSetter`: A placeholder class inheriting from `AsyncLoopRunner`,
+  intended for future implementation related to weight management.
+
+Dependencies:
+- `asyncio`: For managing asynchronous operations and event loops.
+- `threading`: To run the scoring loop in a background thread.
+- `numpy`: For numerical operations and array handling.
+- `pydantic`: For data validation and settings management.
+- `loguru`: For structured logging and debugging.
+- `dataclasses`: To define simple data structures.
+- `typing`: For type annotations and hints.
+- `tensorprox`: A custom library providing core components such as `DendriteResponseEvent`,
+  `RewardLoggingEvent`, `log_event`, `global_vars`, `AsyncLoopRunner`, `BaseRewardConfig`,
+  and `ChallengeRewardModel`.
+
+License:
+This software is licensed under the Creative Commons Attribution-NonCommercial
+4.0 International (CC BY-NC 4.0). You are free to use, share, and modify the code
+for non-commercial purposes only.
+
+Commercial Usage:
+The only authorized commercial use of this software is for mining or validating
+within the TensorProx subnet. For any other commercial licensing requests, please
+contact Shugo LTD.
+
+See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+
+Author: Shugo LTD
+Version: 0.1.0
+
+================================================================================
+"""
+
 import asyncio
 import threading
 
@@ -16,14 +65,32 @@ from tensorprox.rewards.reward import BaseRewardConfig, ChallengeRewardModel
 
 @dataclass
 class ScoringConfig:
+    """
+    Configuration for scoring tasks.
+
+    Attributes:
+        uids (int): Unique identifier for the user.
+        block (int): The block number associated with the task.
+        step (int): The step count within the block.
+    """
     uids: int
     block: int
     step: int
 
 
 class TaskScorer(AsyncLoopRunner):
-    """The scoring manager maintains a queue of tasks & responses to score and then runs a scoring loop in a background thread.
-    This scoring loop will score the responses and log the rewards.
+    """
+    Manages a queue of tasks and responses to score, running a scoring loop in a
+    background thread. This loop processes tasks, computes rewards, and logs the
+    results.
+
+    Attributes:
+        is_running (bool): Indicates if the scoring loop is active.
+        thread (threading.Thread): The background thread running the scoring loop.
+        interval (int): Time interval (in seconds) between scoring iterations.
+        model_config (ConfigDict): Configuration for the Pydantic model.
+        base_reward_model (ClassVar[BaseRewardConfig]): The reward model used for
+            computing rewards.
     """
     is_running: bool = False
     thread: threading.Thread = None
@@ -38,9 +105,18 @@ class TaskScorer(AsyncLoopRunner):
         block: int,
         step: int,
     ) -> None:
+        """
+        Adds a new scoring configuration to the global scoring queue.
 
+        Args:
+            uids (int): Unique identifier for the user.
+            block (int): The block number associated with the task.
+            step (int): The step count within the block.
+
+        Returns:
+            None
+        """
         
-        # logger.debug(f"SCORING: Added to queue: {task.__class__.__name__}")
         global_vars.scoring_queue.append(
             ScoringConfig(
                 uids=uids,
@@ -50,7 +126,11 @@ class TaskScorer(AsyncLoopRunner):
         )
 
     async def run_step(self) -> RewardLoggingEvent:
-        
+        """
+        Executes a single iteration of the scoring loop. Processes tasks from the
+        scoring queue, computes rewards, logs the results, and manages the queue.
+        """
+
         await asyncio.sleep(0.01)
         scorable = [scoring_config for scoring_config in global_vars.scoring_queue]
 
@@ -62,15 +142,12 @@ class TaskScorer(AsyncLoopRunner):
         
         global_vars.scoring_queue.remove(scorable[0])
         scoring_config: ScoringConfig = scorable.pop(0)
-        
-        # logger.debug(f"""{len(scoring_config.response.predictions)} predictions to score for task {scoring_config.task}""")
-
+    
         #Calculate the reward
         reward_event = self.base_reward_model.apply(uids=scoring_config.uids)
 
         global_vars.reward_events.append(reward_event)
 
-        # logger.debug(f"SCORING: Scored {scoring_config.task.__class__.__name__} {scoring_config.task.task_id} with reward")
 
         log_event(RewardLoggingEvent(
             block=scoring_config.block,
@@ -84,6 +161,13 @@ class TaskScorer(AsyncLoopRunner):
 
 
 class WeightSetter(AsyncLoopRunner):
+    """
+    Placeholder class for managing weight settings in an asynchronous loop.
+    Intended for future implementation.
+
+    Attributes:
+        Inherits all attributes from AsyncLoopRunner.
+    """
     pass
 
 
