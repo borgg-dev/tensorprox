@@ -221,7 +221,7 @@ class ChallengeRewardModel(BaseModel):
             logging.info(f"Normalized_latency for UID {uid} : {normalized_latency}")
 
             # Calculate reward function
-            reward = alpha * ADA + beta * (1 - FPR) + gamma * normalized_packets_sent + delta * normalized_latency
+            reward = alpha * ADA + beta * (1 - FPR) + gamma * normalized_packets_sent**2 + delta * normalized_latency**2
             scores.append(reward)
 
         return BatchRewardOutput(rewards=np.array(scores))
