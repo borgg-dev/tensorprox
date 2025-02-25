@@ -106,7 +106,7 @@ def create_random_playlist(total_minutes=15):
         current_total += duration
     return playlist
 
-def neurons_to_ips(netuid, vpermit):
+def neurons_to_ips(netuid, vpermit, network):
     """
     Retrieve IPs of neurons with active validator permits.
 
@@ -124,8 +124,10 @@ def neurons_to_ips(netuid, vpermit):
     """
 
     subnet_neurons = bt.subtensor(network="test").neurons_lite(netuid)
-    ips = [{"host": "http://" + neuron.axon_info.ip + ":8000", "hotkey": neuron.axon_info.hotkey}
-           for neuron in subnet_neurons if neuron.validator_permit and neuron.total_stake >= vpermit]
+    ips = []
+    for neuron in subnet_neurons :
+        if neuron.validator_permit and neuron.total_stake >= vpermit : 
+            ips.append({"host": f"http://{neuron.axon_info.ip}:{neuron.axon_info.port+1}", "hotkey": neuron.axon_info.hotkey})
     return list({tuple(ip.items()): dict(ip) for ip in ips}.values()), [neuron.uid for neuron in subnet_neurons]
 
 async def assign_miners_to_validators():
@@ -148,7 +150,6 @@ async def assign_miners_to_validators():
     global active_validators  # Ensure we're modifying the global variable
 
     async with ClientSession(timeout=ClientTimeout(total=REQUEST_TIMEOUT)) as session:
-        first_iteration = True  # Track if it's the first round
 
         while True:
 
@@ -157,9 +158,10 @@ async def assign_miners_to_validators():
             # Define the network and vpermit (minimum stake) values
             NETUID = 234
             NEURON_VPERMIT_TAO_LIMIT = 10
+            NETWORK = "test"
 
             # Fetch the list of active validators and their IPs (this will trigger only once per round)
-            validators, uids = neurons_to_ips(NETUID, NEURON_VPERMIT_TAO_LIMIT)
+            validators, uids = neurons_to_ips(NETUID, NEURON_VPERMIT_TAO_LIMIT, NETWORK)
 
             print(f"Checking availability of {len(validators)} validator(s)...")
             tasks = [send_ready_request(session, v["host"], v["hotkey"]) for v in validators]
@@ -184,6 +186,7 @@ async def assign_miners_to_validators():
             random.shuffle(uids)
             num_validators = len(active_validators)
             num_miners = len(uids)
+
 
             base_share = num_miners // num_validators
             extra = num_miners % num_validators  # Distribute extra miners

@@ -281,7 +281,10 @@ async def main():
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host="0.0.0.0", port=8000)
+
+    aiohttp_port = int(os.environ.get("VALIDATOR_AXON_PORT"))+1 #do not change this port
+    site = web.TCPSite(runner, host="0.0.0.0", port=aiohttp_port)
+
     await site.start()
 
     logger.info("Validator aiohttp server started.")

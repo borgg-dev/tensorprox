@@ -972,7 +972,6 @@ class MinerManagement(BaseModel):
                     ssh_user = machine_details.username
                     validator_username = os.getlogin()
                     session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-                    capture_file = "/tmp/"+machine_name+"_capture.pcap"
 
                     # Get the path of the private key from environment variable
                     validator_key_path = os.environ.get("VALIDATOR_KEY_PATH")
@@ -984,7 +983,7 @@ class MinerManagement(BaseModel):
                     except Exception as e:
                         logger.error(f"❌ Error reading private key: {e}")
 
-                    pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, capture_file)
+                    pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name, ip)
 
                     # Use create_and_test_connection for SSH connection
                     client = await create_and_test_connection(ip, session_key_path, ssh_user)
