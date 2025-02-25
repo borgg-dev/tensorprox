@@ -187,6 +187,7 @@ async def assign_miners_to_validators():
             num_validators = len(active_validators)
             num_miners = len(uids)
 
+
             base_share = num_miners // num_validators
             extra = num_miners % num_validators  # Distribute extra miners
 

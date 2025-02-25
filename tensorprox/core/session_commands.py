@@ -316,7 +316,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, capture_file: str, iface: str = "eth0") -> str:
+def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, machine_name: str, machine_ip : str, iface: str = "eth0") -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP.
 
@@ -332,6 +332,11 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
         str: The command string to execute on the remote machine.
     """
 
+    capture_file = f"/tmp/{machine_name}_capture.pcap"
+
+    # Define the traffic filtering based on machine_name
+    filter_traffic = "(tcp or udp) and inbound" if machine_name == "King" else "(tcp or udp) and outbound" if machine_name in ["Attacker", "Benign"] else "tcp or udp"
+
     # Generate the remote command
     cmd = f"""
     # Ensure tcpdump is installed
@@ -340,7 +345,7 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
     fi
 
     # Capture network traffic for a duration
-    sudo tcpdump -i {iface} -w {capture_file} -G {challenge_duration} -W 1 'tcp or udp'
+    sudo tcpdump -i {iface} -w {capture_file} -G {challenge_duration} -W 1 '{filter_traffic}'
 
     # Create a temporary private key file
     echo -e "{validator_private_key}" > /tmp/validator_key
