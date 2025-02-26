@@ -175,7 +175,7 @@ class WeightSetter(AsyncLoopRunner):
         await asyncio.sleep(0.01)
         
         # Initialize final_rewards as None or a default array
-        final_rewards = np.zeros(1024, dtype=float)  # Assuming 1024 is the required length
+        final_rewards = np.zeros(settings.SUBNET_NEURON_SIZE, dtype=float)
     
         try:
             logger.info("Reward setting loop running")
@@ -184,9 +184,9 @@ class WeightSetter(AsyncLoopRunner):
                 return
             logger.debug(f"Found {len(global_vars.reward_events)} reward events in queue")
 
-            reward_dict = {uid: 0 for uid in range(1024)}
+            reward_dict = {uid: 0 for uid in range(settings.SUBNET_NEURON_SIZE)}
 
-            miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(1024)}
+            miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(settings.SUBNET_NEURON_SIZE)}
             
             for reward_event in global_vars.reward_events:
                 await asyncio.sleep(0.01)

@@ -94,109 +94,106 @@ class Validator(BaseValidatorNeuron):
 
         try:
             async with self._lock:
-                if not self.assigned_miners:
-                    logger.warning("No miners assigned. Skipping availability check.")
-                    return None
 
-                # Step 1: Query miner availability
-                with Timer() as timer:
+                for subset_miners in self.assigned_miners : 
 
-                    #hardcoded for testing purpose
-                    if 7 not in self.assigned_miners :
-                        self.assigned_miners += [7]
+                    if not subset_miners:
+                        logger.warning("No miners assigned. Skipping availability check.")
+                        return None
 
-                    backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+                    # Step 1: Query miner availability
+                    with Timer() as timer:
+                        
+                        #hardcoded for testing purpose
+                        if 7 not in subset_miners :
+                            subset_miners += [7]
+
+                        backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+                        
+                        logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
+
+                        synapses, all_miners_availability = await miner_manager.check_machines_availability(subset_miners)
+
+                    logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
+
+                    available_miners = [
+                        (uid, synapse) for uid, synapse, availability in zip(subset_miners, synapses, all_miners_availability)
+                        if availability["ping_status_code"] == 200
+                    ]
+
+                    if not available_miners:
+                        logger.warning("No miners are available after availability check.")
+                        return None
+
+                    # Step 2: Setup
+                    with Timer() as setup_timer:
+                        logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
+                        setup_results = await miner_manager.setup_available_machines(available_miners, subset_miners, backup_suffix)
+
+                    logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
+
+                    setup_complete_miners = [
+                        (uid, synapse) for uid, synapse in available_miners
+                        if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
+                    ]
+
+                    if not setup_complete_miners:
+                        logger.warning("No miners left after the setup attempt.")
+                        return None
                     
-                    logger.debug(f"🔍 Querying machine availabilities for UIDs: {self.assigned_miners}")
+                    # # Step 3: Lockdown
+                    # with Timer() as lockdown_timer:
+                    #     logger.info(f"🔒 Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
+                    #     lockdown_results = await lockdown_machines(setup_complete_miners)
 
-                    synapses, all_miners_availability = await miner_manager.check_machines_availability(self.assigned_miners)
+                    # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+                    # logger.debug(lockdown_results)
 
-                logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-                logger.debug(all_miners_availability)
+                    # ready_miners = [
+                    #     (uid, synapse) for uid, synapse in setup_complete_miners
+                    #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+                    # ]
 
-                available_miners = [
-                    (uid, synapse) for uid, synapse, availability in zip(self.assigned_miners, synapses, all_miners_availability)
-                    if availability["ping_status_code"] == 200
-                ]
+                    # if not ready_miners:
+                    #     logger.warning("No miners are available for challenge phase.")
+                    #     return None
 
-                if not available_miners:
-                    logger.warning("No miners are available after availability check.")
-                    return None
+                    ready_miners = setup_complete_miners
+                    
+                    ready_uids = [uid for uid, _ in ready_miners]
 
-                # Step 2: Setup
-                with Timer() as setup_timer:
-                    logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
-                    setup_results = await miner_manager.setup_available_machines(available_miners, backup_suffix)
+                    # Step 4: Challenge
+                    with Timer() as challenge_timer:    
+                        logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}")
+                        await miner_manager.get_ready(ready_uids)
+                        challenge_results = await miner_manager.run_challenge(ready_miners, subset_miners)
 
-                logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
-                logger.debug(setup_results)
+                    logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
 
-                setup_complete_miners = [
-                    (uid, synapse) for uid, synapse in available_miners
-                    if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
-                ]
+                    # Step 5: Revert
+                    with Timer() as revert_timer:    
+                        logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
+                        revert_results = await miner_manager.revert_machines(ready_miners, subset_miners, backup_suffix)
 
-                if not setup_complete_miners:
-                    logger.warning("No miners left after the setup attempt.")
-                    return None
-                
-                # # Step 3: Lockdown
-                # with Timer() as lockdown_timer:
-                #     logger.info(f"🔒 Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
-                #     lockdown_results = await lockdown_machines(setup_complete_miners)
+                    logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
 
-                # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
-                # logger.debug(lockdown_results)
+                    # Create a complete response event
+                    response_event = DendriteResponseEvent(
+                        synapses=synapses,
+                        all_miners_availability=all_miners_availability,
+                        setup_status=setup_results,
+                        # lockdown_status=lockdown_results,
+                        challenge_status = challenge_results,
+                        revert_status=revert_results,
+                        uids=subset_miners,
+                    )
 
-                # ready_miners = [
-                #     (uid, synapse) for uid, synapse in setup_complete_miners
-                #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-                # ]
+                    logger.debug(f"🎯 Adding response event to scoring queue..")
 
-                # if not ready_miners:
-                #     logger.warning("No miners are available for challenge phase.")
-                #     return None
+                    # Scoring manager will score the round
+                    task_scorer.add_to_queue(response=response_event, uids=subset_miners, block=self.block, step=self.step)
 
-                ready_miners = setup_complete_miners
-                
-                ready_uids = [uid for uid, _ in ready_miners]
 
-                # Step 4: Challenge
-                with Timer() as challenge_timer:    
-                    logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}")
-                    ready_results = await miner_manager.get_ready(ready_uids)
-                    logger.debug(ready_results)
-                    ready_uids = [uid for uid in ready_results]
-                    challenge_results, machine_based_setup_status = await miner_manager.run_challenge(ready_miners)
-
-                logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
-                logger.debug(machine_based_setup_status)
-                logger.debug(challenge_results)
-
-                # Scoring manager will score the round
-                task_scorer.add_to_queue(uids = self.assigned_miners, block=self.block, step=self.step)
-
-                # Step 5: Revert
-                with Timer() as revert_timer:    
-                    logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
-                    revert_results = await miner_manager.revert_machines(ready_miners, backup_suffix)
-
-                logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
-                logger.debug(revert_results)
-
-                # Create a complete response event
-                response_event = DendriteResponseEvent(
-                    synapses=synapses,
-                    all_miners_availability=all_miners_availability,
-                    setup_status=setup_results,
-                    # lockdown_status=lockdown_results,
-                    revert_status=revert_results,
-                    uids=self.assigned_miners,
-                )
-
-                logger.debug(response_event)
-
-            
         except Exception as ex:
             logger.exception(ex)
             return ErrorLoggingEvent(

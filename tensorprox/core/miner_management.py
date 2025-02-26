@@ -631,12 +631,13 @@ class MinerManagement(BaseModel):
         return synapse, uid_status_availability
     
     
-    async def setup_available_machines(self, available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
+    async def setup_available_machines(self, available_miners: List[Tuple[int, 'PingSynapse']], assigned_miners: list[int], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
         """
         Setup available machines based on the queried miner availability.
         
         Args:
             available_miners (List[Tuple[int, PingSynapse]]): List of miners and their availability synapses.
+            assigned_miners (list[int]): List of miners assigned for setup.
             backup_suffix (str): Backup suffix for machine configurations.
             timeout (int, optional): Timeout duration for setup. Defaults to 240 seconds.
         
@@ -725,10 +726,19 @@ class MinerManagement(BaseModel):
         # Process all miners in parallel, applying the timeout
         await asyncio.gather(*[setup_miner_with_timeout(uid, synapse) for uid, synapse in available_miners])
 
+        # Mark assigned miners that are not in available_miners as unavailable
+        available_miner_ids = {uid for uid, _ in available_miners}
+        for miner_id in assigned_miners:
+            if miner_id not in available_miner_ids:
+                setup_status[miner_id] = {
+                    "setup_status_code": 503,  # HTTP status code for Service Unavailable
+                    "setup_status_message": "Unavailable: Miner not available in the current round."
+                }
+
         return [{"uid": uid, **status} for uid, status in setup_status.items()]
 
 
-    async def lockdown_machines(self, setup_complete_miners: List[Tuple[int, 'PingSynapse']]):
+    async def lockdown_machines(self, setup_complete_miners: List[Tuple[int, 'PingSynapse']], assigned_miners: list[int]):
         """
         Executes the lockdown step for all given miners after setup is complete.
         
@@ -808,10 +818,19 @@ class MinerManagement(BaseModel):
         # Process all miners in parallel
         await asyncio.gather(*[lockdown_miner(uid, synapse) for uid, synapse in setup_complete_miners])
 
+        # Mark assigned miners that are not in setup_complete_miners as unavailable
+        available_miner_ids = {uid for uid, _ in setup_complete_miners}
+        for miner_id in assigned_miners:
+            if miner_id not in available_miner_ids:
+                lockdown_status[miner_id] = {
+                    "lockdown_status_code": 503,  # HTTP status code for Service Unavailable
+                    "lockdown_status_message": "Unavailable: Miner not available in the current round."
+                }
+
         return [{"uid": uid, **status} for uid, status in lockdown_status.items()]
 
 
-    async def revert_machines(self, ready_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str):
+    async def revert_machines(self, ready_miners: List[Tuple[int, 'PingSynapse']], assigned_miners: list[int], backup_suffix: str):
         """
         Reverts machines to their original state for all given miners after setup is complete.
 
@@ -897,6 +916,15 @@ class MinerManagement(BaseModel):
         # Process all miners in parallel
         await asyncio.gather(*[revert_miner(uid, synapse) for uid, synapse in ready_miners])
 
+        # Mark assigned miners that are not in ready_miners as unavailable
+        available_miner_ids = {uid for uid, _ in ready_miners}
+        for miner_id in assigned_miners:
+            if miner_id not in available_miner_ids:
+                revert_status[miner_id] = {
+                    "revert_status_code": 503,  # HTTP status code for Service Unavailable
+                    "revert_status_message": "Unavailable: Miner not available in the current round."
+                }
+
         return [{"uid": uid, **status} for uid, status in revert_status.items()]
         
 
@@ -921,18 +949,15 @@ class MinerManagement(BaseModel):
                     task="Defend The King",
                     state="GET_READY",
                 )
-                uid, response = await self.dendrite_call(uid, get_ready_synapse)
+                await self.dendrite_call(uid, get_ready_synapse)
 
-                ready_results[uid] = response
             except Exception as e:
                 logger.error(f"Error sending synapse to miner {uid}: {e}")
-                ready_results[uid] = {"error": str(e)}
 
         await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
-        return ready_results
 
 
-    async def run_challenge(self, ready_miners: List[Tuple[int, 'PingSynapse']], challenge_duration: int = 60):
+    async def run_challenge(self, ready_miners: List[Tuple[int, 'PingSynapse']], assigned_miners: list[int], challenge_duration: int = 60):
         """
         Sends an "END_ROUND" ChallengeSynapse to miners after waiting for the challenge duration.
 
@@ -944,22 +969,22 @@ class MinerManagement(BaseModel):
             Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
         """
 
-        machine_based_setup_status = {}
+        challenge_setup_status = {}
         challenge_results = {}
 
         # Send ChallengeSynapse to miners after waiting
         async def challenge_miner(uid, synapse):
 
-            async def run_machine_based_commands(machine_name, machine_details):
+            async def run_challenge_commands(machine_name, machine_details):
                 """
-                Perform the revert on a specific machine.
+                Perform the challenge commands on a specific machine.
                 
                 Args:
                     machine_name (str): The name of the machine.
                     machine_details: Object containing machine connection details.
                 
                 Returns:
-                    bool: True if the revert operation is successful, False otherwise.
+                    bool: True if the run challenge operation is successful, False otherwise.
                 """
 
                 if machine_name == "Moat":
@@ -995,9 +1020,9 @@ class MinerManagement(BaseModel):
                     # Run revert command
                     result = await run_cmd_async(client, pcap_cmd)
                     if result.exit_status == 0:
-                        logger.info(f"✅ Machine based commands executed successfully on {ip}")
+                        logger.info(f"✅ Run challenge commands executed successfully on {ip}")
                     else:
-                        logger.error(f"❌ Machine based commands failed on {ip}: {result.stderr}")
+                        logger.error(f"❌ Run challenged commands failed on {ip}: {result.stderr}")
                 
                     return True
 
@@ -1007,13 +1032,13 @@ class MinerManagement(BaseModel):
 
 
             # Run machine based commands for all machines of the miner
-            tasks = [run_machine_based_commands(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            tasks = [run_challenge_commands(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
             results = await asyncio.gather(*tasks)
             all_success = all(results)  # Mark as success if all machine setups are successfully done
 
-            machine_based_setup_status[uid] = {
-                "machine_based_setup_status_code": 200 if all_success else 500,
-                "machine_based_setup_status_message": "All machines based setups successfully done" if all_success else "Failure: Some machines failed to setup",
+            challenge_setup_status[uid] = {
+                "challenge_status_code": 200 if all_success else 500,
+                "challenge_status_message": "All challenge setups successfully done" if all_success else "Failure: Some machines failed to setup",
             }
 
             try:
@@ -1021,14 +1046,22 @@ class MinerManagement(BaseModel):
                     task="Defend The King",
                     state="END_ROUND",
                 )
-                uid, response = await self.dendrite_call(uid, end_round_synapse, timeout=15)
-                challenge_results[uid] = response
+                await self.dendrite_call(uid, end_round_synapse, timeout=settings.NEURON_TIMEOUT)
             except Exception as e:
                 logger.error(f"Error sending synapse to miner {uid}: {e}")
-                challenge_results[uid] = {"error": str(e)}
 
         await asyncio.gather(*[challenge_miner(uid, synapse) for uid, synapse in ready_miners])
-        return challenge_results, [{"uid": uid, **status} for uid, status in machine_based_setup_status.items()]
+
+        # Mark assigned miners that are not in ready_miners as unavailable
+        available_miner_ids = {uid for uid, _ in ready_miners}
+        for miner_id in assigned_miners:
+            if miner_id not in available_miner_ids:
+                challenge_setup_status[miner_id] = {
+                    "challenge_status_code": 503,  # HTTP status code for Service Unavailable
+                    "challenge_status_message": "Unavailable: Miner not available in the current round."
+                }
+
+        return [{"uid": uid, **status} for uid, status in challenge_setup_status.items()]
 
 # Start availability checking
 miner_availabilities = MinerManagement()

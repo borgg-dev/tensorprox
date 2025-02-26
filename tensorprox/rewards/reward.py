@@ -47,7 +47,7 @@ Version: 0.1.0
 
 import numpy as np
 from typing import ClassVar, Dict, List
-
+from tensorprox.base.dendrite import DendriteResponseEvent
 from pydantic import BaseModel, ConfigDict
 from tensorprox.rewards.pcap import PacketAnalyzer
 import os
@@ -58,10 +58,11 @@ class ChallengeRewardEvent(BaseModel):
     Represents a reward event in a challenge.
 
     Attributes:
+        response (DendriteResponseEvent): DendriteResponseEvent.
         rewards (list[float]): A list of reward values.
         uids (list[int]): A list of user IDs associated with the rewards.
     """
-
+    response: DendriteResponseEvent
     rewards: list[float]
     uids: list[int]
 
@@ -72,9 +73,10 @@ class ChallengeRewardEvent(BaseModel):
         Convert the ChallengeRewardEvent instance to a dictionary.
 
         Returns:
-            dict: A dictionary representation of the instance with keys 'rewards' and 'uids'.
+            dict: A dictionary representation of the instance with keys 'response_event', 'rewards' and 'uids'.
         """
         return {
+            "response_event": self.response,
             "rewards": self.rewards,
             "uids": self.uids,
         }
@@ -168,7 +170,7 @@ class ChallengeRewardModel(BaseModel):
             analyzer = PacketAnalyzer(benign_path)
             label_bytes = labels_dict["BENIGN"].encode()
             latency_stats = analyzer.compute_latency(king_path, label=label_bytes)
-            latency_score = (latency_stats["mean"] or 0)
+            latency_score = max(0, latency_stats["mean"] or 0) #ensures latency is always >= 0
 
             # Total packets sent
             total_packets_sent = sum(attack_counts.values()) + sum(benign_counts.values())
@@ -247,6 +249,7 @@ class BaseRewardConfig(BaseModel):
     @classmethod
     def apply(
         cls,
+        response_event: DendriteResponseEvent,
         uids: list[int],
         labels_dict: dict = None  # Optional parameter
     ) -> ChallengeRewardEvent:
@@ -269,6 +272,7 @@ class BaseRewardConfig(BaseModel):
 
         # Return the ChallengeRewardEvent using the BatchRewardOutput
         return ChallengeRewardEvent(
+            response=response_event,
             rewards=batch_rewards_output.rewards.tolist(),
             uids=uids,
         )

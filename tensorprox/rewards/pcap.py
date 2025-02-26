@@ -200,23 +200,33 @@ class PacketAnalyzer:
                 - If sender=True: List of timestamps mapping hashed payloads.
                 - If sender=False: List of payload latencies for matching packets.
         """
+
+        # Skip processing if pcap_path or label is None
+        if not pcap_path or label is None:
+            logging.warning("PCAP path or label is None, skipping processing.")
+            return []
+
         timestamps = {} if sender else []
 
         try:
             with open(pcap_path, 'rb') as f:
                 pcap = dpkt.pcap.Reader(f)
+                if not pcap:
+                    logging.error(f"Failed to read the PCAP file: {pcap_path}. It may be corrupted or invalid.")
+                    return []
                 for ts, buf in pcap:
                     eth = dpkt.ethernet.Ethernet(buf)
                     if isinstance(eth.data, dpkt.ip.IP) and isinstance(eth.data.data, (dpkt.tcp.TCP, dpkt.udp.UDP)):
                         payload = eth.data.data.data
+                        if not label in payload:  # Skip if label not in payload
+                            continue
                         payload_hash = hashlib.sha256(payload).hexdigest()  # Hash for efficient lookup
-
-                        if sender and (label in payload):
+                        if sender:  # Proceed only if label is in payload
                             timestamps[payload_hash] = ts  # Store sender timestamp
-                        elif payload_hash in sent_timestamps:  # Match with sender timestamp
+                        elif payload_hash in sent_timestamps:  # Match with sender timestamp    
                             latency = ts - sent_timestamps[payload_hash]
-                            latency_ms = latency * 1000 #convert to ms
-                            timestamps.append(latency_ms)
+                            latency_ms = latency * 1000  # Convert to ms
+                            timestamps.append(latency_ms)                 
         except Exception as e:
             logging.error(f"Error while processing pcap file {pcap_path}: {str(e)}")
 

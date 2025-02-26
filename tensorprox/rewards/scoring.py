@@ -73,6 +73,7 @@ class ScoringConfig:
         block (int): The block number associated with the task.
         step (int): The step count within the block.
     """
+    response: DendriteResponseEvent
     uids: int
     block: int
     step: int
@@ -101,6 +102,7 @@ class TaskScorer(AsyncLoopRunner):
 
     def add_to_queue(
         self,
+        response: DendriteResponseEvent,
         uids : int,
         block: int,
         step: int,
@@ -119,6 +121,7 @@ class TaskScorer(AsyncLoopRunner):
         
         global_vars.scoring_queue.append(
             ScoringConfig(
+                response=response,
                 uids=uids,
                 block=block,
                 step=step,
@@ -144,17 +147,16 @@ class TaskScorer(AsyncLoopRunner):
         scoring_config: ScoringConfig = scorable.pop(0)
     
         #Calculate the reward
-        reward_event = self.base_reward_model.apply(uids=scoring_config.uids)
+        reward_event = self.base_reward_model.apply(response_event=scoring_config.response,uids=scoring_config.uids)
 
         global_vars.reward_events.append(reward_event)
-
 
         log_event(RewardLoggingEvent(
             block=scoring_config.block,
             step=scoring_config.step,
+            response_event=reward_event.response,
             uids=reward_event.uids,
             rewards=reward_event.rewards,
-
         ))
 
         await asyncio.sleep(0.01)
