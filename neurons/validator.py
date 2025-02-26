@@ -40,7 +40,7 @@ sys.path.append(os.path.expanduser("~/tensorprox"))
 
 from aiohttp import web
 import asyncio
-import time
+import redis
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
@@ -60,6 +60,11 @@ from datetime import datetime
 app = web.Application()
 miner_manager = MinerManagement()
 
+# Redis setup for synchronization
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+completion_key = "validators_completion"  # Redis key to track validator completion
+
+
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
 
@@ -75,6 +80,7 @@ class Validator(BaseValidatorNeuron):
         self._lock = asyncio.Lock()
         self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
+        self.validator_id = str(self.uid)  # Unique ID for this validator
 
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
@@ -193,12 +199,34 @@ class Validator(BaseValidatorNeuron):
                     # Scoring manager will score the round
                     task_scorer.add_to_queue(response=response_event, uids=subset_miners, block=self.block, step=self.step)
 
+                    # After finishing the challenge, signal completion to Redis
+                    redis_client.sadd(completion_key, self.validator_id)
+                    logger.debug(f"Validator {self.validator_id} marked as completed in Redis.")
+
+                    # Wait for all validators to finish before proceeding
+                    await self.wait_for_all_validators()
 
         except Exception as ex:
             logger.exception(ex)
             return ErrorLoggingEvent(
                 error=str(ex),
             )
+
+
+    async def wait_for_all_validators(self):
+        """
+        Wait until all validators finish their tasks and reset the Redis key for the next round.
+        """
+        total_validators = len(self.assigned_miners)  # Number of validators
+        while redis_client.scard(completion_key) < total_validators:
+            logger.debug(f"Waiting for other validators to finish. Completed: {redis_client.scard(completion_key)}/{total_validators}")
+            await asyncio.sleep(1)
+
+        logger.debug(f"All validators finished. Proceeding to next subset.")
+
+        # Reset the Redis set to prepare for the next round
+        redis_client.delete(completion_key)
+        logger.debug(f"Redis set '{completion_key}' has been reset for the next round.")
 
 
     async def forward(self):
