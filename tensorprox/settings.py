@@ -16,8 +16,8 @@ dotenv.load_dotenv()
 
 class Settings(BaseSettings):
     mode: Literal["miner", "validator"]
-    NO_BACKGROUND_THREAD: bool = True
     SUBNET_NEURON_SIZE: int = 256
+    SUBROUND_TIMEOUT: int = 1800
 
     SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 

@@ -231,7 +231,8 @@ class PacketAnalyzer:
             logging.error(f"Error while processing pcap file {pcap_path}: {str(e)}")
 
         return timestamps
-
+    
+    
     def compute_latency(self, king_pcap: str, label: Union[str, bytes]) -> dict:
         """
         Computes latency of packets by matching payloads with timestamps.
