@@ -74,12 +74,12 @@ Version: 0.1.0
 import asyncio
 import os
 import random
-from typing import List, Dict, Tuple, Union, Optional
+from typing import List, Dict, Tuple, Union, Optional, Callable
 from loguru import logger
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import time
-from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
+from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetails
 from tensorprox.base.loop_runner import AsyncLoopRunner
 from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids, extract_axons_ips
@@ -92,7 +92,7 @@ from paramiko.ed25519key import Ed25519Key
 import io
 import re
 import logging
-import string
+from functools import partial
 import asyncssh
 import traceback
 from tensorprox.core.session_commands import (
@@ -285,92 +285,7 @@ def get_authorized_keys_dir(ssh_user: str) -> str:
     return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
 
 
-######################################################################
-# 3) SINGLE-PASS SESSION SETUP
-######################################################################
-
-async def async_single_pass_setup(uid: int, ip: str, original_key_path: str, ssh_user: str, user_commands: List[str], backup_suffix: str) -> bool:
-    """
-    Performs a single-pass SSH session setup on a remote miner.
-
-    Steps:
-    - Generates a temporary session key pair.
-    - Connects using the original SSH key to insert the session key.
-    - Configures system settings for passwordless sudo.
-    - Installs required packages.
-    - Runs user-specified commands.
-
-    Args:
-        uid (int): Unique identifier for the miner.
-        ip (str): The IP address of the miner.
-        original_key_path (str): Path to the original SSH key used for initial access.
-        ssh_user (str): The SSH user account on the miner.
-        user_commands (List[str]): Custom user commands to execute during setup.
-        backup_suffix (str): Suffix used for backing up SSH configuration files.
-
-    Returns:
-        bool: True if setup was successful, False otherwise.
-    """
-
-    logger.info(f"🔒 Single-pass session setup for {ip} as '{ssh_user}' start...")
-
-    # A) CONNECT WITH ORIGINAL KEY + PREPARE
-    logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
-    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-    session_priv, session_pub = await generate_local_session_keypair(session_key_path)
-
-    try:
-        # Step A: Connect to the remote machine
-        async with asyncssh.connect(ip, username=ssh_user, client_keys=[original_key_path], known_hosts=None) as conn:
-            logger.info(f"✅ Connected to {ip} with original key.")
-
-            # Test sudo availability
-            await run_cmd_async(conn, "echo 'SUDO_TEST'")
-
-            # Install necessary packages
-            needed = ["net-tools", "iptables-persistent", "psmisc"]
-            await install_packages_if_missing(conn, needed)
-
-            # Set up sudoers file for no TTY
-            no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
-            await run_cmd_async(conn, no_tty_cmd)
-
-            logger.info(f"🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
-            ssh_dir = get_authorized_keys_dir(ssh_user)
-            authorized_keys_path = f"{ssh_dir}/authorized_keys"
-            authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
-            insert_key_cmd = get_insert_key_cmd(ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak)
-            await run_cmd_async(conn, insert_key_cmd)
-            logger.info(f"✅ Session key inserted. Backup stored at {authorized_keys_bak}.")
-
-        logger.info(f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
-
-        # C) TEST SESSION KEY
-        logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
-        async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
-            logger.info(f"✨ Session key success for {ip}.")
-
-            # D) PREPARE REVERT SCRIPT, CLEAN STALE SUDOERS, & SCHEDULE REVERT VIA SYSTEMD TIMER
-            logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
-            revert_cleanup_cmd = f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*"
-            await run_cmd_async(ep_conn, revert_cleanup_cmd, ignore_errors=True)
-
-            sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
-            await run_cmd_async(ep_conn, sudo_setup_cmd)
-
-            if user_commands:
-                logger.info(f"🛠 Running custom user commands for role on {ip}.")
-                for uc in user_commands:
-                    await run_cmd_async(ep_conn, uc, ignore_errors=True)
-
-            logger.info(f"✅ Done single-pass session setup for {ip}.")
-
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
-        return False
-
+        
 ######################################################################
 # ASYNCHRONOUS WRAPPER & ADDITIONAL UTILITIES
 ######################################################################
@@ -421,9 +336,10 @@ def save_private_key(priv_key_str: str, path: str):
         with open(path, "w") as f:
             f.write(priv_key_str)
         os.chmod(path, 0o600)
-        log_message("INFO", f"Saved private key to {path}")
+        # log_message("INFO", f"Saved private key to {path}")
     except Exception as e:
-        log_message("ERROR", f"Error saving private key: {e}")
+        # log_message("ERROR", f"Error saving private key: {e}")
+        pass
 
 
 class MinerManagement(BaseModel):
@@ -492,7 +408,220 @@ class MinerManagement(BaseModel):
             available = random.sample(available, min(len(available), k))
         return available
 
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid: int, user_commands: List[str], backup_suffix: str) -> bool:
+        """
+        Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
+        configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
 
+        Args:
+            ip (str): The IP address of the miner to set up.
+            ssh_user (str): The SSH user account on the miner.
+            key_path (str): Path to the original SSH key used for initial access.
+            machine_name (str): Name of the machine being set up.
+            uid (int): Unique identifier for the miner.
+            user_commands (List[str]): List of custom user commands to execute during the setup.
+            backup_suffix (str): Suffix used for backing up the SSH configuration files.
+
+        Returns:
+            bool: True if the setup was successful, False if an error occurred.
+        """
+
+        logger.info(f"⚙️ Single-pass session setup for {machine_name} with {ip} as '{ssh_user}' start...")
+
+        # A) CONNECT WITH ORIGINAL KEY + PREPARE
+        logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
+        session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+        session_priv, session_pub = await generate_local_session_keypair(session_key_path)
+
+        try:
+            # Step A: Connect to the remote machine
+            async with asyncssh.connect(ip, username=ssh_user, client_keys=[key_path], known_hosts=None) as conn:
+                logger.info(f"✅ Connected to {ip} with original key.")
+
+                # Test sudo availability
+                await run_cmd_async(conn, "echo 'SUDO_TEST'")
+
+                # Install necessary packages
+                needed = ["net-tools", "iptables-persistent", "psmisc"]
+                await install_packages_if_missing(conn, needed)
+
+                # Set up sudoers file for no TTY
+                no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
+                await run_cmd_async(conn, no_tty_cmd)
+
+                logger.info(f"🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
+                ssh_dir = get_authorized_keys_dir(ssh_user)
+                authorized_keys_path = f"{ssh_dir}/authorized_keys"
+                authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
+                insert_key_cmd = get_insert_key_cmd(ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak)
+                await run_cmd_async(conn, insert_key_cmd)
+                logger.info(f"✅ Session key inserted. Backup stored at {authorized_keys_bak}.")
+
+            logger.info(f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
+
+            # C) TEST SESSION KEY
+            logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
+            async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
+                logger.info(f"✨ Session key success for {ip}.")
+
+                # D) PREPARE REVERT SCRIPT, CLEAN STALE SUDOERS, & SCHEDULE REVERT VIA SYSTEMD TIMER
+                logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
+                revert_cleanup_cmd = f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*"
+                await run_cmd_async(ep_conn, revert_cleanup_cmd, ignore_errors=True)
+
+                sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
+                await run_cmd_async(ep_conn, sudo_setup_cmd)
+
+                if user_commands:
+                    logger.info(f"🛠 Running custom user commands for role on {ip}.")
+                    for uc in user_commands:
+                        await run_cmd_async(ep_conn, uc, ignore_errors=True)
+
+                logger.info(f"✅ Done single-pass session setup for {ip}.")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
+            return False
+    
+    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, ssh_dir: str, authorized_keys_path: str) -> bool:
+        """
+        Initiates a lockdown procedure on a remote miner by executing a lockdown command over SSH.
+
+        Args:
+            ip (str): The IP address of the miner to lock down.
+            ssh_user (str): The SSH user account on the miner.
+            key_path (str): Path to the SSH key used for authentication.
+            machine_name (str): Name of the machine being locked down.
+            ssh_dir (str): Path to the directory containing the authorized SSH keys.
+            authorized_keys_path (str): Path to the authorized_keys file on the miner.
+
+        Returns:
+            bool: True if the lockdown was successfully executed, False if an error occurred.
+        """
+
+        logger.info(f"🔒 Lockdown for {ip} as '{ssh_user}' start...")
+
+        try:
+
+            # Use create_and_test_connection for SSH connection
+            client = await create_and_test_connection(ip, key_path, ssh_user)
+
+            if not client:
+                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                return False
+
+            # Run lockdown command
+            lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.local_ip, authorized_keys_path)
+            result = await run_cmd_async(client, lockdown_cmd)
+
+            if result.exit_status == 0:
+                logger.info(f"✅ Lockdown command executed successfully on {ip}")
+            else:
+                logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
+        
+            return True
+
+        except Exception as e:
+            logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
+            return False
+
+
+    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
+        """
+        Reverts the SSH configuration changes on a remote miner by restoring the backup of authorized keys.
+
+        Args:
+            ip (str): The IP address of the miner to revert.
+            ssh_user (str): The SSH user account on the miner.
+            key_path (str): Path to the SSH key used for authentication.
+            machine_name (str): Name of the machine being reverted.
+            authorized_keys_path (str): Path to the authorized_keys file on the miner.
+            authorized_keys_bak (str): Path to the backup of the authorized_keys file.
+            revert_log (str): Path to the log file where revert actions are recorded.
+
+        Returns:
+            bool: True if the revert was successful, False if an error occurred.
+        """ 
+
+        try:
+
+            revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_log)
+
+            # Use create_and_test_connection for SSH connection
+            client = await create_and_test_connection(ip, key_path, ssh_user)
+
+            if not client:
+                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                return False
+
+            # Run revert command
+            result = await run_cmd_async(client, revert_cmd)
+            if result.exit_status == 0:
+                logger.info(f"✅ Revert command executed successfully on {ip}")
+            else:
+                logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
+        
+            return True
+
+        except Exception as e:
+            logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
+            return False
+
+
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid:int, validator_key_path: str, validator_username: str, challenge_duration: int) -> bool:
+        """
+        Title: Run Challenge Commands on Miner
+
+        Executes challenge-related commands on a remote miner. This involves reading the validator's private key,
+        running the challenge script, and reporting the outcome.
+
+        Args:
+            ip (str): The IP address of the miner where the challenge commands will be run.
+            ssh_user (str): The SSH user account on the miner.
+            key_path (str): Path to the SSH key used for authentication.
+            machine_name (str): Name of the machine to challenge.
+            uid (int): Unique identifier for the miner.
+            validator_key_path (str): Path to the validator's private key for authentication.
+            validator_username (str): Username of the validator running the challenge.
+            challenge_duration (int): Duration for which the challenge should run, in seconds.
+
+        Returns:
+            bool: True if the challenge was successfully executed, False if an error occurred.
+        """
+
+        try:
+
+            try:
+                # Open and read the private key file
+                with open(validator_key_path, "r") as key_file:
+                    validator_private_key = key_file.read()
+            except Exception as e:
+                logger.error(f"❌ Error reading private key: {e}")
+
+            pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name)
+
+            # Use create_and_test_connection for SSH connection
+            client = await create_and_test_connection(ip, key_path, ssh_user)
+
+            if not client:
+                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                return False
+
+            # Run revert command
+            result = await run_cmd_async(client, pcap_cmd)
+            if result.exit_status == 0:
+                logger.info(f"✅ Run challenge commands executed successfully on {ip}")
+            else:
+                logger.error(f"❌ Run challenged commands failed on {ip}: {result.stderr}")
+        
+            return True
+
+        except Exception as e:
+            logger.error(f"🚨 Failed to run commands on {machine_name} for miner {uid} : {e}")
+            return False
+    
     async def query_availability(self, uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
         """Query the availability of a given UID.
         
@@ -516,13 +645,12 @@ class MinerManagement(BaseModel):
         uid_status_availability = {"uid": uid, "ping_status_message" : None, "ping_status_code" : None}
 
         if synapse is None:
-            logger.error(f"❌ Miner {uid} query failed.")
             uid_status_availability["ping_status_message"] = "Query failed."
             uid_status_availability["ping_status_code"] = 500
             return synapse, uid_status_availability
 
         if not synapse.machine_availabilities.key_pair:
-            logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
+            # logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
             uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
             uid_status_availability["ping_status_code"] = 400
             return synapse, uid_status_availability
@@ -543,7 +671,7 @@ class MinerManagement(BaseModel):
             ssh_user = machine_details.username
 
             if not is_valid_ip(ip):
-                logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
+                # logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "Invalid IP format."
                 uid_status_availability["ping_status_code"] = 400
@@ -552,7 +680,7 @@ class MinerManagement(BaseModel):
             # Test SSH Connection with asyncssh
             client = await create_and_test_connection(ip, original_key_path, ssh_user)
             if not client:
-                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
+                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "SSH connection failed."
                 uid_status_availability["ping_status_code"] = 500
@@ -579,19 +707,26 @@ class MinerManagement(BaseModel):
         """
 
         try:
-            axon = settings.METAGRAPH.axons[uid]
+
+            # Check if the uid is within the valid range for the axons list
+            if uid < len(settings.METAGRAPH.axons):
+                axon = settings.METAGRAPH.axons[uid]
+            else:
+                return uid, PingSynapse()
+        
             response = await settings.DENDRITE(
                 axons=[axon],
                 synapse=synapse,
                 timeout=timeout,
                 deserialize=False,
             )
-            return uid, response[0] if response else None  
+
+            return uid, response[0] if response else PingSynapse()
 
         except Exception as e:
             logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
-            return uid, None
-        
+            return uid, PingSynapse()
+            
 
     async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:
         """
@@ -630,47 +765,80 @@ class MinerManagement(BaseModel):
         synapse, uid_status_availability = await self.query_availability(uid)  
         return synapse, uid_status_availability
     
-    
-    async def setup_available_machines(self, available_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str, timeout: int = 240) -> List[Dict[str, Union[int, str]]]:
+    async def execute_task(
+        self, 
+        task: str,
+        miners: List[Tuple[int, 'PingSynapse']],
+        assigned_miners: list[int],
+        task_function: Callable[..., bool],
+        backup_suffix: str = '', 
+        challenge_duration: int = settings.CHALLENGE_DURATION,
+        timeout: int = 240
+    ) -> List[Dict[str, Union[int, str]]]:
         """
-        Setup available machines based on the queried miner availability.
-        
-        Args:
-            available_miners (List[Tuple[int, PingSynapse]]): List of miners and their availability synapses.
-            backup_suffix (str): Backup suffix for machine configurations.
-            timeout (int, optional): Timeout duration for setup. Defaults to 240 seconds.
-        
-        Returns:
-            List[Dict[str, Union[int, str]]]: Status of setup completion for each miner.
-        """
+        A generic function to execute different tasks (such as setup, lockdown, revert, challenge) on miners. 
+        This function orchestrates the process of executing the provided task on multiple miners in parallel, 
+        handling individual machine configurations, and ensuring each miner completes the task within a specified timeout.
 
+        Args:
+            task (str): The type of task to perform. Possible values are:
+                'setup': Setup the miner environment (e.g., install dependencies).
+                'lockdown': Lockdown the miner, restricting access or making it inaccessible.
+                'revert': Revert any changes made to the miner (restore to a previous state).
+                'challenge': Run a challenge procedure on the miner.
+            miners (List[Tuple[int, PingSynapse]]): List of miners represented as tuples containing the unique ID (`int`) 
+                                                    and the `PingSynapse` object, which holds machine configuration details.
+            assigned_miners (list[int]): List of miner IDs assigned for the task. Used for tracking miners not available 
+                                        during the task execution.
+            task_function (Callable[..., bool]): The function that should be used to perform the task on each miner.
+                                                It will be passed additional arguments specific to each task type.
+            backup_suffix (str, optional): A suffix for backup operations, typically used for reversion or setup purposes. 
+                                            Defaults to an empty string.
+            challenge_duration (int, optional): Duration (in seconds) for the challenge task to run. Defaults to 60 seconds.
+            timeout (int, optional): Timeout duration for the task to complete for each miner, in seconds. Defaults to 30 seconds.
+
+        Returns:
+            List[Dict[str, Union[int, str]]]: A list of dictionaries containing the task status for each miner.
+            Each dictionary includes the `uid` of the miner and the status code/message 
+            indicating whether the task was successful or encountered an issue.
+            200: Success.
+            500: Failure (task failed on the miner).
+            408: Timeout error (task did not complete in time).
+            503: Service Unavailable (miner not available for the task).
+        """
+            
+        task_status = {}
         role_cmds = {
             "Attacker": ["sudo apt-get update -qq || true"],
             "Benign": ["sudo apt update", "sudo apt install -y npm"],
             "King": ["sudo apt update", "sudo apt install -y npm"],
         }
 
-        setup_status = {}
 
-        async def setup_miner(uid, synapse):
+        async def process_miner(uid, synapse, task_function):
             """
-            Setup each miner's machines.
-            
+            Process all machines for a given miner and apply the specified task.
+
             Args:
-                uid (int): Unique identifier for the miner.
-                synapse (PingSynapse): The synapse containing machine availability information.
+                uid (int): Miner's unique ID.
+                synapse (PingSynapse): Miner's machine configurations.
+                task_function (Callable[..., bool]): Task function to apply to each machine.
+
+            Returns:
+                None: Updates task status for each machine.
             """
-            
-            async def setup_machine(machine_name, machine_details):
+
+            async def process_machine(machine_name, machine_details, task_function):
                 """
-                Perform the setup for a single machine.
-                
+                Apply task to a specific machine.
+
                 Args:
-                    machine_name (str): Name of the machine.
-                    machine_details (MachineDetails): Machine configuration details.
-                
+                    machine_name (str): Name of the machine (e.g., "Moat").
+                    machine_details (object): Machine connection details.
+                    task_function (Callable[..., bool]): Task function to apply.
+
                 Returns:
-                    bool: True if setup is successful, False otherwise.
+                    bool: True if the task succeeds, False otherwise.
                 """
 
                 if machine_name == "Moat":
@@ -678,32 +846,44 @@ class MinerManagement(BaseModel):
 
                 ip = machine_details.ip
                 ssh_user = machine_details.username
-                original_key_path = f"/var/tmp/original_key_{uid}.pem"
+                ssh_dir = get_authorized_keys_dir(ssh_user)
+                authorized_keys_path = f"{ssh_dir}/authorized_keys"
+                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
+                revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
+                user_commands = role_cmds.get(machine_name, [])
+                validator_key_path = os.environ.get("VALIDATOR_KEY_PATH")    # Get the path of the private key from environment variable
+                validator_username = os.getlogin()
 
-                logger.info(f"🎯 Setting up '{machine_name}' at {ip}, user={ssh_user}.")
-                success = await async_single_pass_setup(
-                    uid=uid,
-                    ip=ip,
-                    original_key_path=original_key_path,
-                    ssh_user=ssh_user,
-                    user_commands=role_cmds.get(machine_name, []),
-                    backup_suffix=backup_suffix
-                )
+                # Map task function to a version with specific arguments
+                if task == "setup":
+                    task_function = partial(task_function, uid=uid, user_commands=user_commands, backup_suffix=backup_suffix)
+                elif task == "lockdown":
+                    # Example for lockdown task - you can define the required arguments for each task
+                    task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
+                elif task == "revert":
+                    task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
+                elif task=="challenge":
+                    task_function = partial(task_function, uid=uid, validator_key_path=validator_key_path, validator_username=validator_username, challenge_duration=challenge_duration)
+
+                else:
+                    raise ValueError(f"Unsupported task: {task}")   
+
+                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name)
 
                 return success
-
-            # Run setup tasks for all machines of a miner in parallel
-            tasks = [setup_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            
+            # Run revert for all machines of the miner
+            tasks = [process_machine(name, details, task_function) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
             results = await asyncio.gather(*tasks)
+            all_success = all(results)  # Mark as success if all machines are successfully reverted
 
-            # Determine overall status
-            all_success = all(results)
-            setup_status[uid] = {
-                "setup_status_code": 200 if all_success else 500,
-                "setup_status_message": "All machines setup successfully" if all_success else "Failure: Some machines failed to setup",
+            task_status[uid] = {
+                f"{task}_status_code": 200 if all_success else 500,
+                f"{task}_status_message": f"All machines processed {task} successfully" if all_success else f"Failure: Some machines failed to process {task}",
             }
 
-        async def setup_miner_with_timeout(uid, synapse):
+        async def setup_miner_with_timeout(uid, synapse, task_function):
             """
             Setup miner with a timeout.
             
@@ -714,191 +894,30 @@ class MinerManagement(BaseModel):
 
             try:
                 # Apply timeout to the entire setup_miner function for each miner
-                await asyncio.wait_for(setup_miner(uid, synapse), timeout=timeout)
+                await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
             except asyncio.TimeoutError:
-                logger.error(f"⏰ Timeout reached for setting up miner {uid}.")
-                setup_status[uid] = {
-                    "setup_status_code": 408,
-                    "setup_status_message": f"Timeout: Miner setup aborted. Skipping miner {uid} for this round."
+                logger.error(f"⏰ Timeout reached for {task} with miner {uid}.")
+                task_status[uid] = {
+                    f"{task}_status_code": 408,
+                    f"{task}_status_message": f"Timeout: Miner {task} aborted. Skipping miner {uid} for this round."
                 }
 
-        # Process all miners in parallel, applying the timeout
-        await asyncio.gather(*[setup_miner_with_timeout(uid, synapse) for uid, synapse in available_miners])
-
-        return [{"uid": uid, **status} for uid, status in setup_status.items()]
-
-
-    async def lockdown_machines(self, setup_complete_miners: List[Tuple[int, 'PingSynapse']]):
-        """
-        Executes the lockdown step for all given miners after setup is complete.
-        
-        Args:
-            setup_complete_miners (List[Tuple[int, PingSynapse]]): List of miners that completed setup.
-        
-        Returns:
-            List[Dict[str, Union[int, str]]]: Status of lockdown completion for each miner.
-        """
-
-        lockdown_status = {}
-
-        async def lockdown_miner(uid, synapse):
-            """
-            Lock down each miner's machines.
-            
-            Args:
-                uid (int): Unique identifier for the miner.
-                synapse (PingSynapse): The synapse containing machine availability information.
-            """
-
-            async def lockdown_machine(machine_name, machine_details):
-                """
-                Perform lockdown for a single machine.
-                
-                Args:
-                    machine_name (str): Name of the machine.
-                    machine_details (MachineDetails): Machine configuration details.
-                
-                Returns:
-                    bool: True if lockdown is successful, False otherwise.
-                """
-
-                if machine_name == "Moat":
-                    return True  # Skip Moat machine setup and consider it successful
-
-                try:
-                    ip = machine_details.ip
-                    ssh_user = machine_details.username
-                    ssh_dir = get_authorized_keys_dir(ssh_user)
-                    authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-
-                    # Use create_and_test_connection for SSH connection
-                    client = await create_and_test_connection(ip, session_key_path, ssh_user)
-
-                    if not client:
-                        logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                        return False
-
-                    # Run lockdown command
-                    lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.local_ip, authorized_keys_path)
-                    result = await run_cmd_async(client, lockdown_cmd)
-
-                    if result.exit_status == 0:
-                        logger.info(f"✅ Lockdown command executed successfully on {ip}")
-                    else:
-                        logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
-                
-                    return True
-            
-                except Exception as e:
-                    logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
-                    return False
-
-
-            # Run lockdown for all machines of the miner
-            tasks = [lockdown_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
-            results = await asyncio.gather(*tasks)
-            all_success = all(results)  # Mark as success if all machines are successfully locked down
-
-            lockdown_status[uid] = {
-                "lockdown_status_code": 200 if all_success else 500,
-                "lockdown_status_message": "All machines locked down successfully" if all_success else "Failure: Some machines failed to lockdown",
-            }
 
         # Process all miners in parallel
-        await asyncio.gather(*[lockdown_miner(uid, synapse) for uid, synapse in setup_complete_miners])
+        await asyncio.gather(*[setup_miner_with_timeout(uid, synapse, task_function) for uid, synapse in miners])
 
-        return [{"uid": uid, **status} for uid, status in lockdown_status.items()]
+        # Mark assigned miners that are not in ready_miners as unavailable
+        available_miner_ids = {uid for uid, _ in miners}
+        for miner_id in assigned_miners:
+            if miner_id not in available_miner_ids:
+                task_status[miner_id] = {
+                    f"{task}_status_code": 503,  # HTTP status code for Service Unavailable
+                    f"{task}_status_message": "Unavailable: Miner not available in the current round."
+                }
+
+        return [{"uid": uid, **status} for uid, status in task_status.items()]
 
 
-    async def revert_machines(self, ready_miners: List[Tuple[int, 'PingSynapse']], backup_suffix: str):
-        """
-        Reverts machines to their original state for all given miners after setup is complete.
-
-        Args:
-            ready_miners (List[Tuple[int, 'PingSynapse']]): A list of tuples containing miner UID and PingSynapse instance.
-            backup_suffix (str): A suffix used to identify backup files for reversion.
-
-        Returns:
-            List[Dict[str, Union[int, str]]]: A list of dictionaries containing the UID and the status of the revert operation.
-        """
-
-        revert_status = {}
-
-        async def revert_miner(uid, synapse):
-            """
-            Reverts all machines for a given miner.
-            
-            Args:
-                uid (int): The unique identifier of the miner.
-                synapse (PingSynapse): The synapse object containing machine configurations.
-            
-            Returns:
-                None: Updates the revert_status dictionary with the outcome.
-            """
-
-            async def revert_machine(machine_name, machine_details):
-                """
-                Perform the revert on a specific machine.
-                
-                Args:
-                    machine_name (str): The name of the machine.
-                    machine_details: Object containing machine connection details.
-                
-                Returns:
-                    bool: True if the revert operation is successful, False otherwise.
-                """
-
-                if machine_name == "Moat":
-                    return True  # Skip Moat machine setup and consider it successful
-
-                ip = machine_details.ip
-
-                try:
-
-                    ssh_user = machine_details.username
-                    ssh_dir = get_authorized_keys_dir(ssh_user)
-                    authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-                    authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
-                    revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
-                    revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_log)
-
-                    # Use create_and_test_connection for SSH connection
-                    client = await create_and_test_connection(ip, session_key_path, ssh_user)
-
-                    if not client:
-                        logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                        return False
-
-                    # Run revert command
-                    result = await run_cmd_async(client, revert_cmd)
-                    if result.exit_status == 0:
-                        logger.info(f"✅ Revert command executed successfully on {ip}")
-                    else:
-                        logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
-                
-                    return True
-
-                except Exception as e:
-                    logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
-                    return False
-
-            # Run revert for all machines of the miner
-            tasks = [revert_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
-            results = await asyncio.gather(*tasks)
-            all_success = all(results)  # Mark as success if all machines are successfully reverted
-
-            revert_status[uid] = {
-                "revert_status_code": 200 if all_success else 500,
-                "revert_status_message": "All machines reverted successfully" if all_success else "Failure: Some machines failed to revert",
-            }
-
-        # Process all miners in parallel
-        await asyncio.gather(*[revert_miner(uid, synapse) for uid, synapse in ready_miners])
-
-        return [{"uid": uid, **status} for uid, status in revert_status.items()]
-        
 
 
     async def get_ready(self, ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
@@ -921,114 +940,14 @@ class MinerManagement(BaseModel):
                     task="Defend The King",
                     state="GET_READY",
                 )
-                uid, response = await self.dendrite_call(uid, get_ready_synapse)
+                await self.dendrite_call(uid, get_ready_synapse)
 
-                ready_results[uid] = response
             except Exception as e:
                 logger.error(f"Error sending synapse to miner {uid}: {e}")
-                ready_results[uid] = {"error": str(e)}
 
         await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
-        return ready_results
 
 
-    async def run_challenge(self, ready_miners: List[Tuple[int, 'PingSynapse']], challenge_duration: int = 60):
-        """
-        Sends an "END_ROUND" ChallengeSynapse to miners after waiting for the challenge duration.
-
-        Args:
-            ready_uids (List[int]): A list of miner UIDs participating in the challenge.
-            challenge_duration (int, optional): The duration of the challenge in seconds. Defaults to 60.
-
-        Returns:
-            Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
-        """
-
-        machine_based_setup_status = {}
-        challenge_results = {}
-
-        # Send ChallengeSynapse to miners after waiting
-        async def challenge_miner(uid, synapse):
-
-            async def run_machine_based_commands(machine_name, machine_details):
-                """
-                Perform the revert on a specific machine.
-                
-                Args:
-                    machine_name (str): The name of the machine.
-                    machine_details: Object containing machine connection details.
-                
-                Returns:
-                    bool: True if the revert operation is successful, False otherwise.
-                """
-
-                if machine_name == "Moat":
-                    return True  # Skip Moat machine setup and consider it successful
-
-                ip = machine_details.ip
-
-                try:
-
-                    ssh_user = machine_details.username
-                    validator_username = os.getlogin()
-                    session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-
-                    # Get the path of the private key from environment variable
-                    validator_key_path = os.environ.get("VALIDATOR_KEY_PATH")
-
-                    try:
-                        # Open and read the private key file
-                        with open(validator_key_path, "r") as key_file:
-                            validator_private_key = key_file.read()
-                    except Exception as e:
-                        logger.error(f"❌ Error reading private key: {e}")
-
-                    pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name, ip)
-
-                    # Use create_and_test_connection for SSH connection
-                    client = await create_and_test_connection(ip, session_key_path, ssh_user)
-
-                    if not client:
-                        logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                        return False
-
-                    # Run revert command
-                    result = await run_cmd_async(client, pcap_cmd)
-                    if result.exit_status == 0:
-                        logger.info(f"✅ Machine based commands executed successfully on {ip}")
-                    else:
-                        logger.error(f"❌ Machine based commands failed on {ip}: {result.stderr}")
-                
-                    return True
-
-                except Exception as e:
-                    logger.error(f"🚨 Failed to run commands on {machine_name} for miner {uid} : {e}")
-                    return False
-
-
-            # Run machine based commands for all machines of the miner
-            tasks = [run_machine_based_commands(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
-            results = await asyncio.gather(*tasks)
-            all_success = all(results)  # Mark as success if all machine setups are successfully done
-
-            machine_based_setup_status[uid] = {
-                "machine_based_setup_status_code": 200 if all_success else 500,
-                "machine_based_setup_status_message": "All machines based setups successfully done" if all_success else "Failure: Some machines failed to setup",
-            }
-
-            try:
-                end_round_synapse = ChallengeSynapse(
-                    task="Defend The King",
-                    state="END_ROUND",
-                )
-                uid, response = await self.dendrite_call(uid, end_round_synapse, timeout=15)
-                challenge_results[uid] = response
-            except Exception as e:
-                logger.error(f"Error sending synapse to miner {uid}: {e}")
-                challenge_results[uid] = {"error": str(e)}
-
-        await asyncio.gather(*[challenge_miner(uid, synapse) for uid, synapse in ready_miners])
-        return challenge_results, [{"uid": uid, **status} for uid, status in machine_based_setup_status.items()]
 
 # Start availability checking
 miner_availabilities = MinerManagement()

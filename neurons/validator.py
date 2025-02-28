@@ -40,7 +40,6 @@ sys.path.append(os.path.expanduser("~/tensorprox"))
 
 from aiohttp import web
 import asyncio
-import time
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
@@ -52,13 +51,14 @@ from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.miner_management import MinerManagement
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
-from tensorprox import global_vars
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
 
 # Create an aiohttp app for validator
 app = web.Application()
 miner_manager = MinerManagement()
+
+
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -76,6 +76,37 @@ class Validator(BaseValidatorNeuron):
         self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
 
+    def break_round(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT, condition: bool = False) -> tuple:
+        """
+        Checks if the round should be broken, either due to all validators completing the round or a timeout.
+
+        Args:
+            start_time (datetime): The start time of the round.
+            round_timeout (float): Timeout for the round (default is settings.ROUND_TIMEOUT).
+            condition (bool): The condition to decide whether the round should be broken or not.
+
+        Returns:
+            tuple: A tuple containing:
+                - condition (bool): The updated condition indicating whether the round should be broken.
+                - elapsed_time (float): The elapsed time in seconds since the round started.
+                - remaining_time (float): The remaining time in seconds until the round timeout.
+        """
+
+
+        # Check if the timeout has been reached
+        elapsed_time = (datetime.now() - start_time).total_seconds()
+        remaining_time = round_timeout - elapsed_time
+        
+        # If the timeout has reached, break the round
+        if remaining_time <= 0:
+            logger.info("Timeout reached for this round.")
+            condition = True  
+            # Return the updated condition
+            return condition, elapsed_time, remaining_time
+        
+        # If the round should not be broken, return the original condition
+        return condition, elapsed_time, remaining_time
+
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
         """
@@ -88,115 +119,54 @@ class Validator(BaseValidatorNeuron):
             DendriteResponseEvent | None: The response event with miner availability details or None if no miners are available.
         """
 
-        while len(global_vars.scoring_queue) > settings.SCORING_QUEUE_LENGTH_THRESHOLD:
-            logger.debug("Scoring queue is full. Waiting 1 second...")
-            await asyncio.sleep(1)
-
         try:
             async with self._lock:
-                if not self.assigned_miners:
-                    logger.warning("No miners assigned. Skipping availability check.")
-                    return None
 
-                # Step 1: Query miner availability
-                with Timer() as timer:
+                logger.debug(f"🎉 Starting new epoch ...")
 
-                    #hardcoded for testing purpose
-                    if 7 not in self.assigned_miners :
-                        self.assigned_miners += [7]
+                round_counter = 1
 
-                    backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+                for subset_miners in self.assigned_miners:
+
+                    start_time = datetime.now()
+                    logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
+                    round_counter += 1
+                    backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
+                    condition = False
                     
-                    logger.debug(f"🔍 Querying machine availabilities for UIDs: {self.assigned_miners}")
+                    if subset_miners:
+                        success = False
+                        while not success :
+                            try:
+                                elapsed_time = (datetime.now() - start_time).total_seconds()
+                                timeout_process = settings.ROUND_TIMEOUT - elapsed_time
+                                success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix), timeout=timeout_process)
+                            except asyncio.TimeoutError:
+                                logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
+                            except Exception as ex:
+                                logger.exception(f"Unexpected error while processing miners: {ex}.")
 
-                    synapses, all_miners_availability = await miner_manager.check_machines_availability(self.assigned_miners)
 
-                logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
-                logger.debug(all_miners_availability)
+                            condition, elapsed_time, remaining_time = self.break_round(start_time)
+                            
+                            if condition :
+                                break
+                    else :
+                        logger.warning("📖 No miners assigned for this round.")
 
-                available_miners = [
-                    (uid, synapse) for uid, synapse, availability in zip(self.assigned_miners, synapses, all_miners_availability)
-                    if availability["ping_status_code"] == 200
-                ]
+                    while not condition:
+                        
+                        condition, elapsed_time, remaining_time = self.break_round(start_time)
+                        if condition :
+                            break
 
-                if not available_miners:
-                    logger.warning("No miners are available after availability check.")
-                    return None
+                        elif elapsed_time % 10 < 1:  # This condition checks every 10 seconds
+                            logger.debug(f"Waiting until the end of the round... Elapsed: {int(elapsed_time // 60)}m {int(elapsed_time % 60)}s, Remaining: {int(remaining_time // 60)}m {int(remaining_time % 60)}s")
+                  
+                        await asyncio.sleep(1)  # Sleep 1 second and check again
 
-                # Step 2: Setup
-                with Timer() as setup_timer:
-                    logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
-                    setup_results = await miner_manager.setup_available_machines(available_miners, backup_suffix)
+                logger.debug(f"🎉  End of epoch, waiting for the next one...")
 
-                logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
-                logger.debug(setup_results)
-
-                setup_complete_miners = [
-                    (uid, synapse) for uid, synapse in available_miners
-                    if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
-                ]
-
-                if not setup_complete_miners:
-                    logger.warning("No miners left after the setup attempt.")
-                    return None
-                
-                # # Step 3: Lockdown
-                # with Timer() as lockdown_timer:
-                #     logger.info(f"🔒 Locking down setup complete miners : {[uid for uid, _ in setup_complete_miners]}")
-                #     lockdown_results = await lockdown_machines(setup_complete_miners)
-
-                # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
-                # logger.debug(lockdown_results)
-
-                # ready_miners = [
-                #     (uid, synapse) for uid, synapse in setup_complete_miners
-                #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-                # ]
-
-                # if not ready_miners:
-                #     logger.warning("No miners are available for challenge phase.")
-                #     return None
-
-                ready_miners = setup_complete_miners
-                
-                ready_uids = [uid for uid, _ in ready_miners]
-
-                # Step 4: Challenge
-                with Timer() as challenge_timer:    
-                    logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}")
-                    ready_results = await miner_manager.get_ready(ready_uids)
-                    logger.debug(ready_results)
-                    ready_uids = [uid for uid in ready_results]
-                    challenge_results, machine_based_setup_status = await miner_manager.run_challenge(ready_miners)
-
-                logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
-                logger.debug(machine_based_setup_status)
-                logger.debug(challenge_results)
-
-                # Scoring manager will score the round
-                task_scorer.add_to_queue(uids = self.assigned_miners, block=self.block, step=self.step)
-
-                # Step 5: Revert
-                with Timer() as revert_timer:    
-                    logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
-                    revert_results = await miner_manager.revert_machines(ready_miners, backup_suffix)
-
-                logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
-                logger.debug(revert_results)
-
-                # Create a complete response event
-                response_event = DendriteResponseEvent(
-                    synapses=synapses,
-                    all_miners_availability=all_miners_availability,
-                    setup_status=setup_results,
-                    # lockdown_status=lockdown_results,
-                    revert_status=revert_results,
-                    uids=self.assigned_miners,
-                )
-
-                logger.debug(response_event)
-
-            
         except Exception as ex:
             logger.exception(ex)
             return ErrorLoggingEvent(
@@ -204,6 +174,118 @@ class Validator(BaseValidatorNeuron):
             )
 
 
+    async def _process_miners(self, subset_miners, backup_suffix):
+        """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
+        # Step 1: Query miner availability
+        with Timer() as timer:
+            # # hardcoded for testing purpose
+            # if 7 not in subset_miners:
+            #     subset_miners += [7]
+
+            logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
+            try:
+                synapses, all_miners_availability = await miner_manager.check_machines_availability(subset_miners)
+            except Exception as e:
+                logger.error(f"Error querying machine availabilities: {e}")
+                return False
+
+        logger.debug(f"Received responses in {timer.elapsed_time:.2f} seconds")
+
+        available_miners = [
+            (uid, synapse) for uid, synapse, availability in zip(subset_miners, synapses, all_miners_availability)
+            if availability["ping_status_code"] == 200
+        ]
+
+        if not available_miners:
+            logger.warning("No miners are available after availability check. Retrying..")
+            return False
+
+        # Step 2: Setup
+        with Timer() as setup_timer:
+            logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
+            try:
+                setup_results = await miner_manager.execute_task(task="setup", miners=available_miners, assigned_miners=subset_miners, task_function=miner_manager.async_setup, backup_suffix=backup_suffix)
+            except Exception as e:
+                logger.error(f"Error during setup phase: {e}")
+                setup_results = []
+                return False
+
+        logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
+
+        setup_complete_miners = [
+            (uid, synapse) for uid, synapse in available_miners
+            if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
+        ]
+
+        if not setup_complete_miners:
+            logger.warning("No miners left after the setup attempt.")
+            return False
+
+        # # Step 3: Lockdown
+        # with Timer() as lockdown_timer:
+        #     logger.info(f"🔒 Locking down miners : {[uid for uid, _ in setup_complete_miners]}")
+        #     try:
+        #         lockdown_results = await miner_manager.execute_task(task="lockdown", miners=setup_complete_miners, assigned_miners=subset_miners, task_function = miner_manager.async_lockdown)
+        #     except Exception as e:
+        #         logger.error(f"Error during lockdown phase: {e}")
+        #         lockdown_results = []
+        #         return False
+            
+        # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+
+        # ready_miners = [
+        #     (uid, synapse) for uid, synapse in setup_complete_miners
+        #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+        # ]
+
+        # if not ready_miners:
+        #     logger.warning("No miners are available for challenge phase.")
+        #     return False
+
+        ready_miners = setup_complete_miners
+        ready_uids = [uid for uid, _ in ready_miners]
+
+        # Step 4: Challenge
+        with Timer() as challenge_timer:
+            logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {settings.CHALLENGE_DURATION} seconds")
+            try:
+                await miner_manager.get_ready(ready_uids)
+                challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, assigned_miners=subset_miners, task_function=miner_manager.async_challenge)
+            except Exception as e:
+                logger.error(f"Error during challenge phase: {e}")
+                challenge_results = []
+
+        logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
+
+        # Step 5: Revert
+        with Timer() as revert_timer:    
+            logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
+            try:
+                revert_results = await miner_manager.execute_task(task="revert", miners=ready_miners, assigned_miners=subset_miners, task_function=miner_manager.async_revert, backup_suffix=backup_suffix)
+            except Exception as e:
+                logger.error(f"Error during revert phase: {e}")
+                revert_results = []
+
+        logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
+
+        # Create a complete response event
+        response_event = DendriteResponseEvent(
+            synapses=synapses,
+            all_miners_availability=all_miners_availability,
+            setup_status=setup_results,
+            #lockdown_status=lockdown_results,
+            challenge_status=challenge_results,
+            revert_status=revert_results,
+            uids=subset_miners,
+        )
+
+        logger.debug(f"🎯 Adding response event to scoring queue..")
+
+        # Scoring manager will score the round
+        task_scorer.add_to_queue(response=response_event, uids=subset_miners, block=self.block, step=self.step)
+
+        return True
+        
     async def forward(self):
         """Implements the abstract forward method."""
         await asyncio.sleep(1)
@@ -257,8 +339,8 @@ async def assign_miners(request):
     async with validator_instance._lock:
         validator_instance.assigned_miners = assigned_miners
         validator_instance.playlist = playlist
-        logger.info(f"Assigned miners updated: {assigned_miners}")
-        logger.info(f"Playlist updated: {playlist}")
+        # logger.info(f"Assigned miners updated: {assigned_miners}")
+        # logger.info(f"Playlist updated: {playlist}")
 
     # Trigger run_step manually only when miners are assigned
     asyncio.create_task(validator_instance.run_step(timeout=settings.NEURON_TIMEOUT))

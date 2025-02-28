@@ -12,7 +12,6 @@ from wandb.wandb_run import Run
 
 import tensorprox
 from tensorprox.base.dendrite import DendriteResponseEvent
-from tensorprox.rewards.reward import ChallengeRewardEvent
 from tensorprox.settings import settings
 
 WANDB: Run
@@ -92,13 +91,10 @@ def init_wandb(reinit=False, neuron: Literal["validator", "miner"] = "validator"
 
     tags += custom_tags
 
-    task_list = []
-
     wandb_config = {
         "HOTKEY_SS58": settings.WALLET.hotkey.ss58_address,
         "NETUID": settings.NETUID,
         "wandb_start_time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "TASKS": task_list,
     }
     
 
@@ -143,8 +139,7 @@ class RewardLoggingEvent(BaseEvent):
     step: int
     uids: list[int]
     rewards: list[float]
-    # status_codes: list[int]
-    # status_messages: list[str]
+    response_event: DendriteResponseEvent
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

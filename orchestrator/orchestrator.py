@@ -48,10 +48,12 @@ from aiohttp import web, ClientSession, ClientTimeout
 import random
 import asyncio
 import bittensor as bt
-import json
+import itertools
 
 active_validators = []  # List of active validators
 REQUEST_TIMEOUT = 3  # Set a timeout of 3 seconds per request
+ROUND_TIME = 240
+epsilon = 30
 
 app = web.Application()
 
@@ -123,7 +125,7 @@ def neurons_to_ips(netuid, vpermit, network):
             - list: A list of UIDs of all neurons in the subnet.
     """
 
-    subnet_neurons = bt.subtensor(network="test").neurons_lite(netuid)
+    subnet_neurons = bt.subtensor(network=network).neurons_lite(netuid)
     ips = []
     for neuron in subnet_neurons :
         if neuron.validator_permit and neuron.total_stake >= vpermit : 
@@ -147,20 +149,16 @@ async def assign_miners_to_validators():
             3. Waiting for a specified duration before the next round.
     """
 
-    global active_validators  # Ensure we're modifying the global variable
-
+    global active_validators
     async with ClientSession(timeout=ClientTimeout(total=REQUEST_TIMEOUT)) as session:
 
         while True:
-
-            active_validators = []  # Reset active validators
-
-            # Define the network and vpermit (minimum stake) values
+            active_validators = []
             NETUID = 234
             NEURON_VPERMIT_TAO_LIMIT = 10
             NETWORK = "test"
+            SUBNET_NEURON_SIZE = 256
 
-            # Fetch the list of active validators and their IPs (this will trigger only once per round)
             validators, uids = neurons_to_ips(NETUID, NEURON_VPERMIT_TAO_LIMIT, NETWORK)
 
             print(f"Checking availability of {len(validators)} validator(s)...")
@@ -172,36 +170,54 @@ async def assign_miners_to_validators():
                 for validator, is_ready in zip(validators, results) if is_ready
             ]
 
-
-            if not active_validators:     
+            if not active_validators:
                 print("⏳ No active validators. Retrying in 10s...")
                 await asyncio.sleep(10)
-                continue  # Skip waiting and immediately check again
-            else :
-                print(f"✅ Active validators: {len(active_validators)}")  # Green check if active validators are present
+                continue
+            else:
+                print(f"✅ Active validators: {len(active_validators)}")
 
             print("🏁▶️ Starting a new round...")
-            
-            # Ensure miners are distributed fairly (do this only once per round)
-            random.shuffle(uids)
+
+            random.shuffle(uids)  # Shuffle miners randomly
             num_validators = len(active_validators)
             num_miners = len(uids)
 
+            non_registered_uids = [uid for uid in range(SUBNET_NEURON_SIZE) if uid not in uids]
+            random.shuffle(non_registered_uids)
+            num_remaining = len(non_registered_uids)
 
-            base_share = num_miners // num_validators
-            extra = num_miners % num_validators  # Distribute extra miners
+            # Split miners into subsets (approximately equal subsets)
+            miner_subsets = []
+            for i in range(num_validators):
+                subset_size = num_miners // num_validators
+                remaining_size = num_remaining // num_validators
+                if i < num_miners % num_validators:
+                    subset_size += 1
+                elif i < num_remaining % num_validators:
+                    remaining_size += 1
 
-            miner_idx = 0
+                miner_subset = uids[i * subset_size : (i + 1) * subset_size]
+                non_registered_subset = non_registered_uids[i * remaining_size : (i + 1) * remaining_size]
+                full_subset = miner_subset+non_registered_subset
+                miner_subsets.append(full_subset)
+
+            # Generate complementary orders by rotating the miner subsets
+            # The next subset for each validator will be a rotated version of the original miner subsets
+            rotated_subsets = list(itertools.permutations(miner_subsets))
+
+            # Ensure the validators get a unique order
+            unique_orders = random.sample(rotated_subsets, num_validators)
+
+            # Assign subsets to each validator with their unique order (as a list of lists)
             for i, validator in enumerate(active_validators):
-                num_miner_assigned = base_share + (1 if i < extra else 0)
-                assigned_miners = uids[miner_idx: miner_idx + num_miner_assigned]
-                miner_idx += num_miner_assigned
+                assigned_miners = unique_orders[i]
+                print(f"Assigning miners to {validator['hotkey']} with the order: {assigned_miners}")
 
-                print(f"Assigning {len(assigned_miners)} miners to {validator['hotkey']}: {assigned_miners}")
-
+                # Create a playlist for the current round
                 playlist = create_random_playlist(total_minutes=15)
                 payload = {"assigned_miners": assigned_miners, "playlist": playlist}
-
+                
                 try:
                     async with session.post(f"{validator['url']}/assign_miners", json=payload, timeout=REQUEST_TIMEOUT) as miner_response:
                         if miner_response.status == 200:
@@ -213,9 +229,12 @@ async def assign_miners_to_validators():
                 except Exception as e:
                     print(f"❌ Error assigning miners to {validator['hotkey']}: {e}")
 
-            # Wait for 240 seconds **only after miners have been assigned**
-            print("⏳ Waiting 240 seconds before next round...")
-            await asyncio.sleep(240)
+            sleep_time = ROUND_TIME*len(assigned_miners) + epsilon
+
+            # Wait before the next iteration
+            print(f"⏳ Waiting {sleep_time} seconds before next iteration...")
+            await asyncio.sleep(sleep_time)
+
 
 async def on_startup(app):
     asyncio.create_task(assign_miners_to_validators())

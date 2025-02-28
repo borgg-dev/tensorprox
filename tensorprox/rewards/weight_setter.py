@@ -156,8 +156,8 @@ class WeightSetter(AsyncLoopRunner):
         interval (int): Time interval (in minutes) between weight updates.
     """
 
-    interval: int = 1440 #updating weights every 120 blocks
-
+    interval: int = settings.WEIGHT_SETTER_STEP
+    
     async def run_step(self):
         """
         Execute a single step in the weight-setting loop.
@@ -175,7 +175,7 @@ class WeightSetter(AsyncLoopRunner):
         await asyncio.sleep(0.01)
         
         # Initialize final_rewards as None or a default array
-        final_rewards = np.zeros(1024, dtype=float)  # Assuming 1024 is the required length
+        final_rewards = np.zeros(settings.SUBNET_NEURON_SIZE, dtype=float)
     
         try:
             logger.info("Reward setting loop running")
@@ -184,15 +184,12 @@ class WeightSetter(AsyncLoopRunner):
                 return
             logger.debug(f"Found {len(global_vars.reward_events)} reward events in queue")
 
-            reward_dict = {uid: 0 for uid in range(1024)}
+            reward_dict = {uid: 0 for uid in range(settings.SUBNET_NEURON_SIZE)}
 
-            miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(1024)}
+            miner_rewards: dict[dict[int, float]] = {uid: {"reward": 0, "count": 0} for uid in range(settings.SUBNET_NEURON_SIZE)}
             
             for reward_event in global_vars.reward_events:
                 await asyncio.sleep(0.01)
-               
-                if np.sum(reward_event.rewards) > 0:
-                    logger.debug("Identified positive reward event")
 
                 # give each uid the reward they received
                 for uid, reward in zip(reward_event.uids, reward_event.rewards):

@@ -73,6 +73,7 @@ class ScoringConfig:
         block (int): The block number associated with the task.
         step (int): The step count within the block.
     """
+    response: DendriteResponseEvent
     uids: int
     block: int
     step: int
@@ -97,10 +98,11 @@ class TaskScorer(AsyncLoopRunner):
     interval: int = 10
     model_config = ConfigDict(arbitrary_types_allowed=True)
     base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=ChallengeRewardModel())
-
+    scoring_round: ScoringConfig = None
 
     def add_to_queue(
         self,
+        response: DendriteResponseEvent,
         uids : int,
         block: int,
         step: int,
@@ -117,13 +119,7 @@ class TaskScorer(AsyncLoopRunner):
             None
         """
         
-        global_vars.scoring_queue.append(
-            ScoringConfig(
-                uids=uids,
-                block=block,
-                step=step,
-            )
-        )
+        self.scoring_round = ScoringConfig(response=response, uids=uids, block=block, step=step)
 
     async def run_step(self) -> RewardLoggingEvent:
         """
@@ -132,29 +128,26 @@ class TaskScorer(AsyncLoopRunner):
         """
 
         await asyncio.sleep(0.01)
-        scorable = [scoring_config for scoring_config in global_vars.scoring_queue]
 
-        if len(scorable) == 0:
+        if not self.scoring_round:
             await asyncio.sleep(0.01)
-            logger.debug("Nothing to score. Skipping scoring step.")
-            await asyncio.sleep(5)
             return
         
-        global_vars.scoring_queue.remove(scorable[0])
-        scoring_config: ScoringConfig = scorable.pop(0)
-    
+        scoring_config: ScoringConfig = self.scoring_round
+
+        self.scoring_round = None
+
         #Calculate the reward
-        reward_event = self.base_reward_model.apply(uids=scoring_config.uids)
+        reward_event = self.base_reward_model.apply(response_event=scoring_config.response,uids=scoring_config.uids)
 
         global_vars.reward_events.append(reward_event)
-
 
         log_event(RewardLoggingEvent(
             block=scoring_config.block,
             step=scoring_config.step,
+            response_event=reward_event.response,
             uids=reward_event.uids,
             rewards=reward_event.rewards,
-
         ))
 
         await asyncio.sleep(0.01)

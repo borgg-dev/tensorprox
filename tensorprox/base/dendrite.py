@@ -3,7 +3,7 @@
 import numpy as np
 from tensorprox.base.protocol import PingSynapse
 from pydantic import BaseModel, model_validator, ConfigDict
-from typing import Dict, Union, List
+from typing import Dict, Union
 
 ######################################################################
 # 5) MODEL CLASS
@@ -15,11 +15,13 @@ class DendriteResponseEvent(BaseModel):
     all_miners_availability: list[Dict[str, Union[int, str]]] = []
     setup_status: list[Dict[str, Union[int, str]]] = []
     lockdown_status: list[Dict[str, Union[int, str]]] = []
+    challenge_status: list[Dict[str, Union[int, str]]] = []
     revert_status: list[Dict[str, Union[int, str]]] = []
     ping_status_messages: list[str] = []
     ping_status_codes: list[int] = []
     setup_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
     lockdown_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
+    challenge_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
     revert_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -29,6 +31,15 @@ class DendriteResponseEvent(BaseModel):
         """
         Processes miner availability and extracts relevant status details for each step.
         """
+
+        # Reset all lists and dictionaries to start fresh
+        self.ping_status_messages = []
+        self.ping_status_codes = []
+        self.setup_status_by_uid = {}
+        self.lockdown_status_by_uid = {}
+        self.challenge_status_by_uid = {}
+        self.revert_status_by_uid = {}
+        
         if self.all_miners_availability:
             for avail in self.all_miners_availability:
                 self.ping_status_messages.append(avail.get("ping_status_message", ""))
@@ -52,6 +63,16 @@ class DendriteResponseEvent(BaseModel):
                     self.lockdown_status_by_uid[uid] = {
                         "lockdown_status_message": lockdown.get("lockdown_status_message", f"UID {uid} not locked down."),
                         "lockdown_status_code": lockdown.get("lockdown_status_code", 400),
+                    }
+
+        # Challenge Step
+        if self.challenge_status:
+            for challenge in self.challenge_status:
+                uid = challenge.get("uid")
+                if uid is not None:
+                    self.challenge_status_by_uid[uid] = {
+                        "challenge_status_message": challenge.get("challenge_status_message", f"UID {uid} not set up."),
+                        "challenge_status_code": challenge.get("challenge_status_code", 400),
                     }
 
         # Revert Step
