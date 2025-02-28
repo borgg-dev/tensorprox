@@ -644,7 +644,6 @@ class MinerManagement(BaseModel):
         uid_status_availability = {"uid": uid, "ping_status_message" : None, "ping_status_code" : None}
 
         if synapse is None:
-            logger.error(f"❌ Miner {uid} query failed.")
             uid_status_availability["ping_status_message"] = "Query failed."
             uid_status_availability["ping_status_code"] = 500
             return synapse, uid_status_availability
@@ -707,19 +706,24 @@ class MinerManagement(BaseModel):
         """
 
         try:
-            axon = settings.METAGRAPH.axons[uid]
+            # Check if the uid is within the valid range for the axons list
+            if uid < len(settings.METAGRAPH.axons):
+                axon = settings.METAGRAPH.axons[uid]
+            else:
+                return uid, None  # Return None for this UID if it's invalid
+
             response = await settings.DENDRITE(
                 axons=[axon],
                 synapse=synapse,
                 timeout=timeout,
                 deserialize=False,
             )
-            return uid, response[0] if response else None  
+            return uid, response[0] if response else None
 
         except Exception as e:
             logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
             return uid, None
-        
+            
 
     async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:
         """

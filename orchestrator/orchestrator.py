@@ -155,6 +155,7 @@ async def assign_miners_to_validators():
             NETUID = 234
             NEURON_VPERMIT_TAO_LIMIT = 10
             NETWORK = "test"
+            SUBNET_NEURON_SIZE = 256
 
             validators, uids = neurons_to_ips(NETUID, NEURON_VPERMIT_TAO_LIMIT, NETWORK)
 
@@ -180,15 +181,24 @@ async def assign_miners_to_validators():
             num_validators = len(active_validators)
             num_miners = len(uids)
 
+            non_registered_uids = [uid for uid in range(SUBNET_NEURON_SIZE) if uid not in uids]
+            random.shuffle(non_registered_uids)
+            num_remaining = len(non_registered_uids)
+
             # Split miners into subsets (approximately equal subsets)
             miner_subsets = []
             for i in range(num_validators):
                 subset_size = num_miners // num_validators
+                remaining_size = num_remaining // num_validators
                 if i < num_miners % num_validators:
                     subset_size += 1
+                elif i < num_remaining % num_validators:
+                    remaining_size += 1
 
                 miner_subset = uids[i * subset_size : (i + 1) * subset_size]
-                miner_subsets.append(miner_subset)
+                non_registered_subset = non_registered_uids[i * remaining_size : (i + 1) * remaining_size]
+                full_subset = miner_subset+non_registered_subset
+                miner_subsets.append(full_subset)
 
             # Generate complementary orders by rotating the miner subsets
             # The next subset for each validator will be a rotated version of the original miner subsets
@@ -205,7 +215,6 @@ async def assign_miners_to_validators():
                 # Create a playlist for the current round
                 playlist = create_random_playlist(total_minutes=15)
                 payload = {"assigned_miners": assigned_miners, "playlist": playlist}
-
                 try:
                     async with session.post(f"{validator['url']}/assign_miners", json=payload, timeout=REQUEST_TIMEOUT) as miner_response:
                         if miner_response.status == 200:
