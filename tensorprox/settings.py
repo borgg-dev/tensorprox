@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     mode: Literal["miner", "validator"]
     SUBNET_NEURON_SIZE: int = 256
     ROUND_TIMEOUT: int = 240
+    CHALLENGE_DURATION: int = 60
 
     SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 

@@ -4,6 +4,7 @@ from loguru import logger
 from abc import ABC, abstractmethod
 from tensorprox.utils.misc import ttl_get_block
 from tensorprox.settings import settings
+from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
 
 
 class BaseNeuron(ABC):
@@ -36,10 +37,10 @@ class BaseNeuron(ABC):
         self.step = 0
 
     @abstractmethod
-    def forward(self, synapse: bt.Synapse) -> bt.Synapse: ...
+    def forward(self, synapse: PingSynapse) -> PingSynapse: ...
 
     @abstractmethod
-    def handle_challenge(self, synapse: bt.Synapse) -> bt.Synapse: ...
+    def handle_challenge(self, synapse: ChallengeSynapse) -> ChallengeSynapse: ...
 
     @abstractmethod
     def run(self): ...

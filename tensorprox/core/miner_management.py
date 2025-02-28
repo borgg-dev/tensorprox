@@ -706,26 +706,26 @@ class MinerManagement(BaseModel):
             Tuple[int, Optional[Response]]: The miner's UID and response, if available.
         """
 
-        default_synapse = PingSynapse(key_pair = ("",""), machine_config = {name: MachineDetails() for name in ["Attacker", "King", "Moat"]})
         try:
 
             # Check if the uid is within the valid range for the axons list
             if uid < len(settings.METAGRAPH.axons):
                 axon = settings.METAGRAPH.axons[uid]
             else:
-                return uid, default_synapse
-
+                return uid, PingSynapse()
+        
             response = await settings.DENDRITE(
                 axons=[axon],
                 synapse=synapse,
                 timeout=timeout,
                 deserialize=False,
             )
-            return uid, response[0] if response else default_synapse
+
+            return uid, response[0] if response else PingSynapse()
 
         except Exception as e:
             logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
-            return uid, default_synapse
+            return uid, PingSynapse()
             
 
     async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:
@@ -772,7 +772,7 @@ class MinerManagement(BaseModel):
         assigned_miners: list[int],
         task_function: Callable[..., bool],
         backup_suffix: str = '', 
-        challenge_duration: int = 60,
+        challenge_duration: int = settings.CHALLENGE_DURATION,
         timeout: int = 240
     ) -> List[Dict[str, Union[int, str]]]:
         """

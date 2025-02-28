@@ -190,9 +190,6 @@ class WeightSetter(AsyncLoopRunner):
             
             for reward_event in global_vars.reward_events:
                 await asyncio.sleep(0.01)
-               
-                if np.sum(reward_event.rewards) > 0:
-                    logger.debug("Identified positive reward event")
 
                 # give each uid the reward they received
                 for uid, reward in zip(reward_event.uids, reward_event.rewards):

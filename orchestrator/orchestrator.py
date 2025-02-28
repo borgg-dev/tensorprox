@@ -217,6 +217,7 @@ async def assign_miners_to_validators():
                 # Create a playlist for the current round
                 playlist = create_random_playlist(total_minutes=15)
                 payload = {"assigned_miners": assigned_miners, "playlist": playlist}
+                
                 try:
                     async with session.post(f"{validator['url']}/assign_miners", json=payload, timeout=REQUEST_TIMEOUT) as miner_response:
                         if miner_response.status == 200:
