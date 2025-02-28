@@ -79,7 +79,48 @@ class Validator(BaseValidatorNeuron):
         self.playlist = []  #Playlist for traffic generation
         self.validator_id = str(self.uid)  # Unique ID for this validator 
         self.redis_client = redis.StrictRedis(host='localhost', port=6379, db=0) # Redis setup for synchronization
-        self.completion_key = f"validator_completion_{self.uid}"  # Redis key to track validator completion
+        self.completion_key = "round_completed"  # Redis key to track validator completion
+
+
+    def break_round(self, redis_client: redis.StrictRedis, completion_key: str, assigned_miners: list, start_time: datetime, round_timeout: float = settings.SUBROUND_TIMEOUT, condition: bool = False) -> tuple:
+        """
+        Checks if the round should be broken, either due to all validators completing the round or a timeout.
+
+        Args:
+            redis_client (redis.StrictRedis): The Redis client to interact with.
+            completion_key (str): The key in Redis to track the validator completion.
+            assigned_miners (list): List of miners assigned for this round.
+            start_time (datetime): The start time of the round.
+            round_timeout (float): Timeout for the round (default is settings.SUBROUND_TIMEOUT).
+            condition (bool): The condition to decide whether the round should be broken or not.
+
+        Returns:
+            tuple: A tuple containing:
+                - condition (bool): The updated condition indicating whether the round should be broken.
+                - elapsed_time (float): The elapsed time in seconds since the round started.
+                - remaining_time (float): The remaining time in seconds until the round timeout.
+                - redis_completed (bool): Whether all assigned miners have marked completion in Redis.
+        """
+        # Check if all assigned miners have marked completion in Redis
+        redis_completed = redis_client.scard(completion_key) >= len(assigned_miners)
+
+        # Check if the timeout has been reached
+        elapsed_time = (datetime.now() - start_time).total_seconds()
+        remaining_time = round_timeout - elapsed_time
+        
+        # If either all validators have completed or the timeout has reached, break the round
+        if redis_completed or remaining_time <= 0:
+            logger.info("Round marked as completed by all active validators. Moving to the next one.." if redis_completed else "Timeout reached for this round.")
+            condition = True
+
+            # Reset the Redis set to prepare for the next round
+            redis_client.delete(completion_key)
+            
+            # Return the updated condition
+            return condition, elapsed_time, remaining_time, redis_completed
+        
+        # If the round should not be broken, return the original condition
+        return condition, elapsed_time, remaining_time, redis_completed
 
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
@@ -96,12 +137,17 @@ class Validator(BaseValidatorNeuron):
         try:
             async with self._lock:
 
-                logger.debug(f"▶️  Starting new epoch ...")
+                logger.debug(f"🎉 Starting new epoch ...")
 
-                for subset_miners in self.assigned_miners:
-                    
+                f = ([],[2,7,3])
+                round_counter = 1
+
+                for subset_miners in f:
+
                     start_time = datetime.now()
-                    backup_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
+                    logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
+                    round_counter += 1
+                    backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
                     condition = False
                     
                     if subset_miners:
@@ -121,37 +167,22 @@ class Validator(BaseValidatorNeuron):
                                 self.redis_client.sadd(self.completion_key, self.validator_id)
                                 logger.debug(f"Validator {self.validator_id} marked as completed in Redis.")
 
-                            # Check for completion in Redis
-                            redis_completed = self.redis_client.scard(self.completion_key) >= len(self.assigned_miners)
-
-                            # Check if timeout is reached
-                            elapsed_time = (datetime.now() - start_time).total_seconds()
-                            remaining_time = settings.SUBROUND_TIMEOUT - elapsed_time
+                            condition, elapsed_time, remaining_time, redis_completed = self.break_round(self.redis_client, self.completion_key, self.assigned_miners, start_time)
                             
-                            if redis_completed or remaining_time <= 0:
-                                logger.info(f"Redis completed or timeout reached.")
-                                condition = True
-                                self.redis_client.delete(self.completion_key) # Reset the Redis set to prepare for the next round
-                                break  # Exit the retry loop if Redis condition or timeout is met
+                            if condition :
+                                break
                     else :
-                        logger.warning("No miners assigned. Skipping availability check.")
+                        logger.warning("📖 No miners assigned for this round.")
 
-                    while True and not condition:
-                        # Check for completion in Redis
-                        redis_completed = self.redis_client.scard(self.completion_key) >= len(self.assigned_miners)
-
-                        # Check if timeout is reached
-                        elapsed_time = (datetime.now() - start_time).total_seconds()
-                        remaining_time = settings.SUBROUND_TIMEOUT - elapsed_time
-
-                        if redis_completed or remaining_time <= 0:
-                            logger.info(f"Redis completed or timeout reached.")
-                            self.redis_client.delete(self.completion_key) # Reset the Redis set to prepare for the next round
+                    while not condition:
+                        
+                        condition, elapsed_time, remaining_time, redis_completed = self.break_round(self.redis_client, self.completion_key, self.assigned_miners, start_time)
+                        if condition :
                             break
 
-                        if elapsed_time % 10 < 1:  # This condition checks every 10 seconds
-                            logger.debug(f"Waiting until the end of the round... Elapsed: {elapsed_time / 60:.2f} minutes, Remaining: {remaining_time / 60:.2f} minutes, Redis completion: {redis_completed}")              
-                        
+                        elif elapsed_time % 10 < 1:  # This condition checks every 10 seconds
+                            logger.debug(f"Waiting until the end of the round... Elapsed: {int(elapsed_time // 60)}m {int(elapsed_time % 60)}s, Remaining: {int(remaining_time // 60)}m {int(remaining_time % 60)}s, Redis completion: {redis_completed}")
+                  
                         await asyncio.sleep(1)  # Sleep 1 second and check again
 
                 logger.debug(f"🎉  End of epoch, waiting for the next one...")

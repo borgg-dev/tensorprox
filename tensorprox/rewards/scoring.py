@@ -139,7 +139,7 @@ class TaskScorer(AsyncLoopRunner):
 
         if len(scorable) == 0:
             await asyncio.sleep(0.01)
-            logger.debug("Nothing to score. Skipping scoring step.")
+            # logger.debug("Nothing to score. Skipping scoring step.")
             await asyncio.sleep(5)
             return
         
