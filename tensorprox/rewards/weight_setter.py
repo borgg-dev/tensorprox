@@ -156,8 +156,8 @@ class WeightSetter(AsyncLoopRunner):
         interval (int): Time interval (in minutes) between weight updates.
     """
 
-    interval: int = 180 #updating weights every 120 blocks
-
+    interval: int = settings.WEIGHT_SETTER_STEP
+    
     async def run_step(self):
         """
         Execute a single step in the weight-setting loop.
