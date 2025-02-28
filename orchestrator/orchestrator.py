@@ -52,6 +52,8 @@ import itertools
 
 active_validators = []  # List of active validators
 REQUEST_TIMEOUT = 3  # Set a timeout of 3 seconds per request
+ROUND_TIME = 240
+epsilon = 30
 
 app = web.Application()
 
@@ -226,9 +228,12 @@ async def assign_miners_to_validators():
                 except Exception as e:
                     print(f"❌ Error assigning miners to {validator['hotkey']}: {e}")
 
-            # Wait for 3840 seconds before the next round
-            print("⏳ Waiting 3840 seconds before next round...")
-            await asyncio.sleep(3840)
+            sleep_time = ROUND_TIME*len(assigned_miners) + epsilon
+
+            # Wait before the next iteration
+            print(f"⏳ Waiting {sleep_time} seconds before next iteration...")
+            await asyncio.sleep(sleep_time)
+
 
 async def on_startup(app):
     asyncio.create_task(assign_miners_to_validators())

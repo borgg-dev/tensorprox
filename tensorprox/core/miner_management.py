@@ -79,7 +79,7 @@ from loguru import logger
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import time
-from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
+from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetails
 from tensorprox.base.loop_runner import AsyncLoopRunner
 from tensorprox.settings import settings
 from tensorprox.utils.uids import get_uids, extract_axons_ips
@@ -336,9 +336,10 @@ def save_private_key(priv_key_str: str, path: str):
         with open(path, "w") as f:
             f.write(priv_key_str)
         os.chmod(path, 0o600)
-        log_message("INFO", f"Saved private key to {path}")
+        # log_message("INFO", f"Saved private key to {path}")
     except Exception as e:
-        log_message("ERROR", f"Error saving private key: {e}")
+        # log_message("ERROR", f"Error saving private key: {e}")
+        pass
 
 
 class MinerManagement(BaseModel):
@@ -649,7 +650,7 @@ class MinerManagement(BaseModel):
             return synapse, uid_status_availability
 
         if not synapse.machine_availabilities.key_pair:
-            logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
+            # logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
             uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
             uid_status_availability["ping_status_code"] = 400
             return synapse, uid_status_availability
@@ -670,7 +671,7 @@ class MinerManagement(BaseModel):
             ssh_user = machine_details.username
 
             if not is_valid_ip(ip):
-                logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
+                # logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "Invalid IP format."
                 uid_status_availability["ping_status_code"] = 400
@@ -679,7 +680,7 @@ class MinerManagement(BaseModel):
             # Test SSH Connection with asyncssh
             client = await create_and_test_connection(ip, original_key_path, ssh_user)
             if not client:
-                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
+                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "SSH connection failed."
                 uid_status_availability["ping_status_code"] = 500
@@ -705,12 +706,14 @@ class MinerManagement(BaseModel):
             Tuple[int, Optional[Response]]: The miner's UID and response, if available.
         """
 
+        default_synapse = PingSynapse(key_pair = ("",""), machine_config = {name: MachineDetails() for name in ["Attacker", "King", "Moat"]})
         try:
+
             # Check if the uid is within the valid range for the axons list
             if uid < len(settings.METAGRAPH.axons):
                 axon = settings.METAGRAPH.axons[uid]
             else:
-                return uid, None  # Return None for this UID if it's invalid
+                return uid, default_synapse
 
             response = await settings.DENDRITE(
                 axons=[axon],
@@ -718,11 +721,11 @@ class MinerManagement(BaseModel):
                 timeout=timeout,
                 deserialize=False,
             )
-            return uid, response[0] if response else None
+            return uid, response[0] if response else default_synapse
 
         except Exception as e:
             logger.error(f"❌ Failed to query miner {uid}: {e}\n{traceback.format_exc()}")
-            return uid, None
+            return uid, default_synapse
             
 
     async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:

@@ -153,7 +153,7 @@ class ChallengeRewardModel(BaseModel):
 
             # Check if all required pcap files exist and are non-empty
             if not all(os.path.exists(path) and os.path.getsize(path) > 0 for path in [attack_path, benign_path, king_path]):
-                logging.warning(f"Missing or empty pcap files for UID {uid}. Skipping reward calculation.")
+                # logging.warning(f"Missing or empty pcap files for UID {uid}. Skipping reward calculation.")
                 packet_data[uid] = None
                 continue
 

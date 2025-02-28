@@ -40,7 +40,6 @@ sys.path.append(os.path.expanduser("~/tensorprox"))
 
 from aiohttp import web
 import asyncio
-import redis
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
@@ -52,7 +51,6 @@ from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.miner_management import MinerManagement
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
-from tensorprox import global_vars
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
 
@@ -77,21 +75,14 @@ class Validator(BaseValidatorNeuron):
         self._lock = asyncio.Lock()
         self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
-        self.validator_id = str(self.uid)  # Unique ID for this validator 
-        self.redis_client = redis.StrictRedis(host='localhost', port=6379, db=0) # Redis setup for synchronization
-        self.completion_key = "round_completed"  # Redis key to track validator completion
 
-
-    def break_round(self, redis_client: redis.StrictRedis, completion_key: str, assigned_miners: list, start_time: datetime, round_timeout: float = settings.SUBROUND_TIMEOUT, condition: bool = False) -> tuple:
+    def break_round(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT, condition: bool = False) -> tuple:
         """
         Checks if the round should be broken, either due to all validators completing the round or a timeout.
 
         Args:
-            redis_client (redis.StrictRedis): The Redis client to interact with.
-            completion_key (str): The key in Redis to track the validator completion.
-            assigned_miners (list): List of miners assigned for this round.
             start_time (datetime): The start time of the round.
-            round_timeout (float): Timeout for the round (default is settings.SUBROUND_TIMEOUT).
+            round_timeout (float): Timeout for the round (default is settings.ROUND_TIMEOUT).
             condition (bool): The condition to decide whether the round should be broken or not.
 
         Returns:
@@ -99,28 +90,22 @@ class Validator(BaseValidatorNeuron):
                 - condition (bool): The updated condition indicating whether the round should be broken.
                 - elapsed_time (float): The elapsed time in seconds since the round started.
                 - remaining_time (float): The remaining time in seconds until the round timeout.
-                - redis_completed (bool): Whether all assigned miners have marked completion in Redis.
         """
-        # Check if all assigned miners have marked completion in Redis
-        redis_completed = redis_client.scard(completion_key) >= len(assigned_miners)
+
 
         # Check if the timeout has been reached
         elapsed_time = (datetime.now() - start_time).total_seconds()
         remaining_time = round_timeout - elapsed_time
         
-        # If either all validators have completed or the timeout has reached, break the round
-        if redis_completed or remaining_time <= 0:
-            logger.info("Round marked as completed by all active validators. Moving to the next one.." if redis_completed else "Timeout reached for this round.")
-            condition = True
-
-            # Reset the Redis set to prepare for the next round
-            redis_client.delete(completion_key)
-            
+        # If the timeout has reached, break the round
+        if remaining_time <= 0:
+            logger.info("Timeout reached for this round.")
+            condition = True  
             # Return the updated condition
-            return condition, elapsed_time, remaining_time, redis_completed
+            return condition, elapsed_time, remaining_time
         
         # If the round should not be broken, return the original condition
-        return condition, elapsed_time, remaining_time, redis_completed
+        return condition, elapsed_time, remaining_time
 
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
@@ -154,19 +139,15 @@ class Validator(BaseValidatorNeuron):
                         while not success :
                             try:
                                 elapsed_time = (datetime.now() - start_time).total_seconds()
-                                timeout_process = settings.SUBROUND_TIMEOUT - elapsed_time
+                                timeout_process = settings.ROUND_TIMEOUT - elapsed_time
                                 success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix), timeout=timeout_process)
                             except asyncio.TimeoutError:
-                                logger.warning(f"Timeout reached for subset miners {subset_miners} after {settings.SUBROUND_TIMEOUT / 60:.2f} minutes.")
+                                logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
                             except Exception as ex:
                                 logger.exception(f"Unexpected error while processing miners: {ex}.")
 
-                            if success :
-                                # After finishing the challenge, signal completion to Redis
-                                self.redis_client.sadd(self.completion_key, self.validator_id)
-                                logger.debug(f"Validator {self.validator_id} marked as completed in Redis.")
 
-                            condition, elapsed_time, remaining_time, redis_completed = self.break_round(self.redis_client, self.completion_key, self.assigned_miners, start_time)
+                            condition, elapsed_time, remaining_time = self.break_round(start_time)
                             
                             if condition :
                                 break
@@ -175,12 +156,12 @@ class Validator(BaseValidatorNeuron):
 
                     while not condition:
                         
-                        condition, elapsed_time, remaining_time, redis_completed = self.break_round(self.redis_client, self.completion_key, self.assigned_miners, start_time)
+                        condition, elapsed_time, remaining_time = self.break_round(start_time)
                         if condition :
                             break
 
                         elif elapsed_time % 10 < 1:  # This condition checks every 10 seconds
-                            logger.debug(f"Waiting until the end of the round... Elapsed: {int(elapsed_time // 60)}m {int(elapsed_time % 60)}s, Remaining: {int(remaining_time // 60)}m {int(remaining_time % 60)}s, Redis completion: {redis_completed}")
+                            logger.debug(f"Waiting until the end of the round... Elapsed: {int(elapsed_time // 60)}m {int(elapsed_time % 60)}s, Remaining: {int(remaining_time // 60)}m {int(remaining_time % 60)}s")
                   
                         await asyncio.sleep(1)  # Sleep 1 second and check again
 
@@ -216,7 +197,7 @@ class Validator(BaseValidatorNeuron):
         ]
 
         if not available_miners:
-            logger.warning("No miners are available after availability check.")
+            logger.warning("No miners are available after availability check. Retrying..")
             return False
 
         # Step 2: Setup
@@ -358,8 +339,8 @@ async def assign_miners(request):
     async with validator_instance._lock:
         validator_instance.assigned_miners = assigned_miners
         validator_instance.playlist = playlist
-        logger.info(f"Assigned miners updated: {assigned_miners}")
-        logger.info(f"Playlist updated: {playlist}")
+        # logger.info(f"Assigned miners updated: {assigned_miners}")
+        # logger.info(f"Playlist updated: {playlist}")
 
     # Trigger run_step manually only when miners are assigned
     asyncio.create_task(validator_instance.run_step(timeout=settings.NEURON_TIMEOUT))
