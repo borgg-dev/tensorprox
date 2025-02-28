@@ -247,7 +247,7 @@ class Validator(BaseValidatorNeuron):
 
         # Step 4: Challenge
         with Timer() as challenge_timer:
-            logger.info(f"🚀 Starting challenge phase for miners: {ready_uids}. Duration : {settings.CHALLENGE_DURATION}s.")
+            logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {settings.CHALLENGE_DURATION} seconds")
             try:
                 await miner_manager.get_ready(ready_uids)
                 challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, assigned_miners=subset_miners, task_function=miner_manager.async_challenge)
