@@ -139,10 +139,9 @@ class Validator(BaseValidatorNeuron):
 
                 logger.debug(f"🎉 Starting new epoch ...")
 
-                f = ([],[2,7,3])
                 round_counter = 1
 
-                for subset_miners in f:
+                for subset_miners in self.assigned_miners:
 
                     start_time = datetime.now()
                     logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
