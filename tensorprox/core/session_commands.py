@@ -345,7 +345,7 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
     chmod 600 /tmp/validator_key  # Set correct permissions
 
     # Capture network traffic for a duration
-    sudo tcpdump -i {iface} -w {capture_file} -G {challenge_duration} -W 1 '{filter_traffic}'
+    sudo timeout {challenge_duration} tcpdump -i {iface} -w {capture_file} '{filter_traffic}'
 
     # Ensure the destination directories exist on the remote machine
     ssh -o StrictHostKeyChecking=no -i /tmp/validator_key {validator_username}@{validator_ip} "mkdir -p ~/tensorprox/tensorprox/rewards/pcap_files/{uid}/"

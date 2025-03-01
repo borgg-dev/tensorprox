@@ -99,9 +99,9 @@ class Miner(BaseMinerNeuron):
 
         super().__init__(**data)
         self._lock = asyncio.Lock()
-        self._model = joblib.load("/root/tensorprox/model/decision_tree.pkl")
-        self._imputer = joblib.load("/root/tensorprox/model/imputer.pkl")
-        self._scaler = joblib.load("/root/tensorprox/model/scaler.pkl")
+        self._model = joblib.load("/home/borgg/tensorprox/model/decision_tree.pkl")
+        self._imputer = joblib.load("/home/borgg/tensorprox/model/imputer.pkl")
+        self._scaler = joblib.load("/home/borgg/tensorprox/model/scaler.pkl")
 
 
     async def forward(self, synapse: PingSynapse) -> PingSynapse:
@@ -119,15 +119,23 @@ class Miner(BaseMinerNeuron):
 
         try:
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
+            attacker_ip = os.environ.get("ATTACKER_IP")
+            attacker_iface = os.environ.get("ATTACKER_IFACE")
             attacker_username = os.environ.get("ATTACKER_USERNAME")
+            benign_ip = os.environ.get("BENIGN_IP")
+            benign_iface = os.environ.get("BENIGN_IFACE")
             benign_username = os.environ.get("BENIGN_USERNAME")
+            king_ip = os.environ.get("KING_IP")
+            king_iface = os.environ.get("KING_IFACE")
             king_username = os.environ.get("KING_USERNAME")
+            king_private_ip = os.environ.get("KING_PRIVATE_IP")
+            moat_private_ip = os.environ.get("MOAT_PRIVATE_IP")
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=os.environ.get("ATTACKER_IP"), username=attacker_username)
-            #synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=os.environ.get("BENIGN_IP"), username=benign_username)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=os.environ.get("KING_IP"), username=king_username, private_ip=os.environ.get("KING_PRIVATE_IP"))
-            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=os.environ.get("MOAT_PRIVATE_IP"))
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=attacker_ip, iface=attacker_iface, username=attacker_username)
+            #synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=benign_ip, iface=benign_iface, username=benign_username)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=king_ip, iface=king_iface, username=king_username, private_ip=king_private_ip)
+            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=moat_private_ip)
 
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
