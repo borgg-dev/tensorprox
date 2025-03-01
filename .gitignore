@@ -5,3 +5,4 @@ weights.csv
 __pycache__/
 *.pyc
 *.pcap
+.env*
