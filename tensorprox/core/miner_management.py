@@ -206,7 +206,7 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     if os.path.exists(f"{key_path}.pub"):
         os.remove(f"{key_path}.pub")
     
-    log_message("INFO", "🚀 Generating session ED25519 keypair...")
+    # log_message("INFO", "🚀 Generating session ED25519 keypair...")
     proc = await asyncio.create_subprocess_exec(
         "ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "",
         stdout=asyncio.subprocess.PIPE,
@@ -223,7 +223,7 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     with open(f"{key_path}.pub", "r") as fpk:
         pub = fpk.read().strip()
     
-    log_message("INFO", "✅ Session keypair generated and secured.")
+    # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
 
@@ -426,17 +426,17 @@ class MinerManagement(BaseModel):
             bool: True if the setup was successful, False if an error occurred.
         """
 
-        logger.info(f"⚙️ Single-pass session setup for {machine_name} with {ip} as '{ssh_user}' start...")
+        # logger.info(f"⚙️ Single-pass session setup for {machine_name} with {ip} as '{ssh_user}' start...")
 
         # A) CONNECT WITH ORIGINAL KEY + PREPARE
-        logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
+        # logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         session_priv, session_pub = await generate_local_session_keypair(session_key_path)
 
         try:
             # Step A: Connect to the remote machine
             async with asyncssh.connect(ip, username=ssh_user, client_keys=[key_path], known_hosts=None) as conn:
-                logger.info(f"✅ Connected to {ip} with original key.")
+                # logger.info(f"✅ Connected to {ip} with original key.")
 
                 # Test sudo availability
                 await run_cmd_async(conn, "echo 'SUDO_TEST'")
@@ -449,23 +449,23 @@ class MinerManagement(BaseModel):
                 no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
                 await run_cmd_async(conn, no_tty_cmd)
 
-                logger.info(f"🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
+                # logger.info(f"🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 insert_key_cmd = get_insert_key_cmd(ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak)
                 await run_cmd_async(conn, insert_key_cmd)
-                logger.info(f"✅ Session key inserted. Backup stored at {authorized_keys_bak}.")
+                # logger.info(f"✅ Session key inserted. Backup stored at {authorized_keys_bak}.")
 
-            logger.info(f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
+            # logger.info(f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
 
             # C) TEST SESSION KEY
-            logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
+            # logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
             async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
-                logger.info(f"✨ Session key success for {ip}.")
+                # logger.info(f"✨ Session key success for {ip}.")
 
                 # D) PREPARE REVERT SCRIPT, CLEAN STALE SUDOERS, & SCHEDULE REVERT VIA SYSTEMD TIMER
-                logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
+                # logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
                 revert_cleanup_cmd = f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*"
                 await run_cmd_async(ep_conn, revert_cleanup_cmd, ignore_errors=True)
 
@@ -473,11 +473,11 @@ class MinerManagement(BaseModel):
                 await run_cmd_async(ep_conn, sudo_setup_cmd)
 
                 if user_commands:
-                    logger.info(f"🛠 Running custom user commands for role on {ip}.")
+                    # logger.info(f"🛠 Running custom user commands for role on {ip}.")
                     for uc in user_commands:
                         await run_cmd_async(ep_conn, uc, ignore_errors=True)
 
-                logger.info(f"✅ Done single-pass session setup for {ip}.")
+                # logger.info(f"✅ Done single-pass session setup for {ip}.")
 
             return True
 

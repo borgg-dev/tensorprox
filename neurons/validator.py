@@ -221,13 +221,6 @@ class Validator(BaseValidatorNeuron):
             logger.warning("No miners left after the setup attempt.")
             return False
 
-<<<<<<< HEAD
-        # # Step 3: Lockdown
-        # with Timer() as lockdown_timer:
-        #     logger.info(f"🔒 Locking down miners : {[uid for uid, _ in setup_complete_miners]}")
-        #     try:
-        #         lockdown_results = await miner_manager.execute_task(task="lockdown", miners=setup_complete_miners, assigned_miners=subset_miners, task_function = miner_manager.async_lockdown)
-=======
         logger.debug(f"Setup phase completed in {setup_timer.elapsed_time:.2f} seconds")
 
         # # Step 3: Lockdown
@@ -235,7 +228,6 @@ class Validator(BaseValidatorNeuron):
         #     logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
         #     try:
         #         lockdown_results = await miner_manager.execute_task(task="lockdown", miners=setup_complete_miners, subset_miners=subset_miners, task_function = miner_manager.async_lockdown)
->>>>>>> e6cd245 (add iface param + fix tcpdump record command)
         #     except Exception as e:
         #         logger.error(f"Error during lockdown phase: {e}")
         #         lockdown_results = []
