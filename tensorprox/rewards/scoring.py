@@ -100,7 +100,7 @@ class TaskScorer(AsyncLoopRunner):
     base_reward_model: ClassVar[BaseRewardConfig] = BaseRewardConfig(reward_model=ChallengeRewardModel())
     scoring_round: ScoringConfig = None
 
-    def add_to_queue(
+    def score_round(
         self,
         response: DendriteResponseEvent,
         uids : int,

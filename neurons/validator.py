@@ -76,14 +76,13 @@ class Validator(BaseValidatorNeuron):
         self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
 
-    def break_round(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT, condition: bool = False) -> tuple:
+    def check_timeout(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT) -> tuple:
         """
-        Checks if the round should be broken, either due to all validators completing the round or a timeout.
+        Checks if the round should be broken due to a timeout.
 
         Args:
             start_time (datetime): The start time of the round.
             round_timeout (float): Timeout for the round (default is settings.ROUND_TIMEOUT).
-            condition (bool): The condition to decide whether the round should be broken or not.
 
         Returns:
             tuple: A tuple containing:
@@ -91,21 +90,18 @@ class Validator(BaseValidatorNeuron):
                 - elapsed_time (float): The elapsed time in seconds since the round started.
                 - remaining_time (float): The remaining time in seconds until the round timeout.
         """
-
-
-        # Check if the timeout has been reached
         elapsed_time = (datetime.now() - start_time).total_seconds()
         remaining_time = round_timeout - elapsed_time
-        
-        # If the timeout has reached, break the round
+
+        # If the timeout has been reached
         if remaining_time <= 0:
             logger.info("Timeout reached for this round.")
-            condition = True  
-            # Return the updated condition
-            return condition, elapsed_time, remaining_time
-        
-        # If the round should not be broken, return the original condition
-        return condition, elapsed_time, remaining_time
+            return True # Timeout occurred
+
+        elif elapsed_time % 10 < 1:
+            logger.debug(f"Waiting until the end of the round... Remaining time: {int(remaining_time // 60)}m {int(remaining_time % 60)}s")
+    
+        return False  # Round is still active
 
 
     async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
@@ -125,7 +121,6 @@ class Validator(BaseValidatorNeuron):
                 logger.debug(f"🎉 Starting new epoch ...")
 
                 round_counter = 1
-
                 for subset_miners in self.assigned_miners:
 
                     start_time = datetime.now()
@@ -133,7 +128,6 @@ class Validator(BaseValidatorNeuron):
                     round_counter += 1
                     backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
                     condition = False
-                    
                     if subset_miners:
                         success = False
                         while not success :
@@ -147,23 +141,16 @@ class Validator(BaseValidatorNeuron):
                                 logger.exception(f"Unexpected error while processing miners: {ex}.")
 
 
-                            condition, elapsed_time, remaining_time = self.break_round(start_time)
+                            condition = self.check_timeout(start_time)
                             
                             if condition :
                                 break
                     else :
                         logger.warning("📖 No miners assigned for this round.")
 
-                    while not condition:
-                        
-                        condition, elapsed_time, remaining_time = self.break_round(start_time)
-                        if condition :
-                            break
+                    if not condition:  
+                        await self._wait_for_condition(start_time)
 
-                        elif elapsed_time % 10 < 1:  # This condition checks every 10 seconds
-                            logger.debug(f"Waiting until the end of the round... Elapsed: {int(elapsed_time // 60)}m {int(elapsed_time % 60)}s, Remaining: {int(remaining_time // 60)}m {int(remaining_time % 60)}s")
-                  
-                        await asyncio.sleep(1)  # Sleep 1 second and check again
 
                 logger.debug(f"🎉  End of epoch, waiting for the next one...")
 
@@ -174,6 +161,20 @@ class Validator(BaseValidatorNeuron):
             )
 
 
+    async def _wait_for_condition(self, start_time):
+        """
+        Waits for the timeout condition to be met by checking the elapsed time.
+
+        Args:
+            start_time (datetime): The start time of the current round.
+
+        Returns:
+            bool: Returns True when the condition is met, False otherwise.
+        """
+        while not self.check_timeout(start_time):
+            await asyncio.sleep(1)  # Check the condition every second
+        return True  # The condition is met, the loop ends
+    
     async def _process_miners(self, subset_miners, backup_suffix):
         """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
         # Step 1: Query miner availability
@@ -210,39 +211,41 @@ class Validator(BaseValidatorNeuron):
                 setup_results = []
                 return False
 
-        logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
 
         setup_complete_miners = [
             (uid, synapse) for uid, synapse in available_miners
             if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
         ]
 
+        setup_completed_uids = [uid for uid, _ in setup_complete_miners]
+
         if not setup_complete_miners:
             logger.warning("No miners left after the setup attempt.")
             return False
 
-        # # Step 3: Lockdown
-        # with Timer() as lockdown_timer:
-        #     logger.info(f"🔒 Locking down miners : {[uid for uid, _ in setup_complete_miners]}")
-        #     try:
-        #         lockdown_results = await miner_manager.execute_task(task="lockdown", miners=setup_complete_miners, assigned_miners=subset_miners, task_function = miner_manager.async_lockdown)
-        #     except Exception as e:
-        #         logger.error(f"Error during lockdown phase: {e}")
-        #         lockdown_results = []
-        #         return False
+        logger.debug(f"Setup phase completed in {setup_timer.elapsed_time:.2f} seconds")
+
+        # Step 3: Lockdown
+        with Timer() as lockdown_timer:
+            logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
+            try:
+                lockdown_results = await miner_manager.execute_task(task="lockdown", miners=setup_complete_miners, assigned_miners=subset_miners, task_function = miner_manager.async_lockdown)
+            except Exception as e:
+                logger.error(f"Error during lockdown phase: {e}")
+                lockdown_results = []
+                return False
             
-        # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+        logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
 
-        # ready_miners = [
-        #     (uid, synapse) for uid, synapse in setup_complete_miners
-        #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-        # ]
+        ready_miners = [
+            (uid, synapse) for uid, synapse in setup_complete_miners
+            if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+        ]
 
-        # if not ready_miners:
-        #     logger.warning("No miners are available for challenge phase.")
-        #     return False
+        if not ready_miners:
+            logger.warning("No miners are available for challenge phase.")
+            return False
 
-        ready_miners = setup_complete_miners
         ready_uids = [uid for uid, _ in ready_miners]
 
         # Step 4: Challenge
@@ -279,10 +282,10 @@ class Validator(BaseValidatorNeuron):
             uids=subset_miners,
         )
 
-        logger.debug(f"🎯 Adding response event to scoring queue..")
+        logger.debug(f"🎯 Scoring round and adding it to reward event ..")
 
         # Scoring manager will score the round
-        task_scorer.add_to_queue(response=response_event, uids=subset_miners, block=self.block, step=self.step)
+        task_scorer.score_round(response=response_event, uids=subset_miners, block=self.block, step=self.step)
 
         return True
         
