@@ -121,13 +121,13 @@ class Validator(BaseValidatorNeuron):
                 logger.debug(f"🎉 Starting new epoch ...")
 
                 round_counter = 1
+
                 for subset_miners in self.assigned_miners:
 
                     start_time = datetime.now()
                     logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
                     round_counter += 1
                     backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
-                    condition = False
                     if subset_miners:
                         success = False
                         while not success :
@@ -140,13 +140,13 @@ class Validator(BaseValidatorNeuron):
                             except Exception as ex:
                                 logger.exception(f"Unexpected error while processing miners: {ex}.")
 
-
                             condition = self.check_timeout(start_time)
                             
                             if condition :
                                 break
                     else :
                         logger.warning("📖 No miners assigned for this round.")
+                        condition = False
 
                     if not condition:  
                         await self._wait_for_condition(start_time)
