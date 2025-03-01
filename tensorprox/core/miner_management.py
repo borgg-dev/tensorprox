@@ -266,7 +266,7 @@ async def install_packages_if_missing(client: asyncssh.SSHClientConnection, pack
         result = await client.run(check_cmd, check=False)
 
         if result.exit_status != 0:
-            log_message("INFO", f"📦 Package '{pkg}' missing => installing now...")
+            #log_message("INFO", f"📦 Package '{pkg}' missing => installing now...")
             await client.run("DEBIAN_FRONTEND=noninteractive apt-get update -qq || true", check=False)
             await client.run(f"DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}", check=False)
             await asyncio.sleep(1)
@@ -558,10 +558,10 @@ class MinerManagement(BaseModel):
 
             # Run revert command
             result = await run_cmd_async(client, revert_cmd)
-            if result.exit_status == 0:
-                logger.info(f"✅ Revert command executed successfully on {ip}")
-            else:
-                logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
+            # if result.exit_status == 0:
+            #     logger.info(f"✅ Revert command executed successfully on {ip}")
+            # else:
+            #     logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
         
             return True
 
@@ -570,7 +570,7 @@ class MinerManagement(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid:int, validator_key_path: str, validator_username: str, challenge_duration: int) -> bool:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, uid:int, validator_key_path: str, validator_username: str, challenge_duration: int) -> bool:
         """
         Title: Run Challenge Commands on Miner
 
@@ -600,26 +600,26 @@ class MinerManagement(BaseModel):
             except Exception as e:
                 logger.error(f"❌ Error reading private key: {e}")
 
-            pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name)
+            pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name, iface)
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
 
             if not client:
-                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
                 return False
 
             # Run revert command
             result = await run_cmd_async(client, pcap_cmd)
-            if result.exit_status == 0:
-                logger.info(f"✅ Run challenge commands executed successfully on {ip}")
-            else:
-                logger.error(f"❌ Run challenged commands failed on {ip}: {result.stderr}")
+            # if result.exit_status == 0:
+            #     logger.info(f"✅ Run challenge commands executed successfully on {ip}")
+            # else:
+            #     logger.error(f"❌ Run challenged commands failed on {ip}: {result.stderr}")
         
             return True
 
         except Exception as e:
-            logger.error(f"🚨 Failed to run commands on {machine_name} for miner {uid} : {e}")
+            # logger.error(f"🚨 Failed to run commands on {machine_name} for miner {uid} : {e}")
             return False
     
     async def query_availability(self, uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
@@ -769,7 +769,7 @@ class MinerManagement(BaseModel):
         self, 
         task: str,
         miners: List[Tuple[int, 'PingSynapse']],
-        assigned_miners: list[int],
+        subset_miners: list[int],
         task_function: Callable[..., bool],
         backup_suffix: str = '', 
         challenge_duration: int = settings.CHALLENGE_DURATION,
@@ -845,6 +845,7 @@ class MinerManagement(BaseModel):
                     return True  # Skip Moat machine setup and consider it successful
 
                 ip = machine_details.ip
+                iface = machine_details.iface
                 ssh_user = machine_details.username
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
@@ -864,7 +865,7 @@ class MinerManagement(BaseModel):
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
                 elif task=="challenge":
-                    task_function = partial(task_function, uid=uid, validator_key_path=validator_key_path, validator_username=validator_username, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, uid=uid, validator_key_path=validator_key_path, validator_username=validator_username, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
@@ -908,7 +909,7 @@ class MinerManagement(BaseModel):
 
         # Mark assigned miners that are not in ready_miners as unavailable
         available_miner_ids = {uid for uid, _ in miners}
-        for miner_id in assigned_miners:
+        for miner_id in subset_miners:
             if miner_id not in available_miner_ids:
                 task_status[miner_id] = {
                     f"{task}_status_code": 503,  # HTTP status code for Service Unavailable
@@ -916,8 +917,6 @@ class MinerManagement(BaseModel):
                 }
 
         return [{"uid": uid, **status} for uid, status in task_status.items()]
-
-
 
 
     async def get_ready(self, ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
@@ -934,18 +933,25 @@ class MinerManagement(BaseModel):
         ready_results = {}
 
         async def inform_miner(uid):
-                
             try:
                 get_ready_synapse = ChallengeSynapse(
                     task="Defend The King",
                     state="GET_READY",
                 )
-                await self.dendrite_call(uid, get_ready_synapse)
+                miner_uid, synapse = await self.dendrite_call(uid, get_ready_synapse)
 
+                # Store result in dictionary
+                ready_results[miner_uid] = synapse
             except Exception as e:
                 logger.error(f"Error sending synapse to miner {uid}: {e}")
+                ready_results[uid] = f"Error: {e}"
 
+        # Run all tasks concurrently
         await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
+
+        return ready_results
+
+
 
 
 
