@@ -183,6 +183,8 @@ class Miner(BaseMinerNeuron):
             task = synapse.task
             state=synapse.state
             king_private_ip = os.environ.get("KING_PRIVATE_IP")
+            source_ip = os.environ.get("ATTACKER_IP")
+
             iface = os.environ.get("MOAT_IFACE")
             
             logger.debug(f"📧 Task {task} received from {synapse.dendrite.hotkey}. State : {state}.")
@@ -192,7 +194,7 @@ class Miner(BaseMinerNeuron):
                     self.firewall_active = True
                     self.stop_firewall_event.clear()  # Reset stop event
                     # Start sniffing in a separate thread to avoid blocking
-                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(king_private_ip, iface))
+                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(source_ip, king_private_ip, iface))
                     self.firewall_thread.daemon = True  # Set the thread to daemon mode to allow termination
                     self.firewall_thread.start()
                     logger.info("🔥 Moat firewall activated.")
@@ -247,7 +249,7 @@ class Miner(BaseMinerNeuron):
         return allowed, label_type
     
     
-    def run_packet_stream(self, king_private_ip, iface="eth0"):
+    def run_packet_stream(self, source_ip, king_private_ip, iface="eth0"):
         """
         Runs the firewall sniffing logic in an asynchronous event loop.
 
@@ -260,7 +262,7 @@ class Miner(BaseMinerNeuron):
         asyncio.set_event_loop(loop)  # Set the new loop as the current one for this thread
         
         # Ensure that the sniffer doesn't block the main process
-        loop.create_task(self.sniff_packets_stream(king_private_ip, iface, self.stop_firewall_event))
+        loop.create_task(self.sniff_packets_stream(source_ip, king_private_ip,iface, self.stop_firewall_event))
         loop.run_forever()  # Ensure the loop keeps running
 
 
@@ -293,7 +295,7 @@ class Miner(BaseMinerNeuron):
             pass
 
 
-    async def process_packet_stream(self, packet_data, king_private_ip):
+    async def process_packet_stream(self, packet_data, source_ip):
         """
         Store packet and its protocol in buffer instead of processing immediately.
         
@@ -313,6 +315,13 @@ class Miner(BaseMinerNeuron):
 
         if protocol not in (6, 17):
             return  # Ignore non-TCP and non-UDP packets
+
+        # Convert the source IP from binary to string format
+        src_ip = socket.inet_ntoa(iph[8])
+
+        # Filter: Only process packets where the source IP matches king_private_ip
+        if src_ip != source_ip :
+            return  # Ignore packets not originating from king_private_ip
 
         async with self._lock:
             self.packet_buffer.append((packet_data, protocol))  # Store tuple
@@ -438,7 +447,7 @@ class Miner(BaseMinerNeuron):
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
 
-    async def sniff_packets_stream(self, king_private_ip, iface='eth0', stop_event=None):
+    async def sniff_packets_stream(self, source_ip, king_private_ip, iface='eth0', stop_event=None):
         """
         Sniffs packets and adds them to the buffer.
         
@@ -448,7 +457,7 @@ class Miner(BaseMinerNeuron):
             stop_event (asyncio.Event, optional): An event to signal stopping the sniffing loop. 
                 If provided, the function will exit when stop_event is set. Defaults to None.
         """
-        logger.info(f"Sniffing packets for King Private IP: {king_private_ip} on interface {iface}")
+        logger.info(f"Sniffing packets coming from {source_ip} on interface {iface}")
 
         raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
         raw_socket.bind((iface, 0))
@@ -461,7 +470,7 @@ class Miner(BaseMinerNeuron):
             ready, _, _ = select.select([raw_socket], [], [], 1)  # 1s timeout
             if ready:
                 packet_data = raw_socket.recv(65535)
-                await self.process_packet_stream(packet_data, king_private_ip)
+                await self.process_packet_stream(packet_data, source_ip)
 
             await asyncio.sleep(0)  # Yield control back to the event loop to run other tasks (like batch_processing_loop)
 

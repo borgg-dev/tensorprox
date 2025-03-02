@@ -49,7 +49,8 @@ Version: 0.1.0
 
 import asyncio
 import threading
-
+import shutil
+import os
 import numpy as np
 
 from pydantic import ConfigDict
@@ -149,6 +150,12 @@ class TaskScorer(AsyncLoopRunner):
             uids=reward_event.uids,
             rewards=reward_event.rewards,
         ))
+
+        # Delete the pcap_files folder after each scoring step
+        pcap_folder = os.path.expanduser("~/tensorprox/tensorprox/rewards/pcap_files")
+        if os.path.exists(pcap_folder):
+            shutil.rmtree(pcap_folder)
+            logger.info("Scoring completed for this round.")
 
         await asyncio.sleep(0.01)
 

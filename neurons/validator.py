@@ -37,7 +37,7 @@ Version: 0.1.0
 
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
-
+import subprocess
 from aiohttp import web
 import asyncio
 from tensorprox import settings
@@ -47,17 +47,61 @@ from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
-
 from tensorprox.core.miner_management import MinerManagement
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
 
-# Create an aiohttp app for validator
-app = web.Application()
-miner_manager = MinerManagement()
 
+""" 
+Ensure machine user running validator has right access to .ssh folder
+otherwise password will block pcap submission from the remote machines
+
+sudo chown -R user:user ~/.ssh
+
+"""
+
+def ensure_rsa_key(key_path="~/.ssh/zerbeg"):
+    key_path = os.path.expanduser(key_path)
+    pub_key_path = key_path + ".pub"
+    ssh_dir = os.path.expanduser("~/.ssh")
+    auth_keys_path = os.path.join(ssh_dir, "authorized_keys")
+
+    # Ensure ~/.ssh directory exists with correct permissions
+    if not os.path.exists(ssh_dir):
+        os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
+        print(f"Created ~/.ssh directory with correct permissions.")
+
+    # Generate key pair if it doesn't exist
+    if not os.path.exists(key_path):
+        print(f"Generating RSA key pair at {key_path} (passwordless)...")
+        subprocess.run(["ssh-keygen", "-t", "rsa", "-b", "4096", "-f", key_path, "-N", ""], check=True)
+        os.chmod(key_path, 0o600)
+        print(f"RSA key pair generated successfully: {key_path} and {pub_key_path}")
+    else:
+        print(f"RSA key already exists: {key_path}")
+
+    # Ensure ~/.ssh/authorized_keys exists
+    if not os.path.exists(auth_keys_path):
+        open(auth_keys_path, "a").close()
+        print(f"Created {auth_keys_path}")
+
+    # Read and add the public key to authorized_keys if not present
+    if os.path.exists(pub_key_path):
+        with open(pub_key_path, "r") as pub_key_file:
+            pub_key = pub_key_file.read().strip()
+
+        with open(auth_keys_path, "r+") as auth_keys_file:
+            authorized_keys = auth_keys_file.read()
+            if pub_key not in authorized_keys:
+                auth_keys_file.write(f"{pub_key}\n")
+                print(f"Public key added to {auth_keys_path}")
+            else:
+                print("Public key already exists in authorized_keys")
+
+    # Set correct permissions for authorized_keys
+    os.chmod(auth_keys_path, 0o600)
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -254,6 +298,7 @@ class Validator(BaseValidatorNeuron):
             logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {settings.CHALLENGE_DURATION} seconds")
             try:
                 ready_results = await miner_manager.get_ready(ready_uids)
+                await asyncio.sleep(0.01)
                 challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_challenge)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
@@ -352,6 +397,10 @@ async def assign_miners(request):
     return web.json_response({"status": "miners_assigned"})
 
 
+# Create an aiohttp app for validator
+app = web.Application()
+miner_manager = MinerManagement()
+
 # Add routes to the aiohttp app
 app.router.add_post('/ready', ready)
 app.router.add_post('/assign_miners', assign_miners)
@@ -364,6 +413,8 @@ async def main():
 
     This function initializes and runs the web server to handle incoming requests.
     """
+
+    ensure_rsa_key()
 
     runner = web.AppRunner(app)
     await runner.setup()
