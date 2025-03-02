@@ -183,7 +183,8 @@ class Miner(BaseMinerNeuron):
             task = synapse.task
             state=synapse.state
             king_private_ip = os.environ.get("KING_PRIVATE_IP")
-
+            iface = os.environ.get("MOAT_IFACE")
+            
             logger.debug(f"📧 Task {task} received from {synapse.dendrite.hotkey}. State : {state}.")
 
             if state == "GET_READY":
@@ -191,7 +192,7 @@ class Miner(BaseMinerNeuron):
                     self.firewall_active = True
                     self.stop_firewall_event.clear()  # Reset stop event
                     # Start sniffing in a separate thread to avoid blocking
-                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(king_private_ip,))
+                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(king_private_ip, iface))
                     self.firewall_thread.daemon = True  # Set the thread to daemon mode to allow termination
                     self.firewall_thread.start()
                     logger.info("🔥 Moat firewall activated.")
