@@ -45,7 +45,6 @@ Version: 0.1.0
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
 import os
-import paramiko
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="miner")
 settings = settings.settings
@@ -140,14 +139,12 @@ class Miner(BaseMinerNeuron):
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
 
-            # Use the initial private key for initial connection
-            password = os.environ.get("PASSWORD")
+
 
             # Run SSH key addition in parallel
             tasks = [
                 self.add_ssh_key_to_remote_machine(
                     machine_ip=machine_details.ip,
-                    password=password,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
                     username=machine_details.username
@@ -534,7 +531,6 @@ class Miner(BaseMinerNeuron):
         ssh_public_key: str,
         initial_private_key_path: str,
         username: str,
-        password: str = None,  # Add a password parameter
         timeout: int = 5,
         retries: int = 3,
     ):
@@ -547,7 +543,6 @@ class Miner(BaseMinerNeuron):
             ssh_public_key (str): The SSH public key to add to the remote machine.
             initial_private_key_path (str): Path to the initial private key used for SSH authentication.
             username (str): The username for the SSH connection.
-            password (str, optional): The password for SSH login (defaults to None).
             timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
             retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
         """
@@ -558,19 +553,17 @@ class Miner(BaseMinerNeuron):
             try:
                 logger.info(f"Attempting SSH connection to {machine_ip} with user {username} (Attempt {attempt + 1}/{retries})...")
 
-                # Use password if provided, otherwise fall back to key-based authentication
                 connection_params = {
                     "host": machine_ip,
                     "username": username,
+                    "client_keys": [initial_private_key_path],
                     "known_hosts": None,
-                    "connect_timeout": timeout
+                    "connect_timeout": timeout,
                 }
 
+
                 # Add password or private key based on what's provided
-                if password:
-                    connection_params["password"] = password
-                else:
-                    connection_params["client_keys"] = [initial_private_key_path]
+                connection_params["client_keys"] = [initial_private_key_path]
 
                 async with asyncssh.connect(**connection_params) as conn:
 
