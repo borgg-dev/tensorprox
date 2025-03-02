@@ -896,13 +896,26 @@ class MinerManagement(BaseModel):
             try:
                 # Apply timeout to the entire setup_miner function for each miner
                 await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
+
+                if task == "challenge" :
+
+                    try:
+                        end_round_synapse = ChallengeSynapse(
+                            task="Defend The King",
+                            state="END_ROUND",
+                        )
+                        await self.dendrite_call(uid, end_round_synapse, timeout=settings.NEURON_TIMEOUT)
+                        
+                    except Exception as e:
+                        logger.error(f"Error sending synapse to miner {uid}: {e}")
+
             except asyncio.TimeoutError:
                 logger.error(f"⏰ Timeout reached for {task} with miner {uid}.")
                 task_status[uid] = {
                     f"{task}_status_code": 408,
                     f"{task}_status_message": f"Timeout: Miner {task} aborted. Skipping miner {uid} for this round."
                 }
-
+            
 
         # Process all miners in parallel
         await asyncio.gather(*[setup_miner_with_timeout(uid, synapse, task_function) for uid, synapse in miners])

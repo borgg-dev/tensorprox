@@ -214,8 +214,6 @@ class Validator(BaseValidatorNeuron):
                 setup_results = []
                 return False
 
-        logger.debug(f"Setup completed in {setup_timer.elapsed_time:.2f} seconds")
-
         setup_complete_miners = [
             (uid, synapse) for uid, synapse in available_miners
             if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
