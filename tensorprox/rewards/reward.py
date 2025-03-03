@@ -93,34 +93,7 @@ class BatchRewardOutput(BaseModel):
 
 class ChallengeRewardModel(BaseModel):
 
-    @staticmethod
-    def extract_labeled_counts(pcap_path: str, label_dict: dict) -> dict:
-        """
-        Extract labeled packet counts from a pcap file based on provided labels.
-
-        Args:
-            pcap_path (str): The file path to the pcap file.
-            label_dict (dict): A dictionary mapping original labels to encrypted labels.
-
-        Returns:
-            dict: A dictionary with original labels as keys and their corresponding packet counts as values.
-        """
-
-        # Extraire uniquement les valeurs encryptées pour la recherche
-        encrypted_labels = list(label_dict.values())
-
-        analyzer = PacketAnalyzer(pcap_path)
-        start_date, end_date = analyzer.get_time_range()
-
-        matched_packets_encrypted = analyzer.analyze(search_labels=encrypted_labels, start_date=start_date, end_date=end_date)
-
-        # Transformer les labels encryptés en labels d'origine
-        reverse_label_lookup = {v: k for k, v in label_dict.items()}
-        matched_packets = {reverse_label_lookup[key]: value for key, value in matched_packets_encrypted.items() if key in reverse_label_lookup}
-
-        return matched_packets
-
-    def reward(self, uids: List[int], labels_dict: Dict) -> BatchRewardOutput:
+    def reward(self, response_event: DendriteResponseEvent, uids: List[int], labels_dict: Dict) -> BatchRewardOutput:
         """
         Calculate rewards for a batch of users based on their packet capture data.
 
@@ -147,29 +120,23 @@ class ChallengeRewardModel(BaseModel):
         latencies = {}  # List to store latencies for all users
 
         for uid in uids:
+
             attack_path = os.path.join(base_path, f"{uid}/Attacker_capture.pcap")
             benign_path = os.path.join(base_path, f"{uid}/Attacker_capture.pcap")
             king_path = os.path.join(base_path, f"{uid}/King_capture.pcap")
 
-            # Check if all required pcap files exist and are non-empty
-            if not all(os.path.exists(path) and os.path.getsize(path) > 0 for path in [attack_path, benign_path, king_path]):
-                # logging.warning(f"Missing or empty pcap files for UID {uid}. Skipping reward calculation.")
-                packet_data[uid] = None
-                continue
+            attack_analyzer = PacketAnalyzer(benign_path)
+            benign_analyzer = PacketAnalyzer(benign_path)
 
-            attack_counts = self.extract_labeled_counts(attack_path, labels_dict)
-            benign_counts = self.extract_labeled_counts(benign_path, labels_dict)
-            king_counts = self.extract_labeled_counts(king_path, labels_dict)
+            label_counts_results = response_event.challenge_status_by_uid[uid]["label_counts_results"]
 
-            # #Hardcoded
-            # attack_counts = {"BENIGN" : 0, "UDP_FLOOD" : 100, "TCP_SYN_FLOOD" : 0}
-            # benign_counts = {"BENIGN" : 100, "UDP_FLOOD" : 0, "TCP_SYN_FLOOD" : 0}
-            # king_counts = {"BENIGN" : 90, "UDP_FLOOD" : 20, "TCP_SYN_FLOOD" : 0}
+            attack_counts = next(counts for machine, counts in label_counts_results if machine == "Attacker")
+            benign_counts = attack_counts
+            king_counts = next(counts for machine, counts in label_counts_results if machine == "King")
 
             # Calculate average latency of the benign traffic
-            analyzer = PacketAnalyzer(benign_path)
             label_bytes = labels_dict["BENIGN"].encode()
-            latency_stats = analyzer.compute_latency(king_path, label=label_bytes)
+            latency_stats = benign_analyzer.compute_latency(king_path, label=label_bytes)
             latency_score = max(0, latency_stats["mean"] or 0) #ensures latency is always >= 0
 
             # Total packets sent
@@ -251,7 +218,7 @@ class BaseRewardConfig(BaseModel):
         cls,
         response_event: DendriteResponseEvent,
         uids: list[int],
-        labels_dict: dict = None  # Optional parameter
+        labels_dict: dict = None
     ) -> ChallengeRewardEvent:
         """
         Apply the reward model to a list of user IDs with optional custom labels.
@@ -268,7 +235,7 @@ class BaseRewardConfig(BaseModel):
         labels_dict = labels_dict or cls.default_labels
 
         # Get the reward output
-        batch_rewards_output = cls.reward_model.reward(uids, labels_dict)
+        batch_rewards_output = cls.reward_model.reward(response_event, uids, labels_dict)
 
         # Return the ChallengeRewardEvent using the BatchRewardOutput
         return ChallengeRewardEvent(

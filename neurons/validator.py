@@ -53,7 +53,6 @@ from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
 
-
 """ 
 Ensure machine user running validator has right access to .ssh folder
 otherwise password will block pcap submission from the remote machines
@@ -62,7 +61,7 @@ sudo chown -R user:user ~/.ssh
 
 """
 
-def ensure_rsa_key(key_path="~/.ssh/zerbeg"):
+def ensure_rsa_key(key_path="~/.ssh/validator_key"):
     key_path = os.path.expanduser(key_path)
     pub_key_path = key_path + ".pub"
     ssh_dir = os.path.expanduser("~/.ssh")
@@ -75,7 +74,7 @@ def ensure_rsa_key(key_path="~/.ssh/zerbeg"):
 
     # Generate key pair if it doesn't exist
     if not os.path.exists(key_path):
-        print(f"Generating RSA key pair at {key_path} (passwordless)...")
+        print(f"Generating RSA key pair at {key_path}...")
         subprocess.run(["ssh-keygen", "-t", "rsa", "-b", "4096", "-f", key_path, "-N", ""], check=True)
         os.chmod(key_path, 0o600)
         print(f"RSA key pair generated successfully: {key_path} and {pub_key_path}")
@@ -172,13 +171,18 @@ class Validator(BaseValidatorNeuron):
                     logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
                     round_counter += 1
                     backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
+                    labels_dict = {
+                        "BENIGN": "BENIGN",
+                        "UDP_FLOOD": "UDP_FLOOD",
+                        "TCP_SYN_FLOOD": "TCP_SYN_FLOOD"
+                    }
                     if subset_miners:
                         success = False
                         while not success :
                             try:
                                 elapsed_time = (datetime.now() - start_time).total_seconds()
                                 timeout_process = settings.ROUND_TIMEOUT - elapsed_time
-                                success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix), timeout=timeout_process)
+                                success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict), timeout=timeout_process)
                             except asyncio.TimeoutError:
                                 logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
                             except Exception as ex:
@@ -221,7 +225,7 @@ class Validator(BaseValidatorNeuron):
         return True  # The condition is met, the loop ends
     
 
-    async def _process_miners(self, subset_miners, backup_suffix):
+    async def _process_miners(self, subset_miners, backup_suffix, labels_dict):
         """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
         
         # Step 1: Query miner availability
@@ -299,7 +303,7 @@ class Validator(BaseValidatorNeuron):
             try:
                 ready_results = await miner_manager.get_ready(ready_uids)
                 await asyncio.sleep(0.01)
-                challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_challenge)
+                challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_challenge, labels_dict=labels_dict)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
@@ -331,7 +335,7 @@ class Validator(BaseValidatorNeuron):
         logger.debug(f"🎯 Scoring round and adding it to reward event ..")
 
         # Scoring manager will score the round
-        task_scorer.score_round(response=response_event, uids=subset_miners, block=self.block, step=self.step)
+        task_scorer.score_round(response=response_event, uids=subset_miners, labels_dict=labels_dict, block=self.block, step=self.step)
         
         return True
         

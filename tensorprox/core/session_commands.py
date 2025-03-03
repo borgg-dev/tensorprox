@@ -312,7 +312,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, machine_name: str, iface: str = "eth0") -> str:
+def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, machine_name: str, labels_dict: dict, iface: str = "eth0") -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP.
 
@@ -347,9 +347,19 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
     # Capture network traffic for a duration
     sudo timeout {challenge_duration} tcpdump -i {iface} -w {capture_file} '{filter_traffic}'
 
+    # Extract the payload data from pcap file and count occurrences
+    sudo tcpdump -nn -r {capture_file} -A | grep -o '{labels_dict["BENIGN"]}\|{labels_dict["UDP_FLOOD"]}\|{labels_dict["TCP_SYN_FLOOD"]}' > /tmp/traffic_data.txt
+
+    # Count occurrences of each label
+    benign_count=$(grep -o {labels_dict["BENIGN"]} /tmp/traffic_data.txt | wc -l)
+    udp_flood_count=$(grep -o {labels_dict["UDP_FLOOD"]} /tmp/traffic_data.txt | wc -l)
+    tcp_syn_flood_count=$(grep -o {labels_dict["TCP_SYN_FLOOD"]} /tmp/traffic_data.txt | wc -l)
+
+    # Output the counts
+    echo "{labels_dict["BENIGN"]}:$benign_count, {labels_dict["UDP_FLOOD"]}:$udp_flood_count, {labels_dict["TCP_SYN_FLOOD"]}:$tcp_syn_flood_count"
+
     # Ensure the destination directories exist on the remote machine
     ssh -o StrictHostKeyChecking=no -i /tmp/validator_key {validator_username}@{validator_ip} "mkdir -p ~/tensorprox/tensorprox/rewards/pcap_files/{uid}/"
-
 
     # Securely transfer the pcap file via SCP
     scp -C -i /tmp/validator_key {capture_file} {validator_username}@{validator_ip}:~/tensorprox/tensorprox/rewards/pcap_files/{uid}/
@@ -360,7 +370,6 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
     """
 
     return cmd
-
 
 
 

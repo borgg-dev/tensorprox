@@ -86,8 +86,20 @@ class Miner(BaseMinerNeuron):
     stop_firewall_event: Event = Field(default_factory=Event)
     packet_buffer: List[Tuple[bytes, int]] = Field(default_factory=list)
     batch_interval: int = 10
-    
-    # Private attributes
+    king_private_ip: str = os.environ.get("KING_PRIVATE_IP")
+    attacker_ip: str = os.environ.get("ATTACKER_IP")
+    benign_ip: str = os.environ.get("BENIGN_IP")
+    king_ip: str = os.environ.get("KING_IP")
+    moat_private_ip: str = os.environ.get("MOAT_PRIVATE_IP")
+    forward_port: int = os.environ.get("FORWARD_PORT", 8080)
+    attacker_iface: str = os.environ.get("ATTACKER_IFACE", "eth0")
+    attacker_username: str = os.environ.get("ATTACKER_USERNAME", "root")
+    benign_iface: str = os.environ.get("BENIGN_IFACE", "eth0")
+    benign_username: str = os.environ.get("BENIGN_USERNAME", "root")
+    king_iface: str = os.environ.get("KING_IFACE", "eth0")
+    king_username: str = os.environ.get("KING_USERNAME", "root")
+    moat_iface: str = os.environ.get("MOAT_IFACE", "eth0")
+            
     _lock: asyncio.Lock = PrivateAttr()
     _model: DecisionTreeClassifier = PrivateAttr()
     _imputer: SimpleImputer = PrivateAttr()
@@ -118,28 +130,15 @@ class Miner(BaseMinerNeuron):
 
         try:
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
-            attacker_ip = os.environ.get("ATTACKER_IP")
-            attacker_iface = os.environ.get("ATTACKER_IFACE")
-            attacker_username = os.environ.get("ATTACKER_USERNAME")
-            benign_ip = os.environ.get("BENIGN_IP")
-            benign_iface = os.environ.get("BENIGN_IFACE")
-            benign_username = os.environ.get("BENIGN_USERNAME")
-            king_ip = os.environ.get("KING_IP")
-            king_iface = os.environ.get("KING_IFACE")
-            king_username = os.environ.get("KING_USERNAME")
-            king_private_ip = os.environ.get("KING_PRIVATE_IP")
-            moat_private_ip = os.environ.get("MOAT_PRIVATE_IP")
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=attacker_ip, iface=attacker_iface, username=attacker_username)
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=self.attacker_ip, iface=self.attacker_iface, username=self.attacker_username)
             #synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=benign_ip, iface=benign_iface, username=benign_username)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=king_ip, iface=king_iface, username=king_username, private_ip=king_private_ip)
-            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=moat_private_ip)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=self.king_ip, iface=self.king_iface, username=self.king_username, private_ip=self.king_private_ip)
+            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=self.moat_private_ip)
 
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
-
-
 
             # Run SSH key addition in parallel
             tasks = [
@@ -182,11 +181,9 @@ class Miner(BaseMinerNeuron):
             # Extract challenge information from the synapse
             task = synapse.task
             state=synapse.state
-            king_private_ip = os.environ.get("KING_PRIVATE_IP")
             source_ip = os.environ.get("ATTACKER_IP")
 
-            iface = os.environ.get("MOAT_IFACE")
-            
+
             logger.debug(f"📧 Task {task} received from {synapse.dendrite.hotkey}. State : {state}.")
 
             if state == "GET_READY":
@@ -194,7 +191,7 @@ class Miner(BaseMinerNeuron):
                     self.firewall_active = True
                     self.stop_firewall_event.clear()  # Reset stop event
                     # Start sniffing in a separate thread to avoid blocking
-                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(source_ip, king_private_ip, iface))
+                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(source_ip, self.moat_iface))
                     self.firewall_thread.daemon = True  # Set the thread to daemon mode to allow termination
                     self.firewall_thread.start()
                     logger.info("🔥 Moat firewall activated.")
@@ -249,7 +246,7 @@ class Miner(BaseMinerNeuron):
         return allowed, label_type
     
     
-    def run_packet_stream(self, source_ip, king_private_ip, iface="eth0"):
+    def run_packet_stream(self, source_ip, iface="eth0"):
         """
         Runs the firewall sniffing logic in an asynchronous event loop.
 
@@ -262,7 +259,7 @@ class Miner(BaseMinerNeuron):
         asyncio.set_event_loop(loop)  # Set the new loop as the current one for this thread
         
         # Ensure that the sniffer doesn't block the main process
-        loop.create_task(self.sniff_packets_stream(source_ip, king_private_ip,iface, self.stop_firewall_event))
+        loop.create_task(self.sniff_packets_stream(source_ip, iface, self.stop_firewall_event))
         loop.run_forever()  # Ensure the loop keeps running
 
 
@@ -412,12 +409,9 @@ class Miner(BaseMinerNeuron):
         return np.array([tcp_syn_flag_ratio, udp_port_entropy, avg_pkt_size, flow_density, ip_entropy])
     
 
-    async def batch_processing_loop(self, king_private_ip):
+    async def batch_processing_loop(self):
         """
         Process the buffered packets every `batch_interval` seconds.
-        
-        Args:
-            king_private_ip (str): The private IP of the King for batch packets forwarding.  
         """
 
         try:
@@ -441,13 +435,14 @@ class Miner(BaseMinerNeuron):
                 if is_allowed:
                     logger.info(f"Allowing batch of {len(batch)} packets...")
                     for packet_data, protocol in batch:  # Extract packet and protocol
-                        await self.moat_forward_packet(packet_data, king_private_ip, 8080, protocol)
+                        await self.moat_forward_packet(packet_data, self.king_private_ip, int(self.forward_port), protocol)
                 else:
                     logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
 
-    async def sniff_packets_stream(self, source_ip, king_private_ip, iface='eth0', stop_event=None):
+
+    async def sniff_packets_stream(self, source_ip, iface='eth0', stop_event=None):
         """
         Sniffs packets and adds them to the buffer.
         
@@ -464,7 +459,7 @@ class Miner(BaseMinerNeuron):
         raw_socket.setblocking(False)
 
         # Start batch processing immediately and ensure it's non-blocking
-        asyncio.create_task(self.batch_processing_loop(king_private_ip))  # Create task to run concurrently
+        asyncio.create_task(self.batch_processing_loop())  # Create task to run concurrently
 
         while not stop_event.is_set():
             ready, _, _ = select.select([raw_socket], [], [], 1)  # 1s timeout
