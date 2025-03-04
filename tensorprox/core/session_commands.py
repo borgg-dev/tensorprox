@@ -312,9 +312,10 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, machine_name: str, iface: str = "eth0") -> str:
+def get_pcap_file_cmd(machine_name: str, king_ip: str, challenge_duration: str, labels_dict: dict, iface: str = "eth0") -> str:
     """
-    Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP.
+    Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP, 
+    along with RTT measurement for packets from Attacker and Benign to King.
 
     Args:
         validator_username (str): The SSH username for the validator.
@@ -328,10 +329,14 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
         str: The command string to execute on the remote machine.
     """
 
-    capture_file = f"/tmp/{machine_name}_capture.pcap"
+    rtt_file = f"/tmp/{machine_name}_rtt.txt"  # Store RTT measurements
 
     # Define the traffic filtering based on machine_name
     filter_traffic = "(tcp or udp) and inbound" if machine_name == "King" else "(tcp or udp) and outbound" if machine_name in ["Attacker", "Benign"] else "tcp or udp"
+
+    # Add RTT measurement for Attacker and Benign to King traffic
+    # Capture RTT in 4 pings
+    rtt_measurement_cmd = f"ping -c 4 {king_ip} > {rtt_file}"
 
     # Generate the remote command
     cmd = f"""
@@ -340,27 +345,40 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
         sudo apt-get update && sudo apt-get install -y tcpdump
     fi
 
-    # Create a temporary private key file
-    echo -e "{validator_private_key}" > /tmp/validator_key
-    chmod 600 /tmp/validator_key  # Set correct permissions
-
     # Capture network traffic for a duration
-    sudo timeout {challenge_duration} tcpdump -i {iface} -w {capture_file} '{filter_traffic}'
+    sudo timeout {challenge_duration} tcpdump -i {iface} -w /tmp/capture.pcap '{filter_traffic}'
 
-    # Ensure the destination directories exist on the remote machine
-    ssh -o StrictHostKeyChecking=no -i /tmp/validator_key {validator_username}@{validator_ip} "mkdir -p ~/tensorprox/tensorprox/rewards/pcap_files/{uid}/"
+    # Extract the payload data from pcap file and count occurrences
+    sudo tcpdump -nn -r /tmp/capture.pcap -A | grep -o '{labels_dict["BENIGN"]}\|{labels_dict["UDP_FLOOD"]}\|{labels_dict["TCP_SYN_FLOOD"]}' > /tmp/traffic_data.txt
 
+    # Count occurrences of each label
+    benign_count=$(grep -o {labels_dict["BENIGN"]} /tmp/traffic_data.txt | wc -l)
+    udp_flood_count=$(grep -o {labels_dict["UDP_FLOOD"]} /tmp/traffic_data.txt | wc -l)
+    tcp_syn_flood_count=$(grep -o {labels_dict["TCP_SYN_FLOOD"]} /tmp/traffic_data.txt | wc -l)
 
-    # Securely transfer the pcap file via SCP
-    scp -C -i /tmp/validator_key {capture_file} {validator_username}@{validator_ip}:~/tensorprox/tensorprox/rewards/pcap_files/{uid}/
+    # Measure RTT if the machine is Attacker or Benign
+    if [ {machine_name} == "Attacker" ] || [ {machine_name} == "Benign" ]; then
 
-    # Cleanup
-    rm -f {capture_file}
-    rm -f /tmp/validator_key  # Remove original key
+        # Execute the RTT measurement command
+        {rtt_measurement_cmd}
+
+        # Extract average RTT from the ping output (assuming the ping command ran successfully)
+        rtt_avg=$(grep -oP 'rtt min/avg/max/mdev = \d+\.\d+/(\d+\.\d+)' {rtt_file} | awk -F'/' '{{print $5}}')
+
+        # Output the counts along with the average RTT
+        echo "{labels_dict["BENIGN"]}:$benign_count, {labels_dict["UDP_FLOOD"]}:$udp_flood_count, {labels_dict["TCP_SYN_FLOOD"]}:$tcp_syn_flood_count, AVG_RTT:$rtt_avg"
+    else
+        # Output just the counts if the machine is neither Attacker nor Benign
+        echo "{labels_dict["BENIGN"]}:$benign_count, {labels_dict["UDP_FLOOD"]}:$udp_flood_count, {labels_dict["TCP_SYN_FLOOD"]}:$tcp_syn_flood_count"
+    fi
+
+    #Delete temporary files
+    rm -f /tmp/capture.pcap
+    rm -f {rtt_file}
+    rm -f traffic_data.txt
+
     """
 
     return cmd
-
-
 
 

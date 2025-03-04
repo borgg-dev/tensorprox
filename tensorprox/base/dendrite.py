@@ -15,13 +15,13 @@ class DendriteResponseEvent(BaseModel):
     all_miners_availability: list[Dict[str, Union[int, str]]] = []
     setup_status: list[Dict[str, Union[int, str]]] = []
     lockdown_status: list[Dict[str, Union[int, str]]] = []
-    challenge_status: list[Dict[str, Union[int, str]]] = []
+    challenge_status: list[Dict[str, Union[int, str, list]]] = []
     revert_status: list[Dict[str, Union[int, str]]] = []
     ping_status_messages: list[str] = []
     ping_status_codes: list[int] = []
     setup_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
     lockdown_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
-    challenge_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
+    challenge_status_by_uid: dict[int, Dict[str, Union[int, str, list]]] = {}
     revert_status_by_uid: dict[int, Dict[str, Union[int, str]]] = {}
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -73,6 +73,7 @@ class DendriteResponseEvent(BaseModel):
                     self.challenge_status_by_uid[uid] = {
                         "challenge_status_message": challenge.get("challenge_status_message", f"UID {uid} not set up."),
                         "challenge_status_code": challenge.get("challenge_status_code", 400),
+                        "label_counts_results" : challenge.get('label_counts_results', [])
                     }
 
         # Revert Step

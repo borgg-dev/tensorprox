@@ -37,7 +37,7 @@ Version: 0.1.0
 
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
-
+import subprocess
 from aiohttp import web
 import asyncio
 from tensorprox import settings
@@ -47,17 +47,11 @@ from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
-
 from tensorprox.core.miner_management import MinerManagement
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
-
-# Create an aiohttp app for validator
-app = web.Application()
-miner_manager = MinerManagement()
-
 
 
 class Validator(BaseValidatorNeuron):
@@ -75,6 +69,7 @@ class Validator(BaseValidatorNeuron):
         self._lock = asyncio.Lock()
         self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
+
 
     def check_timeout(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT) -> tuple:
         """
@@ -128,13 +123,18 @@ class Validator(BaseValidatorNeuron):
                     logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
                     round_counter += 1
                     backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
+                    labels_dict = {
+                        "BENIGN": "BENIGN",
+                        "UDP_FLOOD": "UDP_FLOOD",
+                        "TCP_SYN_FLOOD": "TCP_SYN_FLOOD"
+                    }
                     if subset_miners:
                         success = False
                         while not success :
                             try:
                                 elapsed_time = (datetime.now() - start_time).total_seconds()
                                 timeout_process = settings.ROUND_TIMEOUT - elapsed_time
-                                success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix), timeout=timeout_process)
+                                success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict), timeout=timeout_process)
                             except asyncio.TimeoutError:
                                 logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
                             except Exception as ex:
@@ -159,7 +159,7 @@ class Validator(BaseValidatorNeuron):
             return ErrorLoggingEvent(
                 error=str(ex),
             )
-
+        
 
     async def _wait_for_condition(self, start_time):
         """
@@ -171,12 +171,15 @@ class Validator(BaseValidatorNeuron):
         Returns:
             bool: Returns True when the condition is met, False otherwise.
         """
+
         while not self.check_timeout(start_time):
             await asyncio.sleep(1)  # Check the condition every second
         return True  # The condition is met, the loop ends
     
-    async def _process_miners(self, subset_miners, backup_suffix):
+
+    async def _process_miners(self, subset_miners, backup_suffix, labels_dict):
         """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
+        
         # Step 1: Query miner availability
         with Timer() as timer:
             # # hardcoded for testing purpose
@@ -211,13 +214,10 @@ class Validator(BaseValidatorNeuron):
                 setup_results = []
                 return False
 
-
         setup_complete_miners = [
             (uid, synapse) for uid, synapse in available_miners
             if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
         ]
-
-        setup_completed_uids = [uid for uid, _ in setup_complete_miners]
 
         if not setup_complete_miners:
             logger.warning("No miners left after the setup attempt.")
@@ -254,7 +254,8 @@ class Validator(BaseValidatorNeuron):
             logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {settings.CHALLENGE_DURATION} seconds")
             try:
                 ready_results = await miner_manager.get_ready(ready_uids)
-                challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_challenge)
+                await asyncio.sleep(0.01)
+                challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_challenge, labels_dict=labels_dict)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
@@ -286,8 +287,8 @@ class Validator(BaseValidatorNeuron):
         logger.debug(f"🎯 Scoring round and adding it to reward event ..")
 
         # Scoring manager will score the round
-        task_scorer.score_round(response=response_event, uids=subset_miners, block=self.block, step=self.step)
-
+        task_scorer.score_round(response=response_event, uids=subset_miners, labels_dict=labels_dict, block=self.block, step=self.step)
+        
         return True
         
     async def forward(self):
@@ -352,6 +353,10 @@ async def assign_miners(request):
     return web.json_response({"status": "miners_assigned"})
 
 
+# Create an aiohttp app for validator
+app = web.Application()
+miner_manager = MinerManagement()
+
 # Add routes to the aiohttp app
 app.router.add_post('/ready', ready)
 app.router.add_post('/assign_miners', assign_miners)
@@ -364,6 +369,7 @@ async def main():
 
     This function initializes and runs the web server to handle incoming requests.
     """
+
 
     runner = web.AppRunner(app)
     await runner.setup()

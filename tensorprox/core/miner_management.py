@@ -353,7 +353,7 @@ class MinerManagement(BaseModel):
 
     miners: Dict[int, 'PingSynapse'] = {}
     local_ip: str = get_local_ip()
-
+    king_ips: Dict[int, str] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         """
@@ -501,7 +501,7 @@ class MinerManagement(BaseModel):
             bool: True if the lockdown was successfully executed, False if an error occurred.
         """
 
-        # logger.info(f"🔒 Lockdown for {ip} as '{ssh_user}' start...")
+        logger.info(f"🔒 Lockdown for {ip} as '{ssh_user}' start...")
 
         try:
 
@@ -516,10 +516,10 @@ class MinerManagement(BaseModel):
             lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.local_ip, authorized_keys_path)
             result = await run_cmd_async(client, lockdown_cmd)
 
-            # if result.exit_status == 0:
-            #     logger.info(f"✅ Lockdown command executed successfully on {ip}")
-            # else:
-            #     logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
+            if result.exit_status == 0:
+                logger.info(f"✅ Lockdown command executed successfully on {ip}")
+            else:
+                logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
         
             return True
 
@@ -570,7 +570,7 @@ class MinerManagement(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, uid:int, validator_key_path: str, validator_username: str, challenge_duration: int) -> bool:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -585,6 +585,7 @@ class MinerManagement(BaseModel):
             uid (int): Unique identifier for the miner.
             validator_key_path (str): Path to the validator's private key for authentication.
             validator_username (str): Username of the validator running the challenge.
+            labels_dict (dict): Dictionary containing the encrypted labels for each label type.
             challenge_duration (int): Duration for which the challenge should run, in seconds.
 
         Returns:
@@ -593,34 +594,44 @@ class MinerManagement(BaseModel):
 
         try:
 
-            try:
-                # Open and read the private key file
-                with open(validator_key_path, "r") as key_file:
-                    validator_private_key = key_file.read()
-            except Exception as e:
-                logger.error(f"❌ Error reading private key: {e}")
-
-            pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name, iface)
+            # Generate the pcap command
+            pcap_cmd = get_pcap_file_cmd(machine_name, king_ip, challenge_duration, labels_dict, iface)
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
 
             if not client:
-                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                return False
+                return None
 
-            # Run revert command
+            # Run the pcap command
             result = await run_cmd_async(client, pcap_cmd)
-            # if result.exit_status == 0:
-            #     logger.info(f"✅ Run challenge commands executed successfully on {ip}")
-            # else:
-            #     logger.error(f"❌ Run challenged commands failed on {ip}: {result.stderr}")
-        
-            return True
+
+            # Parse the result to get the counts from stdout
+            counts_and_rtt = result.stdout.strip().split(", ")
+
+            # Initialize a dictionary to store counts using a for loop
+            label_counts = {label: 0 for label in labels_dict.values()}
+
+            rtt_avg = None
+
+            # Parse each label count from the result string
+            for count in counts_and_rtt:
+                
+                if "AVG_RTT" in count:
+                    rtt_avg = float(count.split(":")[1].strip())  # Get the RTT value after "AVG_RTT"
+                else:
+                    label, value = count.split(":")
+                    if label in label_counts:
+                        label_counts[label] = int(value.strip())
+
+
+            return machine_name, label_counts, rtt_avg
 
         except Exception as e:
-            # logger.error(f"🚨 Failed to run commands on {machine_name} for miner {uid} : {e}")
-            return False
+            logger.error(f"Error occurred: {e}")
+            return None
+
+
     
     async def query_availability(self, uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
         """Query the availability of a given UID.
@@ -763,6 +774,8 @@ class MinerManagement(BaseModel):
             Tuple[Synapse, dict]: A tuple containing the synapse response and miner's availability status.
         """
         synapse, uid_status_availability = await self.query_availability(uid)  
+
+        self.king_ips[uid] = synapse.machine_availabilities.machine_config["King"].ip
         return synapse, uid_status_availability
     
     async def execute_task(
@@ -771,9 +784,10 @@ class MinerManagement(BaseModel):
         miners: List[Tuple[int, 'PingSynapse']],
         subset_miners: list[int],
         task_function: Callable[..., bool],
+        labels_dict: dict = None,
         backup_suffix: str = '', 
         challenge_duration: int = settings.CHALLENGE_DURATION,
-        timeout: int = 240
+        timeout: int = settings.ROUND_TIMEOUT
     ) -> List[Dict[str, Union[int, str]]]:
         """
         A generic function to execute different tasks (such as setup, lockdown, revert, challenge) on miners. 
@@ -853,8 +867,7 @@ class MinerManagement(BaseModel):
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
                 user_commands = role_cmds.get(machine_name, [])
-                validator_key_path = os.environ.get("VALIDATOR_KEY_PATH")    # Get the path of the private key from environment variable
-                validator_username = os.getlogin()
+                king_ip = self.king_ips[uid]
 
                 # Map task function to a version with specific arguments
                 if task == "setup":
@@ -865,7 +878,7 @@ class MinerManagement(BaseModel):
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, uid=uid, validator_key_path=validator_key_path, validator_username=validator_username, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
@@ -877,12 +890,36 @@ class MinerManagement(BaseModel):
             # Run revert for all machines of the miner
             tasks = [process_machine(name, details, task_function) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
             results = await asyncio.gather(*tasks)
-            all_success = all(results)  # Mark as success if all machines are successfully reverted
 
-            task_status[uid] = {
-                f"{task}_status_code": 200 if all_success else 500,
-                f"{task}_status_message": f"All machines processed {task} successfully" if all_success else f"Failure: Some machines failed to process {task}",
-            }
+            if task == "challenge":
+                # For each machine, collect its result and handle `label_counts` or `None`
+                label_counts_results = []
+                failed_machines = 0
+
+                for result in results:
+                    if result is None:
+                        failed_machines += 1
+                    elif isinstance(result, tuple):  # Expected result type for successful challenge
+                        label_counts_results.append(result)
+                    else:
+                        failed_machines += 1
+
+                all_success = failed_machines == 0
+
+                task_status[uid] = {
+                    f"{task}_status_code": 200 if all_success else 500,
+                    f"{task}_status_message": f"All machines processed {task} successfully with label counts" if all_success else f"Failure: {failed_machines} machines failed in processing {task}",
+                    "label_counts_results": label_counts_results,  # Add the successful label counts
+                }
+
+            else:
+                # For other tasks, just mark the status based on boolean success
+                all_success = all(results)  # All machines should return True for success
+                
+                task_status[uid] = {
+                    f"{task}_status_code": 200 if all_success else 500,
+                    f"{task}_status_message": f"All machines processed {task} successfully" if all_success else f"Failure: Some machines failed to process {task}",
+                }
 
         async def setup_miner_with_timeout(uid, synapse, task_function):
             """
@@ -896,13 +933,26 @@ class MinerManagement(BaseModel):
             try:
                 # Apply timeout to the entire setup_miner function for each miner
                 await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
+
+                if task == "challenge" :
+
+                    try:
+                        end_round_synapse = ChallengeSynapse(
+                            task="Defend The King",
+                            state="END_ROUND",
+                        )
+                        await self.dendrite_call(uid, end_round_synapse, timeout=settings.NEURON_TIMEOUT)
+                        
+                    except Exception as e:
+                        logger.error(f"Error sending synapse to miner {uid}: {e}")
+
             except asyncio.TimeoutError:
                 logger.error(f"⏰ Timeout reached for {task} with miner {uid}.")
                 task_status[uid] = {
                     f"{task}_status_code": 408,
                     f"{task}_status_message": f"Timeout: Miner {task} aborted. Skipping miner {uid} for this round."
                 }
-
+            
 
         # Process all miners in parallel
         await asyncio.gather(*[setup_miner_with_timeout(uid, synapse, task_function) for uid, synapse in miners])

@@ -49,7 +49,8 @@ Version: 0.1.0
 
 import asyncio
 import threading
-
+import shutil
+import os
 import numpy as np
 
 from pydantic import ConfigDict
@@ -75,6 +76,7 @@ class ScoringConfig:
     """
     response: DendriteResponseEvent
     uids: int
+    labels_dict: dict
     block: int
     step: int
 
@@ -104,6 +106,7 @@ class TaskScorer(AsyncLoopRunner):
         self,
         response: DendriteResponseEvent,
         uids : int,
+        labels_dict:dict,
         block: int,
         step: int,
     ) -> None:
@@ -119,7 +122,7 @@ class TaskScorer(AsyncLoopRunner):
             None
         """
         
-        self.scoring_round = ScoringConfig(response=response, uids=uids, block=block, step=step)
+        self.scoring_round = ScoringConfig(response=response, uids=uids, labels_dict=labels_dict, block=block, step=step)
 
     async def run_step(self) -> RewardLoggingEvent:
         """
@@ -138,7 +141,7 @@ class TaskScorer(AsyncLoopRunner):
         self.scoring_round = None
 
         #Calculate the reward
-        reward_event = self.base_reward_model.apply(response_event=scoring_config.response,uids=scoring_config.uids)
+        reward_event = self.base_reward_model.apply(response_event=scoring_config.response, uids=scoring_config.uids, labels_dict=scoring_config.labels_dict)
 
         global_vars.reward_events.append(reward_event)
 
@@ -149,6 +152,9 @@ class TaskScorer(AsyncLoopRunner):
             uids=reward_event.uids,
             rewards=reward_event.rewards,
         ))
+
+
+        logger.info("Scoring completed for this round.")
 
         await asyncio.sleep(0.01)
 

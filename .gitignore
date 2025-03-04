@@ -2,3 +2,7 @@ wandb
 .vscode
 tp/
 weights.csv
+__pycache__/
+*.pyc
+*.pcap
+# .env*
