@@ -137,8 +137,9 @@ class ChallengeRewardModel(BaseModel):
             all(value == 0 for value in benign_counts.values()) and \
             all(value == 0 for value in king_counts.values()):
                 continue
-
+            
             # Average RTT of the traffic gen machines
+            
             rtt = (attack_avg_rtt+benign_avg_rtt)/2
 
             # Total packets sent
@@ -160,10 +161,17 @@ class ChallengeRewardModel(BaseModel):
 
             attack_counts, benign_counts, king_counts = packet_data[uid]
 
-            # Total attack packets sent
-            total_attacks_sent = sum(attack_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
-            # Total benign packets sent
-            total_benign_sent = benign_counts.get("BENIGN", 0)
+            # Total packets sent from the Attacker machine
+            total_attacks_from_attacker = sum(attack_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
+            total_benign_from_attacker = attack_counts.get("BENIGN", 0)
+
+            # Total packets sent from the Benign machine
+            total_benign_from_benign = benign_counts.get("BENIGN", 0)
+            total_attacks_from_benign = sum(benign_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
+        
+            total_attacks_sent = total_attacks_from_attacker + total_attacks_from_benign
+            total_benign_sent = total_benign_from_benign + total_benign_from_attacker
+
             # Total packets sent
             total_packets_sent = total_attacks_sent + total_benign_sent
 
