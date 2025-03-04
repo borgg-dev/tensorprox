@@ -610,20 +610,25 @@ class MinerManagement(BaseModel):
             result = await run_cmd_async(client, pcap_cmd)
 
             # Parse the result to get the counts from stdout
-            counts = result.stdout.strip().split(", ")
+            counts_and_rtt = result.stdout.strip().split(", ")
 
             # Initialize a dictionary to store counts using a for loop
             label_counts = {label: 0 for label in labels_dict.values()}
 
+            rtt_avg = None
+
             # Parse each label count from the result string
-            for count in counts:
-                label, value = count.split(":")
-                if label in label_counts:
-                    label_counts[label] = int(value.strip())
+            for count in counts_and_rtt:
+                
+                if "AVG_RTT" in count:
+                    rtt_avg = float(count.split(":")[1].strip())  # Get the RTT value after "AVG_RTT"
+                else:
+                    label, value = count.split(":")
+                    if label in label_counts:
+                        label_counts[label] = int(value.strip())
 
-            logger.info(f"Label Counts: {label_counts} for Machine : {machine_name}")
 
-            return machine_name, label_counts
+            return machine_name, label_counts, rtt_avg
 
         except Exception as e:
             logger.error(f"Error occurred: {e}")
