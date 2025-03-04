@@ -93,7 +93,15 @@ class BatchRewardOutput(BaseModel):
 
 class ChallengeRewardModel(BaseModel):
     
+    @staticmethod
+    def normalize_rtt(input, exponent=3, scale_factor=10):
+        # Use max to avoid negative logs causing unexpected results
+        return 1 / (1 + math.log(input + 1)**exponent / scale_factor)
     
+    @staticmethod
+    def exponential_ratio(ratio):
+        return (math.exp(ratio**2) - 1) / (math.exp(1) - 1)
+
     def reward(self, response_event: DendriteResponseEvent, uids: List[int], labels_dict: Dict) -> BatchRewardOutput:
         """
         Calculate rewards for a batch of users based on their packet capture data.
@@ -149,8 +157,6 @@ class ChallengeRewardModel(BaseModel):
             packet_data[uid] = (attack_counts, benign_counts, king_counts)
             rtt_dict[uid] = rtt
 
-        # Calculate the min RTT across all users
-        min_rtt = min(rtt_dict.values(), default=0)
 
         # Calculate rewards for each participant
         for uid in uids:
@@ -182,21 +188,21 @@ class ChallengeRewardModel(BaseModel):
 
             # Attack Detection Accuracy (ADA)
             ADA = (total_attacks_sent - total_reaching_attacks) / total_attacks_sent if total_attacks_sent > 0 else 0
-            reward_ADA = (math.exp(ADA**2) - 1) / (math.exp(1) - 1)
+            reward_ADA = self.exponential_ratio(ratio=ADA)
 
             # False Positive Rate (FPR)
-            FPR =  (total_benign_sent - total_reaching_benign) / total_benign_sent if total_benign_sent > 0 else 1
-            reward_FPR = (math.exp((1-FPR)**2) - 1) / (math.exp(1) - 1)
+            FPR =  1 - (total_benign_sent - total_reaching_benign) / total_benign_sent if total_benign_sent > 0 else 0    
+            reward_FPR = self.exponential_ratio(ratio=FPR)
 
             # Normalized total packets sent
             normalized_packets_sent = total_packets_sent / max_packets if max_packets > 0 else 0
 
             # Log-based Normalized RTT          
             rtt = rtt_dict[uid]  # Get the RTT for the current uid
-            normalized_rtt = math.log(min_rtt + 1) / (math.log(rtt + 1)) if rtt > 0 else 0
+            normalized_rtt = self.normalize_rtt(input=rtt)
 
             logging.info(f"ADA for UID {uid} : {ADA}")
-            logging.info(f"1-FPR for UID {uid} : {1-FPR}")
+            logging.info(f"FPR for UID {uid} : {FPR}")
             logging.info(f"Normalized_packets_sent for UID {uid} : {normalized_packets_sent}")
             logging.info(f"Average RTT for UID {uid} : {rtt} ms")
             logging.info(f"Normalized RTT for UID {uid} : {normalized_rtt}")
