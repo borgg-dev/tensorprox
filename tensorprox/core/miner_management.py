@@ -353,7 +353,7 @@ class MinerManagement(BaseModel):
 
     miners: Dict[int, 'PingSynapse'] = {}
     local_ip: str = get_local_ip()
-
+    king_ips: Dict[int, str] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         """
@@ -570,7 +570,7 @@ class MinerManagement(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, uid:int, validator_key_path: str, validator_username: str, labels_dict: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -593,12 +593,9 @@ class MinerManagement(BaseModel):
         """
 
         try:
-            # Open and read the private key file
-            with open(validator_key_path, "r") as key_file:
-                validator_private_key = key_file.read()
 
             # Generate the pcap command
-            pcap_cmd = get_pcap_file_cmd(uid, validator_username, validator_private_key, self.local_ip, challenge_duration, machine_name, labels_dict, iface)
+            pcap_cmd = get_pcap_file_cmd(machine_name, king_ip, challenge_duration, labels_dict, iface)
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
@@ -777,6 +774,8 @@ class MinerManagement(BaseModel):
             Tuple[Synapse, dict]: A tuple containing the synapse response and miner's availability status.
         """
         synapse, uid_status_availability = await self.query_availability(uid)  
+
+        self.king_ips[uid] = synapse.machine_availabilities.machine_config["King"].ip
         return synapse, uid_status_availability
     
     async def execute_task(
@@ -868,8 +867,7 @@ class MinerManagement(BaseModel):
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
                 user_commands = role_cmds.get(machine_name, [])
-                validator_key_path = os.environ.get("VALIDATOR_KEY_PATH")    # Get the path of the private key from environment variable
-                validator_username = os.getlogin()
+                king_ip = self.king_ips[uid]
 
                 # Map task function to a version with specific arguments
                 if task == "setup":
@@ -880,7 +878,7 @@ class MinerManagement(BaseModel):
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, uid=uid, validator_key_path=validator_key_path, validator_username=validator_username, labels_dict=labels_dict, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   

@@ -53,54 +53,6 @@ from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
 
-""" 
-Ensure machine user running validator has right access to .ssh folder
-otherwise password will block pcap submission from the remote machines
-
-sudo chown -R user:user ~/.ssh
-
-"""
-
-def ensure_rsa_key(key_path="~/.ssh/validator_key"):
-    key_path = os.path.expanduser(key_path)
-    pub_key_path = key_path + ".pub"
-    ssh_dir = os.path.expanduser("~/.ssh")
-    auth_keys_path = os.path.join(ssh_dir, "authorized_keys")
-
-    # Ensure ~/.ssh directory exists with correct permissions
-    if not os.path.exists(ssh_dir):
-        os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
-        print(f"Created ~/.ssh directory with correct permissions.")
-
-    # Generate key pair if it doesn't exist
-    if not os.path.exists(key_path):
-        print(f"Generating RSA key pair at {key_path}...")
-        subprocess.run(["ssh-keygen", "-t", "rsa", "-b", "4096", "-f", key_path, "-N", ""], check=True)
-        os.chmod(key_path, 0o600)
-        print(f"RSA key pair generated successfully: {key_path} and {pub_key_path}")
-    else:
-        print(f"RSA key already exists: {key_path}")
-
-    # Ensure ~/.ssh/authorized_keys exists
-    if not os.path.exists(auth_keys_path):
-        open(auth_keys_path, "a").close()
-        print(f"Created {auth_keys_path}")
-
-    # Read and add the public key to authorized_keys if not present
-    if os.path.exists(pub_key_path):
-        with open(pub_key_path, "r") as pub_key_file:
-            pub_key = pub_key_file.read().strip()
-
-        with open(auth_keys_path, "r+") as auth_keys_file:
-            authorized_keys = auth_keys_file.read()
-            if pub_key not in authorized_keys:
-                auth_keys_file.write(f"{pub_key}\n")
-                print(f"Public key added to {auth_keys_path}")
-            else:
-                print("Public key already exists in authorized_keys")
-
-    # Set correct permissions for authorized_keys
-    os.chmod(auth_keys_path, 0o600)
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -418,7 +370,6 @@ async def main():
     This function initializes and runs the web server to handle incoming requests.
     """
 
-    ensure_rsa_key()
 
     runner = web.AppRunner(app)
     await runner.setup()

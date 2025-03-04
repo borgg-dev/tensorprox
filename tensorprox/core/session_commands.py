@@ -312,7 +312,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: str, validator_ip: str, challenge_duration: str, machine_name: str, labels_dict: dict, iface: str = "eth0", king_ip="192.168.122.61") -> str:
+def get_pcap_file_cmd(machine_name: str, king_ip: str, challenge_duration: str, labels_dict: dict, iface: str = "eth0") -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP, 
     along with RTT measurement for packets from Attacker and Benign to King.
@@ -345,10 +345,6 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
         sudo apt-get update && sudo apt-get install -y tcpdump
     fi
 
-    # Create a temporary private key file
-    echo -e "{validator_private_key}" > /tmp/validator_key
-    chmod 600 /tmp/validator_key  # Set correct permissions
-
     # Capture network traffic for a duration
     sudo timeout {challenge_duration} tcpdump -i {iface} -w /tmp/capture.pcap '{filter_traffic}'
 
@@ -362,7 +358,7 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
 
     # Measure RTT if the machine is Attacker or Benign
     if [ {machine_name} == "Attacker" ] || [ {machine_name} == "Benign" ]; then
-    
+
         # Execute the RTT measurement command
         {rtt_measurement_cmd}
 
@@ -380,7 +376,6 @@ def get_pcap_file_cmd(uid: int, validator_username: str, validator_private_key: 
     rm -f /tmp/capture.pcap
     rm -f {rtt_file}
     rm -f traffic_data.txt
-    rm -f /tmp/validator_key
 
     """
 
