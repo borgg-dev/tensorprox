@@ -51,6 +51,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent
 from pydantic import BaseModel, ConfigDict
 import os
 import logging
+import math
 
 class ChallengeRewardEvent(BaseModel):
     """
@@ -138,9 +139,8 @@ class ChallengeRewardModel(BaseModel):
             all(value == 0 for value in king_counts.values()):
                 continue
             
-            # Average RTT of the traffic gen machines
-            
-            rtt = (attack_avg_rtt+benign_avg_rtt)/2
+            # Average RTT of the traffic gen machines 
+            rtt = max((attack_avg_rtt + benign_avg_rtt) / 2, 0)
 
             # Total packets sent
             total_packets_sent = sum(attack_counts.values()) + sum(benign_counts.values())
@@ -182,17 +182,18 @@ class ChallengeRewardModel(BaseModel):
 
             # Attack Detection Accuracy (ADA)
             ADA = (total_attacks_sent - total_reaching_attacks) / total_attacks_sent if total_attacks_sent > 0 else 0
+            reward_ADA = (math.exp(ADA**2) - 1) / (math.exp(1) - 1)
 
             # False Positive Rate (FPR)
-            FPR = (total_benign_sent - total_reaching_benign) / total_benign_sent if total_benign_sent > 0 else 1
+            FPR =  (total_benign_sent - total_reaching_benign) / total_benign_sent if total_benign_sent > 0 else 1
+            reward_FPR = (math.exp((1-FPR)**2) - 1) / (math.exp(1) - 1)
 
             # Normalized total packets sent
             normalized_packets_sent = total_packets_sent / max_packets if max_packets > 0 else 0
 
-            # Normalize latency based on min and max latency of all users
-            rtt = rtt_dict[uid]  # Get the latency for the current user
-
-            normalized_rtt = min_rtt / rtt  if rtt > 0 else 0
+            # Log-based Normalized RTT          
+            rtt = rtt_dict[uid]  # Get the RTT for the current uid
+            normalized_rtt = math.log(min_rtt + 1) / (math.log(rtt + 1)) if rtt > 0 else 0
 
             logging.info(f"ADA for UID {uid} : {ADA}")
             logging.info(f"1-FPR for UID {uid} : {1-FPR}")
@@ -201,7 +202,8 @@ class ChallengeRewardModel(BaseModel):
             logging.info(f"Normalized RTT for UID {uid} : {normalized_rtt}")
 
             # Calculate reward function
-            reward = alpha * ADA + beta * (1 - FPR) + gamma * normalized_packets_sent**2 + delta * normalized_rtt**2
+            reward = alpha * reward_ADA + beta * reward_FPR + gamma * normalized_packets_sent + delta *  normalized_rtt
+                   
             scores.append(reward)
 
         return BatchRewardOutput(rewards=np.array(scores))
