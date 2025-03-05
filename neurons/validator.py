@@ -48,11 +48,16 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.miner_management import MinerManagement
+from client_server import fetch_active_validators
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
 from datetime import datetime
-
+import random
+import time
+import hashlib
+import bittensor as bt
+import aiohttp
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -67,10 +72,32 @@ class Validator(BaseValidatorNeuron):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
-        self.assigned_miners = []  # List of assigned miner UIDs
         self.playlist = []  #Playlist for traffic generation
+        self.active_counts = 0
 
+    def map_to_consecutive(self, active_uids):
+        # Sort the input list
+        sorted_list = sorted(active_uids)
+        
+        # Create a mapping from sorted list to consecutive numbers starting from 1
+        mapping = {num: idx for idx, num in enumerate(sorted_list)}
+        
+        return mapping
 
+    def sync_shuffle_uids(self, uids, sync_time, active_count=1):
+        
+        #Generate hashed seed from utc time
+        seed = int(hashlib.sha256(str(sync_time).encode('utf-8')).hexdigest(), 16) % (2**32)
+        #Set the random seed
+        random.seed(seed)
+        #Shuffle the UIDS list
+        random.shuffle(uids)
+
+        # Split the shuffled UIDs into subsets based on the active validator count
+        miner_subsets = [uids[i::active_count] for i in range(active_count)]
+
+        return miner_subsets
+        
     def check_timeout(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT) -> tuple:
         """
         Checks if the round should be broken due to a timeout.
@@ -85,6 +112,7 @@ class Validator(BaseValidatorNeuron):
                 - elapsed_time (float): The elapsed time in seconds since the round started.
                 - remaining_time (float): The remaining time in seconds until the round timeout.
         """
+
         elapsed_time = (datetime.now() - start_time).total_seconds()
         remaining_time = round_timeout - elapsed_time
 
@@ -99,7 +127,26 @@ class Validator(BaseValidatorNeuron):
         return False  # Round is still active
 
 
-    async def run_step(self, timeout: float) -> DendriteResponseEvent | None:
+    async def ready(self, request):
+        """
+        Handles readiness checks from the orchestrator.
+
+        Args:
+            request (aiohttp.web.Request): Incoming HTTP request.
+
+        Returns:
+            aiohttp.web.Response: JSON response indicating readiness status.
+        """
+        data = await request.json()
+        message = data.get("message", "").lower()
+
+        if message == "ready":
+            return web.json_response({"status": "ready"})
+        else:
+            return web.json_response({"status": "failed"}, status=400)
+
+    
+    async def run_step(self, timeout: float, sync_time: int) -> DendriteResponseEvent | None:
         """
         Runs a validation step to query assigned miners, process availability, and initiate challenges.
 
@@ -113,46 +160,52 @@ class Validator(BaseValidatorNeuron):
         try:
             async with self._lock:
 
-                logger.debug(f"🎉 Starting new epoch ...")
+                active_validators_uids = await fetch_active_validators()  
+                self.active_counts = len(active_validators_uids)     
+                sync_shuffled_uids = self.sync_shuffle_uids(list(range(settings.SUBNET_NEURON_SIZE)), sync_time, self.active_counts)
+                mapped_uids = self.map_to_consecutive(active_validators_uids)
+                
+                # Get the idx_permutation for the current validator
+                idx_permutation = mapped_uids[self.uid]
+                logger.debug(f"Validator {self.uid} has idx_permutation {idx_permutation}")
 
-                round_counter = 1
+                # Ensure that each validator gets a unique subset of shuffled UIDs based on idx_permutation
+                subset_miners = sync_shuffled_uids[idx_permutation]
 
-                for subset_miners in self.assigned_miners:
+                start_time = datetime.now()
+                logger.info(f"🎉 Starting new round at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
 
-                    start_time = datetime.now()
-                    logger.info(f"▶️  Initiating round {round_counter}/{len(self.assigned_miners)} at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
-                    round_counter += 1
-                    backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
-                    labels_dict = {
-                        "BENIGN": "BENIGN",
-                        "UDP_FLOOD": "UDP_FLOOD",
-                        "TCP_SYN_FLOOD": "TCP_SYN_FLOOD"
-                    }
-                    if subset_miners:
-                        success = False
-                        while not success :
-                            try:
-                                elapsed_time = (datetime.now() - start_time).total_seconds()
-                                timeout_process = settings.ROUND_TIMEOUT - elapsed_time
-                                success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict), timeout=timeout_process)
-                            except asyncio.TimeoutError:
-                                logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
-                            except Exception as ex:
-                                logger.exception(f"Unexpected error while processing miners: {ex}.")
+                backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
+                labels_dict = {
+                    "BENIGN": "BENIGN",
+                    "UDP_FLOOD": "UDP_FLOOD",
+                    "TCP_SYN_FLOOD": "TCP_SYN_FLOOD"
+                }
+                if subset_miners:
+                    success = False
+                    while not success :
+                        try:
+                            elapsed_time = (datetime.now() - start_time).total_seconds()
+                            timeout_process = settings.ROUND_TIMEOUT - elapsed_time
+                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict), timeout=timeout_process)
+                        except asyncio.TimeoutError:
+                            logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
+                        except Exception as ex:
+                            logger.exception(f"Unexpected error while processing miners: {ex}.")
 
-                            condition = self.check_timeout(start_time)
-                            
-                            if condition :
-                                break
-                    else :
-                        logger.warning("📖 No miners assigned for this round.")
-                        condition = False
+                        condition = self.check_timeout(start_time)
+                        
+                        if condition :
+                            break
+                else :
+                    logger.warning("📖 No miners assigned for this round.")
+                    condition = False
 
-                    if not condition:  
-                        await self._wait_for_condition(start_time)
+                if not condition:  
+                    await self._wait_for_condition(start_time)
 
 
-                logger.debug(f"🎉  End of epoch, waiting for the next one...")
+                logger.debug(f"🎉  End of round, waiting for the next one...")
 
         except Exception as ex:
             logger.exception(ex)
@@ -160,6 +213,18 @@ class Validator(BaseValidatorNeuron):
                 error=str(ex),
             )
         
+
+    async def periodic_epoch_check(self, epsilon ) :
+        """Periodically checks the current UTC time to decide when to trigger the next epoch."""
+        while True:
+            current_time = int(time.time())
+            EPOCH_TIME = settings.ROUND_TIMEOUT + epsilon
+            if current_time % settings.ROUND_TIMEOUT == 0:  # Trigger epoch every `settings.EPOCH_PERIOD` seconds
+                logger.info(f"🎉 Starting new round at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC.")
+                await self.run_step(timeout=settings.NEURON_TIMEOUT, sync_time = current_time)
+            
+            await asyncio.sleep(1)  # Check every second to see if it's time for the next epoch
+
 
     async def _wait_for_condition(self, start_time):
         """
@@ -300,69 +365,40 @@ class Validator(BaseValidatorNeuron):
         """Implements the abstract handle challenge method."""
         await asyncio.sleep(1)
 
+    
+
+
+# Create an aiohttp app for validator
+app = web.Application()
+
+# Create a MinerManagement instance
+miner_manager = MinerManagement()
 
 # Define the validator instance
 validator_instance = Validator()
 
 
-async def ready(request):
-    """
-    Handles readiness checks from the orchestrator.
+async def run_fetch_server(port):
+    fetch_app = web.Application()
+    runner = web.AppRunner(fetch_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Validator counter server running on port {port}.")
+    return runner
 
-    Args:
-        request (aiohttp.web.Request): Incoming HTTP request.
+async def run_client_server(port):
+    client_app = web.Application()
+    # Add routes to the aiohttp app
+    client_app.router.add_post('/ready', validator_instance.ready)
+    runner = web.AppRunner(client_app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Validator aiohttp server started on port {port}.")
+    return runner
 
-    Returns:
-        aiohttp.web.Response: JSON response indicating readiness status.
-    """
-    data = await request.json()
-    message = data.get("message", "").lower()
-
-    if message == "ready":
-        return web.json_response({"status": "ready"})
-    else:
-        return web.json_response({"status": "failed"}, status=400)
-    
-
-async def assign_miners(request):
-    """
-    Handles miner assignment requests from the orchestrator.
-
-    Args:
-        request (aiohttp.web.Request): Incoming HTTP request containing miner assignments.
-
-    Returns:
-        aiohttp.web.Response: JSON response confirming miner assignment.
-    """
-    data = await request.json()
-    assigned_miners = data.get("assigned_miners", [])
-    playlist = data.get("playlist", [])
-
-    if not assigned_miners:
-        return web.json_response({"status": "failed", "error": "No miners provided"}, status=400)
-
-    async with validator_instance._lock:
-        validator_instance.assigned_miners = assigned_miners
-        validator_instance.playlist = playlist
-        # logger.info(f"Assigned miners updated: {assigned_miners}")
-        # logger.info(f"Playlist updated: {playlist}")
-
-    # Trigger run_step manually only when miners are assigned
-    asyncio.create_task(validator_instance.run_step(timeout=settings.NEURON_TIMEOUT))
-
-    return web.json_response({"status": "miners_assigned"})
-
-
-# Create an aiohttp app for validator
-app = web.Application()
-miner_manager = MinerManagement()
-
-# Add routes to the aiohttp app
-app.router.add_post('/ready', ready)
-app.router.add_post('/assign_miners', assign_miners)
-
-
-# Main function to start both the validator and aiohttp server
+# Main function to start background tasks
 async def main():
     """
     Starts the validator's aiohttp server.
@@ -370,25 +406,26 @@ async def main():
     This function initializes and runs the web server to handle incoming requests.
     """
 
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
+    fetch_port = int(os.environ.get("VALIDATOR_AXON_PORT"))+2 #do not change this port
     aiohttp_port = int(os.environ.get("VALIDATOR_AXON_PORT"))+1 #do not change this port
-    site = web.TCPSite(runner, host="0.0.0.0", port=aiohttp_port)
 
-    await site.start()
-
-    logger.info("Validator aiohttp server started.")
+    # Start servers as a background task
+    fetch_runner = await run_fetch_server(port=fetch_port)  # Start the fetch server and get the runner
+    client_runner = await run_client_server(port=aiohttp_port)  # Start the client server and get the runner
 
     # Start background tasks
     asyncio.create_task(weight_setter.start())
     asyncio.create_task(task_scorer.start())
+    asyncio.create_task(validator_instance.periodic_epoch_check())  # Start the periodic epoch check
     
     try:
         await asyncio.Event().wait()  # Keeps the server running indefinitely
     finally:
-        await runner.cleanup()
+        # Cleanup: Ensure the runners are cleaned up properly before shutdown
+        await fetch_runner.cleanup()  # Cleanup the fetch runner
+        await client_runner.cleanup()  # Cleanup the client runner
+        logger.info("Cleaned up runners and shutting down.")
 
 if __name__ == "__main__":
+
     asyncio.run(main())
