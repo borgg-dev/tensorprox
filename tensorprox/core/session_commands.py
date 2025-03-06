@@ -265,6 +265,17 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         passwd -l root || true
 
         ############################################################
+        # 4) Firewall => only {validator_ip}
+        ############################################################
+        NIC=$(ip route | grep default | awk '{{print $5}}' | head -1)
+        iptables -F
+        iptables -X
+        iptables -A INPUT -i $NIC -p tcp -s {validator_ip} -j ACCEPT
+        iptables -A OUTPUT -o $NIC -p tcp -d {validator_ip} -j ACCEPT
+        iptables -A INPUT -i $NIC -j DROP
+        iptables -A OUTPUT -o $NIC -j DROP
+        ############################################################
+        
         # 5) Kill processes except session process
         ############################################################
         ps -ef \\

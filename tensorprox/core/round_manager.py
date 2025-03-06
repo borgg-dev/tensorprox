@@ -394,12 +394,8 @@ class RoundManager(BaseModel):
                 return False
 
             # Run revert command
-            result = await run_cmd_async(client, revert_cmd)
-            # if result.exit_status == 0:
-            #     logger.info(f"✅ Revert command executed successfully on {ip}")
-            # else:
-            #     logger.error(f"❌ Revert command failed on {ip}: {result.stderr}")
-        
+            await run_cmd_async(client, revert_cmd)
+
             return True
 
         except Exception as e:
@@ -407,7 +403,7 @@ class RoundManager(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlist: list, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -621,8 +617,9 @@ class RoundManager(BaseModel):
         miners: List[Tuple[int, 'PingSynapse']],
         subset_miners: list[int],
         task_function: Callable[..., bool],
-        labels_dict: dict = None,
-        backup_suffix: str = '', 
+        labels_dict: dict,
+        backup_suffix: str, 
+        playlist: list,
         challenge_duration: int = settings.CHALLENGE_DURATION,
         timeout: int = settings.ROUND_TIMEOUT
     ) -> List[Dict[str, Union[int, str]]]:
@@ -714,7 +711,7 @@ class RoundManager(BaseModel):
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlist=playlist, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   

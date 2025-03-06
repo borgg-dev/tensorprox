@@ -4,6 +4,7 @@ import re
 import logging
 import os
 import asyncio
+import random
 from typing import Tuple
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
@@ -120,7 +121,36 @@ def save_private_key(priv_key_str: str, path: str):
     except Exception as e:
         # log_message("ERROR", f"Error saving private key: {e}")
         pass
+
+def create_random_playlist(seed=None, total_minutes=15):
+    """
+    Create a random playlist totaling a specified duration.
+
+    Generates a playlist consisting of random activities ('pause' or a class type)
+    with durations summing up to the specified total minutes.
+
+    Args:
+        total_minutes (int): The total duration of the playlist in minutes. Defaults to 15.
+        seed (int, optional): The seed for the random number generator. If None, the seed is not set. Defaults to None.
+
+    Returns:
+        list: A list of dictionaries, each containing 'name' and 'duration' keys.
+    """
     
+    if seed is not None:
+        random.seed(seed)
+    
+    type_class_map = {'a': "ClassA", 'b': "ClassB", 'c': "ClassC", 'd': "ClassD"}
+    playlist = []
+    current_total = 0
+    while current_total < total_minutes:
+        name = "pause" if random.random() < 0.5 else random.choice(list(type_class_map.keys()))
+        duration = min(random.randint(1, 3), total_minutes - current_total)
+        playlist.append({"name": name, "duration": duration})
+        current_total += duration
+
+    return playlist
+ 
 async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     """
     Asynchronously generates an ED25519 SSH key pair and stores it securely.

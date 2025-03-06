@@ -48,6 +48,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.round_manager import RoundManager
 from tensorprox.core.sync_active_validators import fetch_active_validators
+from tensorprox.utils.utils import create_random_playlist
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
@@ -69,8 +70,7 @@ class Validator(BaseValidatorNeuron):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
-        self.playlist = []  #Playlist for traffic generation
-        self.active_counts = 0
+        self.active_count = 0
 
     def map_to_consecutive(self, active_uids):
         # Sort the input list
@@ -80,12 +80,10 @@ class Validator(BaseValidatorNeuron):
         mapping = {num: idx for idx, num in enumerate(sorted_list)}
         
         return mapping
+    
 
-    def sync_shuffle_uids(self, uids, sync_time, active_count=1):
+    def sync_shuffle_uids(self, uids: list, active_count: int, seed: int):
         
-        #Generate hash seed from universal time sync
-        seed = int(hashlib.sha256(str(sync_time).encode('utf-8')).hexdigest(), 16) % (2**32)
-
         random.seed(seed)
         random.shuffle(uids)
 
@@ -157,10 +155,15 @@ class Validator(BaseValidatorNeuron):
             async with self._lock:
 
                 active_validators_uids = await fetch_active_validators()  
-                self.active_counts = len(active_validators_uids)     
-                logger.debug(f"Number of active validators = {self.active_counts}")
+                self.active_count = len(active_validators_uids)     
 
-                sync_shuffled_uids = self.sync_shuffle_uids(list(range(settings.SUBNET_NEURON_SIZE)), sync_time, self.active_counts)
+                logger.debug(f"Number of active validators = {self.active_count}")
+
+                #Generate hash seed from universal time sync
+                seed = int(hashlib.sha256(str(sync_time).encode('utf-8')).hexdigest(), 16) % (2**32)
+
+                sync_shuffled_uids = self.sync_shuffle_uids(list(range(settings.SUBNET_NEURON_SIZE)), self.active_count, seed)
+
                 mapped_uids = self.map_to_consecutive(active_validators_uids)
                 
                 # Get the idx_permutation for the current validator
@@ -171,11 +174,14 @@ class Validator(BaseValidatorNeuron):
 
                 start_time = datetime.now()
                 backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
-                labels_dict = {
-                    "BENIGN": "BENIGN",
-                    "UDP_FLOOD": "UDP_FLOOD",
-                    "TCP_SYN_FLOOD": "TCP_SYN_FLOOD"
-                }
+                
+                labels_dict = {label:label for label in settings.labels}
+
+                playlist = create_random_playlist(seed)
+
+                # Now reset the random seed to None before shuffling
+                random.seed(None)
+                random.shuffle(playlist)
 
                 if subset_miners:
                     success = False
@@ -185,7 +191,7 @@ class Validator(BaseValidatorNeuron):
                             timeout_process = settings.ROUND_TIMEOUT - elapsed_time
                             success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict), timeout=timeout_process)
                         except asyncio.TimeoutError:
-                            logger.warning(f"Timeout reached for this round after {settings.ROUND_TIMEOUT / 60} minutes.")
+                            logger.warning(f"Timeout reached for this round after {int(settings.ROUND_TIMEOUT / 60)} minutes.")
                         except Exception as ex:
                             logger.exception(f"Unexpected error while processing miners: {ex}.")
 
@@ -287,28 +293,28 @@ class Validator(BaseValidatorNeuron):
 
         logger.debug(f"Setup phase completed in {setup_timer.elapsed_time:.2f} seconds")
 
-        # Step 3: Lockdown
-        with Timer() as lockdown_timer:
-            logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
-            try:
-                lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown)
-            except Exception as e:
-                logger.error(f"Error during lockdown phase: {e}")
-                lockdown_results = []
-                return False
+        # # Step 3: Lockdown
+        # with Timer() as lockdown_timer:
+        #     logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
+        #     try:
+        #         lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown)
+        #     except Exception as e:
+        #         logger.error(f"Error during lockdown phase: {e}")
+        #         lockdown_results = []
+        #         return False
             
-        logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+        # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
 
-        ready_miners = [
-            (uid, synapse) for uid, synapse in setup_completed_miners
-            if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-        ]
+        # ready_miners = [
+        #     (uid, synapse) for uid, synapse in setup_completed_miners
+        #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+        # ]
 
-        if not ready_miners:
-            logger.warning("No miners are available for challenge phase.")
-            return False
+        # if not ready_miners:
+        #     logger.warning("No miners are available for challenge phase.")
+        #     return False
 
-        # ready_miners = setup_completed_miners
+        ready_miners = setup_completed_miners
         ready_uids = [uid for uid, _ in ready_miners]
 
         # Step 4: Challenge
@@ -317,7 +323,7 @@ class Validator(BaseValidatorNeuron):
             try:
                 ready_results = await round_manager.get_ready(ready_uids)
                 await asyncio.sleep(0.01)
-                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict)
+                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlist=self.playlist)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
