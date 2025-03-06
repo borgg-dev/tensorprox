@@ -48,7 +48,7 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.miner_management import MinerManagement
-from client_server import fetch_active_validators
+from tensorprox.core.sync_active_validators import fetch_active_validators
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
@@ -86,11 +86,10 @@ class Validator(BaseValidatorNeuron):
 
     def sync_shuffle_uids(self, uids, sync_time, active_count=1):
         
-        #Generate hashed seed from utc time
+        #Generate hash seed from universal time sync
         seed = int(hashlib.sha256(str(sync_time).encode('utf-8')).hexdigest(), 16) % (2**32)
-        #Set the random seed
+
         random.seed(seed)
-        #Shuffle the UIDS list
         random.shuffle(uids)
 
         # Split the shuffled UIDs into subsets based on the active validator count
@@ -162,25 +161,25 @@ class Validator(BaseValidatorNeuron):
 
                 active_validators_uids = await fetch_active_validators()  
                 self.active_counts = len(active_validators_uids)     
+                logger.debug(f"Number of active validators = {self.active_counts}")
+
                 sync_shuffled_uids = self.sync_shuffle_uids(list(range(settings.SUBNET_NEURON_SIZE)), sync_time, self.active_counts)
                 mapped_uids = self.map_to_consecutive(active_validators_uids)
                 
                 # Get the idx_permutation for the current validator
                 idx_permutation = mapped_uids[self.uid]
-                logger.debug(f"Validator {self.uid} has idx_permutation {idx_permutation}")
 
                 # Ensure that each validator gets a unique subset of shuffled UIDs based on idx_permutation
                 subset_miners = sync_shuffled_uids[idx_permutation]
 
                 start_time = datetime.now()
-                logger.info(f"🎉 Starting new round at {start_time.strftime('%Y-%m-%d %H:%M:%S')}...")  # Formatted time
-
                 backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
                 labels_dict = {
                     "BENIGN": "BENIGN",
                     "UDP_FLOOD": "UDP_FLOOD",
                     "TCP_SYN_FLOOD": "TCP_SYN_FLOOD"
                 }
+
                 if subset_miners:
                     success = False
                     while not success :
@@ -214,16 +213,15 @@ class Validator(BaseValidatorNeuron):
             )
         
 
-    async def periodic_epoch_check(self, epsilon ) :
+    async def periodic_epoch_check(self) :
         """Periodically checks the current UTC time to decide when to trigger the next epoch."""
         while True:
             current_time = int(time.time())
-            EPOCH_TIME = settings.ROUND_TIMEOUT + epsilon
-            if current_time % settings.ROUND_TIMEOUT == 0:  # Trigger epoch every `settings.EPOCH_PERIOD` seconds
-                logger.info(f"🎉 Starting new round at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC.")
-                await self.run_step(timeout=settings.NEURON_TIMEOUT, sync_time = current_time)
-            
-            await asyncio.sleep(1)  # Check every second to see if it's time for the next epoch
+            EPOCH_TIME = settings.ROUND_TIMEOUT + settings.EPSILON
+            if current_time % EPOCH_TIME == 0:  # Trigger epoch every `settings.EPOCH_PERIOD` seconds
+                logger.info(f"🏁 Starting new round at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC.")
+                await self.run_step(timeout=settings.NEURON_TIMEOUT, sync_time = current_time)           
+            await asyncio.sleep(1) 
 
 
     async def _wait_for_condition(self, start_time):

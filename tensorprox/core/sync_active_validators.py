@@ -48,12 +48,10 @@ from aiohttp import web, ClientSession, ClientTimeout
 import asyncio
 import bittensor as bt
 from loguru import logger
+from tensorprox import settings
+settings.settings = settings.Settings.load(mode="validator")
+settings = settings.settings
 
-active_validators = []  # List of active validators
-REQUEST_TIMEOUT = 3  # Set a timeout of 3 seconds per request
-ROUND_TIME = 240
-epsilon = 30
-app = web.Application()
 
 async def send_ready_request(session, validator_url, validator_hotkey):
     """
@@ -68,12 +66,13 @@ async def send_ready_request(session, validator_url, validator_hotkey):
         validator_hotkey (str): The hotkey identifier of the validator.
 
     Returns:
-        bool: True if the validator responds with status 200, False otherwise.
+        bool: True if the validator responds with status 200, False otherwise. 
+              A response status of 200 indicates that the validator is ready.
     """
 
     try:
         payload = {"message": "Ready", "validator_hotkey": validator_hotkey}
-        async with session.post(f"{validator_url}/ready", json=payload, timeout=REQUEST_TIMEOUT) as response:
+        async with session.post(f"{validator_url}/ready", json=payload, timeout=3) as response:
             return response.status == 200
     except asyncio.TimeoutError:
         return False
@@ -82,58 +81,57 @@ async def send_ready_request(session, validator_url, validator_hotkey):
 
 
 def neurons_to_ips(netuid, vpermit, network):
-    """espilon
-    Retrieve IPs of neurons with active validator permits.
+    """
+    Retrieve IP addresses of neurons with active validator permits.
 
-    Fetches neurons from the specified subnet and filters those with active validator permits
-    and total stake above the given threshold.
+    This function fetches a list of neurons from a specified subnet, then filters and collects
+    those neurons which have an active validator permit and have a total stake greater than or equal to
+    the provided threshold (`vpermit`). It returns a list of dictionaries, each representing a valid validator.
 
     Args:
-        netuid (int): The network UID of the subnet.
-        vpermit (float): The minimum stake required for a neuron to be considered as a validator.
+        netuid (int): The unique identifier for the network (subnet), used to query neurons in a specific subnet.
+        vpermit (float): The minimum required total stake that a neuron must have to be considered for validation.
+        network (str): The name or identifier of the network (e.g., a subnet) from which neurons are queried.
 
     Returns:
-        tuple: A tuple containing:
-            - list: A list of dictionaries with 'host' and 'hotkey' of active validators.
-            - list: A list of UIDs of all neurons in the subnet.
+        list of dict:
+            - A list of dictionaries where each dictionary represents a validator neuron and contains:
+                - 'host' (str): The IP address and port of the neuron (constructed as 'http://127.0.0.1:<port>').
+                - 'hotkey' (str): The hotkey of the neuron, used for validation.
+                - 'uid' (int): The unique identifier (UID) of the neuron.
+                
+        In addition to this, it also returns a unique list of UIDs of all the neurons that meet the criteria.
     """
 
     subnet_neurons = bt.subtensor(network=network).neurons_lite(netuid)
-    ips = []
+    validators = []
     for neuron in subnet_neurons :
         if neuron.validator_permit and int(neuron.total_stake) >= vpermit : 
-            ips.append({"host": f"http://127.0.0.1:{neuron.axon_info.port+1}", "hotkey": neuron.axon_info.hotkey, "uid": neuron.uid})
-    return list({tuple(ip.items()): dict(ip) for ip in ips}.values()), [neuron.uid for neuron in subnet_neurons]
+            validators.append({"host": f"http://127.0.0.1:{neuron.axon_info.port+1}", "hotkey": neuron.axon_info.hotkey, "uid": neuron.uid})
+    return list({tuple(v.items()): dict(v) for v in validators}.values())
+
 
 async def fetch_active_validators():
     """
-    Assign miners to active validators.
+    Continuously checks for active validators and returns their unique identifiers (UIDs).
 
-    Continuously checks for active validators and assigns miners to them based on availability.
-    This function runs indefinitely, performing assignments in rounds with pauses in between.
+    This asynchronous function checks the status of a list of validator neurons by calling 
+    the `send_ready_request` function for each validator. It checks each validator's readiness status
+    and returns a list of UIDs of the active (ready) validators.
 
-    Globals:
-        active_validators (list): Updated with the list of currently active validators.
+    Args:
+        None: This function does not require any arguments directly, as it uses global settings (e.g., `settings.NETUID`).
 
-    Notes:
-        - Each round consists of:
-            1. Checking validator readiness.
-            2. Assigning miners to ready validators.
-            3. Waiting for a specified duration before the next round.
+    Returns:
+        list[int]:
+            - A list of UIDs (Unique Identifiers) of the validators that are ready (responded with status 200).
+            - The list only contains the UIDs of the active validators.
     """
 
-    global active_validators
-    async with ClientSession(timeout=ClientTimeout(total=REQUEST_TIMEOUT)) as session:
+    async with ClientSession(timeout=ClientTimeout(total=3)) as session:
 
+        validators = neurons_to_ips(settings.NETUID, settings.NEURON_VPERMIT_TAO_LIMIT, settings.SUBTENSOR_NETWORK)
 
-        active_validators = []
-        NETUID = 234
-        NEURON_VPERMIT_TAO_LIMIT = 100*1e9
-        NETWORK = "test"
-
-        validators, uids = neurons_to_ips(NETUID, NEURON_VPERMIT_TAO_LIMIT, NETWORK)
-
-        logger.debug(f"Checking availability of {len(validators)} validator(s)...")
         tasks = [send_ready_request(session, v["host"], v["hotkey"]) for v in validators]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
