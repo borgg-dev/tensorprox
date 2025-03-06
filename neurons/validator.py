@@ -56,8 +56,6 @@ from datetime import datetime
 import random
 import time
 import hashlib
-import bittensor as bt
-import aiohttp
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -364,7 +362,43 @@ class Validator(BaseValidatorNeuron):
         await asyncio.sleep(1)
 
     
+async def run_server(app: web.Application, port: int, log_message: str) -> web.AppRunner:
+    """
+    Starts an aiohttp server with the provided application on the specified port.
 
+    Args:
+        app (web.Application): The aiohttp application to be served.
+        port (int): The port to bind the server to.
+        log_message (str): The log message to be displayed after starting the server.
+
+    Returns:
+        web.AppRunner: The runner object that can be used to manage the server lifecycle.
+    """
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(log_message)
+    return runner
+
+async def run_fetch_server(port):
+    """
+    Starts the fetch server for the validator.
+    """
+    fetch_app = web.Application()
+    # Add any necessary routes for the fetch server here
+    return await run_server(fetch_app, port, f"Validator counter server running on port {port}.")
+
+async def run_client_server(port):
+    """
+    Starts the client server for the validator.
+    """
+    client_app = web.Application()
+    # Add routes for client-specific endpoints
+    client_app.router.add_post('/ready', validator_instance.ready)  # Example route
+    return await run_server(client_app, port, f"Validator aiohttp server started on port {port}.")
+
+###############################################################################
 
 # Create an aiohttp app for validator
 app = web.Application()
@@ -374,27 +408,6 @@ miner_manager = MinerManagement()
 
 # Define the validator instance
 validator_instance = Validator()
-
-
-async def run_fetch_server(port):
-    fetch_app = web.Application()
-    runner = web.AppRunner(fetch_app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"Validator counter server running on port {port}.")
-    return runner
-
-async def run_client_server(port):
-    client_app = web.Application()
-    # Add routes to the aiohttp app
-    client_app.router.add_post('/ready', validator_instance.ready)
-    runner = web.AppRunner(client_app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"Validator aiohttp server started on port {port}.")
-    return runner
 
 # Main function to start background tasks
 async def main():
