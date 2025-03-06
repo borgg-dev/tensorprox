@@ -37,7 +37,6 @@ Version: 0.1.0
 
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
-import subprocess
 from aiohttp import web
 import asyncio
 from tensorprox import settings
@@ -47,7 +46,7 @@ from loguru import logger
 from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
-from tensorprox.core.miner_management import MinerManagement
+from tensorprox.core.round_manager import RoundManager
 from tensorprox.core.sync_active_validators import fetch_active_validators
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
@@ -249,7 +248,7 @@ class Validator(BaseValidatorNeuron):
 
             logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
             try:
-                synapses, all_miners_availability = await miner_manager.check_machines_availability(subset_miners)
+                synapses, all_miners_availability = await round_manager.check_machines_availability(subset_miners)
             except Exception as e:
                 logger.error(f"Error querying machine availabilities: {e}")
                 return False
@@ -265,58 +264,60 @@ class Validator(BaseValidatorNeuron):
             logger.warning("No miners are available after availability check. Retrying..")
             return False
 
-        # Step 2: Setup
+        # Step 2: Initial Session Key Setup
         with Timer() as setup_timer:
             logger.info(f"Setting up available miners : {[uid for uid, _ in available_miners]}")
             try:
-                setup_results = await miner_manager.execute_task(task="setup", miners=available_miners, subset_miners=subset_miners, task_function=miner_manager.async_setup, backup_suffix=backup_suffix)
+                setup_results = await round_manager.execute_task(task="setup", miners=available_miners, subset_miners=subset_miners, task_function=round_manager.async_setup, backup_suffix=backup_suffix)
             except Exception as e:
                 logger.error(f"Error during setup phase: {e}")
                 setup_results = []
                 return False
 
-        setup_complete_miners = [
+        setup_completed_miners = [
             (uid, synapse) for uid, synapse in available_miners
             if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
         ]
 
-        if not setup_complete_miners:
+        setup_completed_uids = [uid for uid, _ in setup_completed_miners]
+
+        if not setup_completed_miners:
             logger.warning("No miners left after the setup attempt.")
             return False
 
         logger.debug(f"Setup phase completed in {setup_timer.elapsed_time:.2f} seconds")
 
-        # # Step 3: Lockdown
-        # with Timer() as lockdown_timer:
-        #     logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
-        #     try:
-        #         lockdown_results = await miner_manager.execute_task(task="lockdown", miners=setup_complete_miners, subset_miners=subset_miners, task_function = miner_manager.async_lockdown)
-        #     except Exception as e:
-        #         logger.error(f"Error during lockdown phase: {e}")
-        #         lockdown_results = []
-        #         return False
+        # Step 3: Lockdown
+        with Timer() as lockdown_timer:
+            logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
+            try:
+                lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown)
+            except Exception as e:
+                logger.error(f"Error during lockdown phase: {e}")
+                lockdown_results = []
+                return False
             
-        # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+        logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
 
-        # ready_miners = [
-        #     (uid, synapse) for uid, synapse in setup_complete_miners
-        #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-        # ]
+        ready_miners = [
+            (uid, synapse) for uid, synapse in setup_completed_miners
+            if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+        ]
 
-        # if not ready_miners:
-        #     logger.warning("No miners are available for challenge phase.")
-        #     return False
+        if not ready_miners:
+            logger.warning("No miners are available for challenge phase.")
+            return False
 
-        ready_miners = setup_complete_miners
+        # ready_miners = setup_completed_miners
         ready_uids = [uid for uid, _ in ready_miners]
 
         # Step 4: Challenge
         with Timer() as challenge_timer:
             logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {settings.CHALLENGE_DURATION} seconds")
             try:
-                ready_results = await miner_manager.get_ready(ready_uids)
+                ready_results = await round_manager.get_ready(ready_uids)
                 await asyncio.sleep(0.01)
-                challenge_results = await miner_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_challenge, labels_dict=labels_dict)
+                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
@@ -327,7 +328,7 @@ class Validator(BaseValidatorNeuron):
         with Timer() as revert_timer:    
             logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
             try:
-                revert_results = await miner_manager.execute_task(task="revert", miners=ready_miners, subset_miners=subset_miners, task_function=miner_manager.async_revert, backup_suffix=backup_suffix)
+                revert_results = await round_manager.execute_task(task="revert", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_revert, backup_suffix=backup_suffix)
             except Exception as e:
                 logger.error(f"Error during revert phase: {e}")
                 revert_results = []
@@ -339,7 +340,7 @@ class Validator(BaseValidatorNeuron):
             synapses=synapses,
             all_miners_availability=all_miners_availability,
             setup_status=setup_results,
-            #lockdown_status=lockdown_results,
+            lockdown_status=lockdown_results,
             challenge_status=challenge_results,
             revert_status=revert_results,
             uids=subset_miners,
@@ -404,7 +405,7 @@ async def run_client_server(port):
 app = web.Application()
 
 # Create a MinerManagement instance
-miner_manager = MinerManagement()
+round_manager = RoundManager()
 
 # Define the validator instance
 validator_instance = Validator()

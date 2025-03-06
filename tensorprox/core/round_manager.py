@@ -70,27 +70,17 @@ Version: 0.1.0
 """
 
 #!/usr/bin/env python3
-
 import asyncio
 import os
 import random
 from typing import List, Dict, Tuple, Union, Optional, Callable
 from loguru import logger
 from pydantic import BaseModel
-from datetime import datetime, timedelta
-import time
-from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetails
-from tensorprox.base.loop_runner import AsyncLoopRunner
+from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
+from tensorprox.utils.utils import *
 from tensorprox.settings import settings
-from tensorprox.utils.uids import get_uids, extract_axons_ips
-from tensorprox.utils.timer import Timer
 from tensorprox.base.protocol import MachineConfig
 import dotenv
-import paramiko
-from paramiko import RSAKey
-from paramiko.ed25519key import Ed25519Key
-import io
-import re
 import logging
 from functools import partial
 import asyncssh
@@ -100,12 +90,12 @@ from tensorprox.core.session_commands import (
     get_sudo_setup_cmd,
     get_revert_script_cmd,
     get_lockdown_cmd,
-    get_pcap_file_cmd
+    get_scoring_metrics_cmd
 )
 
 
 ######################################################################
-# 1) LOCAL FUNCTIONS / UTILITIES
+# LOGGING and ENVIRONMENT SETUP
 ######################################################################
 
 dotenv.load_dotenv()
@@ -116,119 +106,11 @@ asyncssh_logger.setLevel(logging.CRITICAL)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-def log_message(level: str, message: str):
-    """
-    Logs a message with the specified logging level.
+create_session_key_dir()
 
-    Args:
-        level (str): The logging level (INFO, WARNING, ERROR, DEBUG).
-        message (str): The message to log.
-    """
-
-    if level.upper() == "INFO":
-        logging.info(message)
-    elif level.upper() == "WARNING":
-        logging.warning(message)
-    elif level.upper() == "ERROR":
-        logging.error(message)
-    else:
-        logging.debug(message)
-
-
-def is_valid_ip(ip: str) -> bool:
-    """
-    Validates whether the given string is a valid IPv4 address.
-
-    Args:
-        ip (str): The IP address to validate.
-
-    Returns:
-        bool: True if valid, False otherwise.
-    """
-
-    if not isinstance(ip, str):  # Check if ip is None or not a string
-        return False
-    pattern = r"^((25[0-5]|2[0-4][0-9]|[01]?\d?\d?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?\d?\d?)$"
-    return re.match(pattern, ip) is not None
-
-
-def get_local_ip() -> str:
-    """
-    Retrieves the local machine's public IP address if available.
-    Falls back to the internal IP if the public IP cannot be retrieved.
-
-    Returns:
-        str: The detected IP address, or "127.0.0.1" if unavailable.
-    """
-
-    try:
-        import requests
-        public_ip = requests.get('https://api.ipify.org').text.strip()
-        if is_valid_ip(public_ip):
-            return public_ip
-    except Exception:
-        pass
-    try:
-        import subprocess
-        local_ip = subprocess.check_output("hostname -I | awk '{print $1}'", shell=True).decode().strip()
-        if is_valid_ip(local_ip):
-            return local_ip
-    except:
-        pass
-    return "127.0.0.1"
-
-SESSION_KEY_DIR = "/var/tmp/session_keys"
-
-if not os.path.exists(SESSION_KEY_DIR):
-    try:
-        os.makedirs(SESSION_KEY_DIR, mode=0o700, exist_ok=True)
-        log_message("INFO", f"Created session key directory at {SESSION_KEY_DIR}")
-    except PermissionError as e:
-        log_message("ERROR", f"Permission denied while creating {SESSION_KEY_DIR}: {e}")
-        raise
-    except Exception as e:
-        log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
-        raise
-
-async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
-    """
-    Asynchronously generates an ED25519 SSH key pair and stores it securely.
-
-    Args:
-        key_path (str): The file path where the private key should be stored.
-
-    Returns:
-        Tuple[str, str]: A tuple containing the private and public keys as strings.
-    """
-
-    if os.path.exists(key_path):
-        os.remove(key_path)
-    if os.path.exists(f"{key_path}.pub"):
-        os.remove(f"{key_path}.pub")
-    
-    # log_message("INFO", "🚀 Generating session ED25519 keypair...")
-    proc = await asyncio.create_subprocess_exec(
-        "ssh-keygen", "-t", "ed25519", "-f", key_path, "-N", "",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    await proc.communicate()  # Wait for completion
-
-    os.chmod(key_path, 0o600)
-    if os.path.exists(f"{key_path}.pub"):
-        os.chmod(f"{key_path}.pub", 0o644)
-    
-    with open(key_path, "r") as fk:
-        priv = fk.read().strip()
-    with open(f"{key_path}.pub", "r") as fpk:
-        pub = fpk.read().strip()
-    
-    # log_message("INFO", "✅ Session keypair generated and secured.")
-    return priv, pub
-
-
+  
 ######################################################################
-# 2) SUPPORTING UTILS
+# ASYNCHRONOUS SUPPORTING UTILITIES
 ######################################################################
 
 async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
@@ -251,6 +133,7 @@ async def create_and_test_connection(ip: str, private_key_path: str, username: s
         logger.error(f"SSH connection failed for {ip}: {str(e)}")
         return None
 
+
 async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: List[str]):
     """
     Checks for missing system packages and installs them if necessary.
@@ -271,24 +154,6 @@ async def install_packages_if_missing(client: asyncssh.SSHClientConnection, pack
             await client.run(f"DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}", check=False)
             await asyncio.sleep(1)
 
-def get_authorized_keys_dir(ssh_user: str) -> str:
-    """
-    Retrieves the correct .ssh directory path based on the SSH user.
-
-    Args:
-        ssh_user (str): The username of the SSH user.
-
-    Returns:
-        str: The absolute path to the .ssh directory.
-    """
-
-    return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
-
-
-        
-######################################################################
-# ASYNCHRONOUS WRAPPER & ADDITIONAL UTILITIES
-######################################################################
 
 async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
     """
@@ -323,26 +188,11 @@ async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_err
     return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
 
 
-def save_private_key(priv_key_str: str, path: str):
-    """
-    Saves a private SSH key to a specified file with secure permissions.
+######################################################################
+# CLASS ROUND MANAGER
+######################################################################
 
-    Args:
-        priv_key_str (str): The private key content.
-        path (str): The file path where the private key should be stored.
-    """
-
-    try:
-        with open(path, "w") as f:
-            f.write(priv_key_str)
-        os.chmod(path, 0o600)
-        # log_message("INFO", f"Saved private key to {path}")
-    except Exception as e:
-        # log_message("ERROR", f"Error saving private key: {e}")
-        pass
-
-
-class MinerManagement(BaseModel):
+class RoundManager(BaseModel):
     """
     Tracks the availability of miners using the PingSynapse protocol.
     
@@ -352,7 +202,7 @@ class MinerManagement(BaseModel):
     """
 
     miners: Dict[int, 'PingSynapse'] = {}
-    local_ip: str = get_local_ip()
+    validator_ip: str = get_public_ip()
     king_ips: Dict[int, str] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
@@ -408,7 +258,7 @@ class MinerManagement(BaseModel):
             available = random.sample(available, min(len(available), k))
         return available
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid: int, user_commands: List[str], backup_suffix: str) -> bool:
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid: int, backup_suffix: str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -419,7 +269,6 @@ class MinerManagement(BaseModel):
             key_path (str): Path to the original SSH key used for initial access.
             machine_name (str): Name of the machine being set up.
             uid (int): Unique identifier for the miner.
-            user_commands (List[str]): List of custom user commands to execute during the setup.
             backup_suffix (str): Suffix used for backing up the SSH configuration files.
 
         Returns:
@@ -430,16 +279,13 @@ class MinerManagement(BaseModel):
 
         # A) CONNECT WITH ORIGINAL KEY + PREPARE
         # logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
-        session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+        session_key_path = os.path.join(settings.SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         session_priv, session_pub = await generate_local_session_keypair(session_key_path)
 
         try:
             # Step A: Connect to the remote machine
             async with asyncssh.connect(ip, username=ssh_user, client_keys=[key_path], known_hosts=None) as conn:
                 # logger.info(f"✅ Connected to {ip} with original key.")
-
-                # Test sudo availability
-                await run_cmd_async(conn, "echo 'SUDO_TEST'")
 
                 # Install necessary packages
                 needed = ["net-tools", "iptables-persistent", "psmisc"]
@@ -464,18 +310,13 @@ class MinerManagement(BaseModel):
             async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
                 # logger.info(f"✨ Session key success for {ip}.")
 
-                # D) PREPARE REVERT SCRIPT, CLEAN STALE SUDOERS, & SCHEDULE REVERT VIA SYSTEMD TIMER
+                # D) CLEAN STALE SUDOERS
                 # logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
                 revert_cleanup_cmd = f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*"
                 await run_cmd_async(ep_conn, revert_cleanup_cmd, ignore_errors=True)
 
                 sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
                 await run_cmd_async(ep_conn, sudo_setup_cmd)
-
-                if user_commands:
-                    # logger.info(f"🛠 Running custom user commands for role on {ip}.")
-                    for uc in user_commands:
-                        await run_cmd_async(ep_conn, uc, ignore_errors=True)
 
                 # logger.info(f"✅ Done single-pass session setup for {ip}.")
 
@@ -501,7 +342,7 @@ class MinerManagement(BaseModel):
             bool: True if the lockdown was successfully executed, False if an error occurred.
         """
 
-        logger.info(f"🔒 Lockdown for {ip} as '{ssh_user}' start...")
+        # logger.info(f"🔒 Lockdown for {ip} as '{ssh_user}' start...")
 
         try:
 
@@ -509,17 +350,13 @@ class MinerManagement(BaseModel):
             client = await create_and_test_connection(ip, key_path, ssh_user)
 
             if not client:
-                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
+                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
                 return False
 
             # Run lockdown command
-            lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.local_ip, authorized_keys_path)
-            result = await run_cmd_async(client, lockdown_cmd)
+            lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.validator_ip, authorized_keys_path)
 
-            if result.exit_status == 0:
-                logger.info(f"✅ Lockdown command executed successfully on {ip}")
-            else:
-                logger.error(f"❌ Lockdown command failed on {ip}: {result.stderr}")
+            await run_cmd_async(client, lockdown_cmd)
         
             return True
 
@@ -595,7 +432,7 @@ class MinerManagement(BaseModel):
         try:
 
             # Generate the pcap command
-            pcap_cmd = get_pcap_file_cmd(machine_name, king_ip, challenge_duration, labels_dict, iface)
+            scoring_metrics_cmd = get_scoring_metrics_cmd(machine_name, king_ip, challenge_duration, labels_dict, iface)
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
@@ -604,7 +441,7 @@ class MinerManagement(BaseModel):
                 return None
 
             # Run the pcap command
-            result = await run_cmd_async(client, pcap_cmd)
+            result = await run_cmd_async(client, scoring_metrics_cmd)
 
             # Parse the result to get the counts from stdout
             counts_and_rtt = result.stdout.strip().split(", ")
@@ -863,15 +700,14 @@ class MinerManagement(BaseModel):
                 ssh_user = machine_details.username
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(settings.SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
-                user_commands = role_cmds.get(machine_name, [])
                 king_ip = self.king_ips[uid]
 
                 # Map task function to a version with specific arguments
                 if task == "setup":
-                    task_function = partial(task_function, uid=uid, user_commands=user_commands, backup_suffix=backup_suffix)
+                    task_function = partial(task_function, uid=uid, backup_suffix=backup_suffix)
                 elif task == "lockdown":
                     # Example for lockdown task - you can define the required arguments for each task
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
@@ -1001,9 +837,3 @@ class MinerManagement(BaseModel):
 
         return ready_results
 
-
-
-
-
-# Start availability checking
-miner_availabilities = MinerManagement()

@@ -44,10 +44,9 @@ Version: 0.1.0
 ================================================================================
 """
 
-from aiohttp import web, ClientSession, ClientTimeout
+from aiohttp import ClientSession, ClientTimeout
 import asyncio
 import bittensor as bt
-from loguru import logger
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings

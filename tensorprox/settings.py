@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
     CHALLENGE_DURATION: int = 60 #15 minutes
     EPSILON: int = 30
+    
+    #Additional parameters
+    SESSION_KEY_DIR: str = "/var/tmp/session_keys"
 
     SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 
