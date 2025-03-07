@@ -113,27 +113,6 @@ create_session_key_dir()
 # ASYNCHRONOUS SUPPORTING UTILITIES
 ######################################################################
 
-async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
-    """
-    Establishes and tests an SSH connection using asyncssh.
-
-    Args:
-        ip (str): The target machine's IP address.
-        private_key_path (str): The path to the private key used for authentication.
-        username (str): The SSH user to authenticate as.
-
-    Returns:
-        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
-    """
-
-    try:
-        client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
-        return client
-    except asyncssh.Error as e:
-        logger.error(f"SSH connection failed for {ip}: {str(e)}")
-        return None
-
-
 async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: List[str]):
     """
     Checks for missing system packages and installs them if necessary.
@@ -155,37 +134,6 @@ async def install_packages_if_missing(client: asyncssh.SSHClientConnection, pack
             await asyncio.sleep(1)
 
 
-async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
-    """
-    Executes a command on a remote machine asynchronously using SSH.
-
-    Args:
-        conn (asyncssh.SSHClientConnection): An active SSH connection.
-        cmd (str): The command to execute.
-        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
-        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
-
-    Returns:
-        object: A response object with stdout, stderr, and exit_status.
-    """
-
-    escaped = cmd.replace("'", "'\\''")
-    if use_sudo:
-        final_cmd = f"sudo -S bash -c '{escaped}'"
-    else:
-        final_cmd = f"bash -c '{escaped}'"
-
-    result = await conn.run(final_cmd, check=True)
-    out = result.stdout.strip()
-    err = result.stderr.strip()
-
-    if err and not ignore_errors:
-        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-    elif out and logging_output:
-        log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
-
-    # Create an object-like response with exit_status, stdout, and stderr
-    return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
 
 
 ######################################################################

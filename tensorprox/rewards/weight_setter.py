@@ -24,21 +24,6 @@ Dependencies:
 - `typing`: For type hinting and annotations.
 - `tensorprox`: Specifically, modules from `tensorprox.base`, `tensorprox.utils`, and `tensorprox.rewards` for network operations, logging, and reward computations.
 
-License:
-This software is licensed under the Creative Commons Attribution-NonCommercial
-4.0 International (CC BY-NC 4.0). You are free to use, share, and modify the code
-for non-commercial purposes only.
-
-Commercial Usage:
-The only authorized commercial use of this software is for mining or validating
-within the TensorProx subnet. For any other commercial licensing requests, please
-contact Shugo LTD.
-
-See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
-
-Author: Shugo LTD
-Version: 0.1.0
-
 ================================================================================
 """
 

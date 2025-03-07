@@ -1,4 +1,6 @@
 from requests import get
+import sys
+from datetime import datetime
 import subprocess
 import re
 import logging
@@ -6,7 +8,9 @@ import os
 import asyncio
 import random
 import time
-from typing import Tuple
+import asyncssh
+from typing import Tuple, Optional
+from loguru import logger
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
@@ -187,6 +191,101 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
+
+async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
+    """
+    Executes a command on a remote machine asynchronously using SSH.
+
+    Args:
+        conn (asyncssh.SSHClientConnection): An active SSH connection.
+        cmd (str): The command to execute.
+        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
+        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
+
+    Returns:
+        object: A response object with stdout, stderr, and exit_status.
+    """
+
+    escaped = cmd.replace("'", "'\\''")
+    if use_sudo:
+        final_cmd = f"sudo -S bash -c '{escaped}'"
+    else:
+        final_cmd = f"bash -c '{escaped}'"
+
+    result = await conn.run(final_cmd, check=True)
+    out = result.stdout.strip()
+    err = result.stderr.strip()
+
+    if err and not ignore_errors:
+        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
+    elif out and logging_output:
+        log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
+
+    # Create an object-like response with exit_status, stdout, and stderr
+    return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
+
+
+async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
+    """
+    Establishes and tests an SSH connection using asyncssh.
+
+    Args:
+        ip (str): The target machine's IP address.
+        private_key_path (str): The path to the private key used for authentication.
+        username (str): The SSH user to authenticate as.
+
+    Returns:
+        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
+    """
+
+    try:
+        client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
+        return client
+    except asyncssh.Error as e:
+        logger.error(f"SSH connection failed for {ip}: {str(e)}")
+        return None
+
+# Debug level (0=minimal, 1=normal, 2=verbose)
+DEBUG_LEVEL = 2
+
+def log(message, level=1):
+    """Log message if debug level is sufficient"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    if DEBUG_LEVEL >= level:
+        print("[{0}] {1}".format(timestamp, message))
+
+def run_cmd(cmd, show_output=False, check=False, quiet=False, timeout=360, shell=False):
+    """Run command and return result with environment variables support"""
+    cmd_str = ' '.join(cmd) if isinstance(cmd, list) else cmd
+    if not quiet:
+        log("[CMD] {0}".format(cmd_str), level=1)
+    
+    # Handle shell commands differently
+    if shell and isinstance(cmd, list):
+        cmd = cmd_str
+    
+    # Set environment variables for apt operations
+    env = os.environ.copy()
+    if any(x in cmd_str for x in ['apt-get', 'apt', 'dpkg']):
+        env['DEBIAN_FRONTEND'] = 'noninteractive'
+    
+    try:
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=shell, timeout=timeout, env=env)
+        
+        if result.returncode != 0 and result.stderr and "Cannot find device" not in result.stderr and "File exists" not in result.stderr and not quiet:
+            log("[ERROR] {0}".format(cmd_str), level=1)
+            log("stderr: {0}".format(result.stderr.strip()), level=1)
+            if check:
+                sys.exit(1)
+        
+        if show_output and result.stdout and not quiet:
+            log(result.stdout, level=2)
+            
+        return result
+    except subprocess.TimeoutExpired:
+        log("[ERROR] Command timed out after {0} seconds: {1}".format(timeout, cmd_str), level=1)
+        return subprocess.CompletedProcess(cmd, -1, "", "Timeout occurred")
+
 
 def get_remaining_time(duration):
     current_time = time.time()
