@@ -5,6 +5,7 @@ import logging
 import os
 import asyncio
 import random
+import time
 from typing import Tuple
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
@@ -186,3 +187,12 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
+
+def get_remaining_time(duration):
+    current_time = time.time()
+    next_event_time = ((current_time // duration) + 1) * duration
+    remaining_time = next_event_time - current_time
+    remaining_minutes = int(remaining_time // 60)
+    remaining_seconds = int(remaining_time % 60)
+
+    return f"{remaining_minutes}m {remaining_seconds}s"

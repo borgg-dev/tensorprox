@@ -617,9 +617,9 @@ class RoundManager(BaseModel):
         miners: List[Tuple[int, 'PingSynapse']],
         subset_miners: list[int],
         task_function: Callable[..., bool],
-        labels_dict: dict,
-        backup_suffix: str, 
-        playlist: list,
+        backup_suffix: str = "", 
+        labels_dict: dict = None,
+        playlist: list = [],
         challenge_duration: int = settings.CHALLENGE_DURATION,
         timeout: int = settings.ROUND_TIMEOUT
     ) -> List[Dict[str, Union[int, str]]]:
@@ -656,12 +656,6 @@ class RoundManager(BaseModel):
         """
             
         task_status = {}
-        role_cmds = {
-            "Attacker": ["sudo apt-get update -qq || true"],
-            "Benign": ["sudo apt update", "sudo apt install -y npm"],
-            "King": ["sudo apt update", "sudo apt install -y npm"],
-        }
-
 
         async def process_miner(uid, synapse, task_function):
             """

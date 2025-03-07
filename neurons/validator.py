@@ -48,7 +48,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.round_manager import RoundManager
 from tensorprox.core.sync_active_validators import fetch_active_validators
-from tensorprox.utils.utils import create_random_playlist
+from tensorprox.utils.utils import create_random_playlist, get_remaining_time
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
@@ -56,6 +56,11 @@ from datetime import datetime
 import random
 import time
 import hashlib
+
+# Global variables to store the runner references
+fetch_runner = None
+client_runner = None
+EPOCH_TIME = settings.ROUND_TIMEOUT + settings.EPSILON
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -71,7 +76,10 @@ class Validator(BaseValidatorNeuron):
         self.load_state()
         self._lock = asyncio.Lock()
         self.active_count = 0
-
+        self.first_round = True
+        self.fetch_port = int(os.environ.get("VALIDATOR_AXON_PORT")) + 2
+        self.aiohttp_port = int(os.environ.get("VALIDATOR_AXON_PORT")) + 1
+                    
     def map_to_consecutive(self, active_uids):
         # Sort the input list
         sorted_list = sorted(active_uids)
@@ -154,6 +162,8 @@ class Validator(BaseValidatorNeuron):
         try:
             async with self._lock:
 
+                logger.info(f"📢 Starting new round at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC.")
+
                 active_validators_uids = await fetch_active_validators()  
                 self.active_count = len(active_validators_uids)     
 
@@ -189,7 +199,7 @@ class Validator(BaseValidatorNeuron):
                         try:
                             elapsed_time = (datetime.now() - start_time).total_seconds()
                             timeout_process = settings.ROUND_TIMEOUT - elapsed_time
-                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict), timeout=timeout_process)
+                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict, playlist), timeout=timeout_process)
                         except asyncio.TimeoutError:
                             logger.warning(f"Timeout reached for this round after {int(settings.ROUND_TIMEOUT / 60)} minutes.")
                         except Exception as ex:
@@ -215,14 +225,53 @@ class Validator(BaseValidatorNeuron):
                 error=str(ex),
             )
         
+    async def run_server(self, app: web.Application, port: int, log_message: str) -> web.AppRunner:
+        """
+        Starts an aiohttp server with the provided application on the specified port.
+
+        Args:
+            app (web.Application): The aiohttp application to be served.
+            port (int): The port to bind the server to.
+            log_message (str): The log message to be displayed after starting the server.
+
+        Returns:
+            web.AppRunner: The runner object that can be used to manage the server lifecycle.
+        """
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        logger.info(log_message)
+        return runner
+
+    async def run_fetch_server(self, port):
+        """Starts the fetch server for the validator."""
+        global fetch_runner  # Assign to the global variable
+        fetch_app = web.Application()
+        fetch_runner = await self.run_server(fetch_app, port, f"Validator counter server running on port {port}.")
+
+    async def run_client_server(self, port):
+        """Starts the client server for the validator."""
+        global client_runner  # Assign to the global variable
+        client_app = web.Application()
+        client_app.router.add_post('/ready', validator_instance.ready)  # Add route for client ready endpoint
+        client_runner = await self.run_server(client_app, port, f"Validator aiohttp server started on port {port}.")
+
 
     async def periodic_epoch_check(self) :
         """Periodically checks the current UTC time to decide when to trigger the next epoch."""
         while True:
             current_time = int(time.time())
-            EPOCH_TIME = settings.ROUND_TIMEOUT + settings.EPSILON
             if current_time % EPOCH_TIME == 0:  # Trigger epoch every `settings.EPOCH_PERIOD` seconds
-                logger.info(f"🏁 Starting new round at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC.")
+                # First round handling : make sure the timestamp is checked before being active
+                if self.first_round:
+                    
+                    #Start servers
+                    await self.run_fetch_server(port=self.fetch_port)
+                    await self.run_client_server(port=self.aiohttp_port) 
+                    
+                    self.first_round = False # set flag to False after the first round
+
                 await self.run_step(timeout=settings.NEURON_TIMEOUT, sync_time = current_time)           
             await asyncio.sleep(1) 
 
@@ -243,7 +292,7 @@ class Validator(BaseValidatorNeuron):
         return True  # The condition is met, the loop ends
     
 
-    async def _process_miners(self, subset_miners, backup_suffix, labels_dict):
+    async def _process_miners(self, subset_miners, backup_suffix, labels_dict, playlist):
         """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
         
         # Step 1: Query miner availability
@@ -323,7 +372,7 @@ class Validator(BaseValidatorNeuron):
             try:
                 ready_results = await round_manager.get_ready(ready_uids)
                 await asyncio.sleep(0.01)
-                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlist=self.playlist)
+                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlist=playlist)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
@@ -346,7 +395,7 @@ class Validator(BaseValidatorNeuron):
             synapses=synapses,
             all_miners_availability=all_miners_availability,
             setup_status=setup_results,
-            lockdown_status=lockdown_results,
+            # lockdown_status=lockdown_results,
             challenge_status=challenge_results,
             revert_status=revert_results,
             uids=subset_miners,
@@ -369,41 +418,18 @@ class Validator(BaseValidatorNeuron):
         await asyncio.sleep(1)
 
     
-async def run_server(app: web.Application, port: int, log_message: str) -> web.AppRunner:
-    """
-    Starts an aiohttp server with the provided application on the specified port.
 
-    Args:
-        app (web.Application): The aiohttp application to be served.
-        port (int): The port to bind the server to.
-        log_message (str): The log message to be displayed after starting the server.
+async def cleanup_servers():
+    """Handles the cleanup of the fetch and client servers."""
+    global fetch_runner, client_runner
+    if fetch_runner:
+        await fetch_runner.cleanup()
+        logger.info("Fetch server cleaned up.")
+    if client_runner:
+        await client_runner.cleanup()
+        logger.info("Client server cleaned up.")
 
-    Returns:
-        web.AppRunner: The runner object that can be used to manage the server lifecycle.
-    """
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(log_message)
-    return runner
 
-async def run_fetch_server(port):
-    """
-    Starts the fetch server for the validator.
-    """
-    fetch_app = web.Application()
-    # Add any necessary routes for the fetch server here
-    return await run_server(fetch_app, port, f"Validator counter server running on port {port}.")
-
-async def run_client_server(port):
-    """
-    Starts the client server for the validator.
-    """
-    client_app = web.Application()
-    # Add routes for client-specific endpoints
-    client_app.router.add_post('/ready', validator_instance.ready)  # Example route
-    return await run_server(client_app, port, f"Validator aiohttp server started on port {port}.")
 
 ###############################################################################
 
@@ -416,6 +442,7 @@ round_manager = RoundManager()
 # Define the validator instance
 validator_instance = Validator()
 
+
 # Main function to start background tasks
 async def main():
     """
@@ -424,12 +451,6 @@ async def main():
     This function initializes and runs the web server to handle incoming requests.
     """
 
-    fetch_port = int(os.environ.get("VALIDATOR_AXON_PORT"))+2 #do not change this port
-    aiohttp_port = int(os.environ.get("VALIDATOR_AXON_PORT"))+1 #do not change this port
-
-    # Start servers as a background task
-    fetch_runner = await run_fetch_server(port=fetch_port)  # Start the fetch server and get the runner
-    client_runner = await run_client_server(port=aiohttp_port)  # Start the client server and get the runner
 
     # Start background tasks
     asyncio.create_task(weight_setter.start())
@@ -437,11 +458,13 @@ async def main():
     asyncio.create_task(validator_instance.periodic_epoch_check())  # Start the periodic epoch check
     
     try:
+
+        logger.info(f"Validator is up and running, next round starting in {get_remaining_time(EPOCH_TIME)}...")
+
         await asyncio.Event().wait()  # Keeps the server running indefinitely
     finally:
-        # Cleanup: Ensure the runners are cleaned up properly before shutdown
-        await fetch_runner.cleanup()  # Cleanup the fetch runner
-        await client_runner.cleanup()  # Cleanup the client runner
+        # Cleanup on shutdown
+        await cleanup_servers()  # Cleanup the servers
         logger.info("Cleaned up runners and shutting down.")
 
 if __name__ == "__main__":
