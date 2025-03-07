@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     WEIGHT_SETTER_STEP: int = 30240 #2520 blocks / 8 hours and 24 minutes
     ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
     CHALLENGE_DURATION: int = 60 #15 minutes
+    EPSILON: int = 30
+    
+    #Additional parameters
+    SESSION_KEY_DIR: str = "/var/tmp/session_keys"
+    labels: list = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 
     SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 
@@ -46,7 +51,7 @@ class Settings(BaseSettings):
     NEURON_TIMEOUT: int = Field(15, env="NEURON_TIMEOUT")
     NEURON_DISABLE_SET_WEIGHTS: bool = Field(False, env="NEURON_DISABLE_SET_WEIGHTS")
     NEURON_AXON_OFF: bool = Field(False, env="NEURON_AXON_OFF")
-    NEURON_VPERMIT_TAO_LIMIT: int = Field(10, env="NEURON_VPERMIT_TAO_LIMIT")
+    NEURON_VPERMIT_TAO_LIMIT: int = Field(10*1e9, env="NEURON_VPERMIT_TAO_LIMIT")
     NEURON_QUERY_UNIQUE_COLDKEYS: bool = Field(False, env="NEURON_QUERY_UNIQUE_COLDKEYS")
     NEURON_QUERY_UNIQUE_IPS: bool = Field(False, env="NEURON_QUERY_UNIQUE_IPS")
     NEURON_FORWARD_MAX_TIME: int = Field(240, env="NEURON_FORWARD_MAX_TIME")

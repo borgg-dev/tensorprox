@@ -261,6 +261,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         ############################################################
         # 3) Lock root
         ############################################################
+        
         passwd -l root || true
 
         ############################################################
@@ -273,8 +274,8 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         iptables -A OUTPUT -o $NIC -p tcp -d {validator_ip} -j ACCEPT
         iptables -A INPUT -i $NIC -j DROP
         iptables -A OUTPUT -o $NIC -j DROP
-
         ############################################################
+        
         # 5) Kill processes except session process
         ############################################################
         ps -ef \\
@@ -312,7 +313,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_pcap_file_cmd(machine_name: str, king_ip: str, challenge_duration: str, labels_dict: dict, iface: str = "eth0") -> str:
+def get_scoring_metrics_cmd(machine_name: str, king_ip: str, challenge_duration: str, labels_dict: dict, iface: str = "eth0") -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP, 
     along with RTT measurement for packets from Attacker and Benign to King.
