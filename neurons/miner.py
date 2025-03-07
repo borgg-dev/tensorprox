@@ -140,8 +140,8 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=self.attacker_public_ip, iface=self.attacker_iface, username=self.attacker_username)
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=self.benign_public_ip, iface=self.benign_iface, username=self.benign_username)
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=self.attacker_public_ip, iface=self.attacker_iface, username=self.attacker_username, private_ip=self.attacker_private_ip)
+            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=self.benign_public_ip, iface=self.benign_iface, username=self.benign_username, private_ip=self.benign_private_ip)
             synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=self.king_public_ip, iface=self.king_iface, username=self.king_username, private_ip=self.king_private_ip)
             synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=self.moat_private_ip)
 
