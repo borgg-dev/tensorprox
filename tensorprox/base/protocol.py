@@ -1,20 +1,24 @@
 from pydantic import Field, BaseModel
 import bittensor as bt
-from typing import List, Dict, Tuple, Optional
-from datetime import datetime
+from typing import Dict, Tuple
+import tensorprox
+from tensorprox import settings
+settings.settings = settings.Settings.load(mode="validator")
+settings = settings.settings
 
 class MachineDetails(BaseModel):
     ip: str | None = None
     iface: str | None = None
     username: str | None = None
     private_ip: str | None = None
+    overlay_ip: str | None = None
     
     def get(self, key, default=None):
         return getattr(self, key, default)
     
 class MachineConfig(BaseModel):
     key_pair: Tuple[str, str] = ("", "")
-    machine_config: Dict[str, MachineDetails] = {name: MachineDetails() for name in ["Attacker", "Benign", "King", "Moat"]}
+    machine_config: Dict[str, MachineDetails] = {name: MachineDetails() for name in tensorprox.node_types}
 
 
 class AvailabilitySynapse(bt.Synapse):

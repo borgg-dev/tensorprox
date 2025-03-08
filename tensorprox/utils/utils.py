@@ -11,9 +11,6 @@ import time
 import asyncssh
 from typing import Tuple, Optional
 from loguru import logger
-from tensorprox import settings
-settings.settings = settings.Settings.load(mode="validator")
-settings = settings.settings
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -97,7 +94,7 @@ def get_authorized_keys_dir(ssh_user: str) -> str:
 
     return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
 
-def create_session_key_dir(path = settings.SESSION_KEY_DIR) :
+def create_session_key_dir(path = "/var/tmp/session_keys") :
 
     if not os.path.exists(path):
         try:
