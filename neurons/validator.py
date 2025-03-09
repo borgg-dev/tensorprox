@@ -168,7 +168,7 @@ class Validator(BaseValidatorNeuron):
                 active_validators_uids = await fetch_active_validators()  
 
                 # Check if validator's uid is in the active list
-                if not self.uid in active_validators_uids :
+                if self.uid not in active_validators_uids :
                     logger.debug("UID was not found in the list of active validators, ending round.")
                     return None
                 
