@@ -534,9 +534,9 @@ class RoundManager(BaseModel):
                 - A list of Synapse responses from each miner.
                 - A list of dictionaries containing availability status for each miner.
         """
+        
         tasks = [self.check_miner(uid) for uid in uids]  # Call the existing check_miner method
         results = await asyncio.gather(*tasks)
-        
         if results:
             synapses, all_miners_availability = zip(*results)
         else:

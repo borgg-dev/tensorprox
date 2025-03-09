@@ -1252,7 +1252,7 @@ class GRESetup(BaseModel):
         return True
 
 
-    def moat_gre_setup(self, benign_private_ip, attacker_private_ip, king_private_ip, benign_overlay_ip, attacker_overlay_ip, king_overlay_ip, benign_moat_key="77", attacker_moat_key="79", moat_king_key="88", gre_mtu=1465, ipip_mtu=1445):
+    def moat(self, benign_private_ip, attacker_private_ip, king_private_ip, benign_overlay_ip, attacker_overlay_ip, king_overlay_ip, benign_moat_key="77", attacker_moat_key="79", moat_king_key="88", gre_mtu=1465, ipip_mtu=1445):
                 
         """Configure Moat node with enhanced acceleration and improved reliability"""
         # --- Begin robust error handling ---

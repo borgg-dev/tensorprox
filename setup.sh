@@ -29,10 +29,10 @@ pm2 kill && pm2 flush
 
 # Start validator and miner services with pm2
 pm2 start "python3 ~/tensorprox/neurons/miner.py" --name miner
-pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator1
+pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator
 
 # pm2 start "python3 ~/TensorProx/TrafficLogger/websocket_server.py" --name websocket_server
 # pm2 start "python3 ~/generate_udp_traffic.py" --name traffic
 
 # Display the logs of pm2 processes
-pm2 logs validator1
+pm2 logs validator

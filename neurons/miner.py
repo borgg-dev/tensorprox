@@ -634,10 +634,9 @@ if __name__ == "__main__":
 
         logger.info("Miner Instance started. Running GRE Setup...")
 
-
         #Performing GRE Setup before starting 
-        GRESetup(node_type="Moat").moat_gre_setup(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP, BENIGN_OVERLAY_IP, ATTACKER_OVERLAY_IP, KING_OVERLAY_IP)
-
+        gre = GRESetup(node_type="Moat")
+        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP, BENIGN_OVERLAY_IP, ATTACKER_OVERLAY_IP, KING_OVERLAY_IP)
 
         while not miner.should_exit:
             miner.log_status()

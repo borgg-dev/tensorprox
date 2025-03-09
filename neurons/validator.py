@@ -166,6 +166,12 @@ class Validator(BaseValidatorNeuron):
                 logger.info(f"📢 Starting new round at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC.")
 
                 active_validators_uids = await fetch_active_validators()  
+
+                # Check if validator's uid is in the active list
+                if not self.uid in active_validators_uids :
+                    logger.debug("UID was not found in the list of active validators, ending round.")
+                    return None
+                
                 self.active_count = len(active_validators_uids)     
 
                 logger.debug(f"Number of active validators = {self.active_count}")
@@ -176,8 +182,7 @@ class Validator(BaseValidatorNeuron):
                 sync_shuffled_uids = self.sync_shuffle_uids(list(range(settings.SUBNET_NEURON_SIZE)), self.active_count, seed)
 
                 mapped_uids = self.map_to_consecutive(active_validators_uids)
-                
-                # Get the idx_permutation for the current validator
+                                    
                 idx_permutation = mapped_uids[self.uid]
 
                 # Ensure that each validator gets a unique subset of shuffled UIDs based on idx_permutation
@@ -219,6 +224,7 @@ class Validator(BaseValidatorNeuron):
 
 
                 logger.debug(f"🎉  End of round, waiting for the next one...")
+
 
         except Exception as ex:
             logger.exception(ex)
