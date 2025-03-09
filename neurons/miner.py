@@ -71,6 +71,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 import asyncssh
+import shutil
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
@@ -531,8 +532,6 @@ class Miner(BaseMinerNeuron):
     def moat_gre_setup(self, benign_moat_key="77", attacker_moat_key="79", moat_king_key="88", gre_mtu=1465, ipip_mtu=1445):
         
         gre = GRESetup(node_type = "Moat")
-
-        # self.install_pkill()
         
         """Configure Moat node with enhanced acceleration and improved reliability"""
         # --- Begin robust error handling ---
@@ -540,21 +539,26 @@ class Miner(BaseMinerNeuron):
         if os.path.exists("/var/lib/dpkg/lock-frontend") or os.path.exists("/var/lib/apt/lists/lock"):
             log("[INFO] Detected possible interrupted package installation, cleaning up...", level=1)
             
-            # Kill any hanging dpkg/apt processes
-            run_cmd("pkill -f dpkg", quiet=True)
-            run_cmd("pkill -f apt", quiet=True)
+            # Check if pkill exists, otherwise install it
+            if shutil.which("pkill") is None:
+                log("[INFO] pkill not found, installing it...", level=1)
+                self.install_pkill()  # Install pkill if it's not found
+
+            # Kill any hanging dpkg/apt processesy
+            run_cmd(["pkill", "-f", "dpkg"], quiet=True)
+            run_cmd(["pkill", "-f", "apt"], quiet=True)
             
             # Wait a moment for processes to terminate
             time.sleep(5)
             
             # Remove locks
-            run_cmd("rm -f /var/lib/dpkg/lock*", quiet=True)
-            run_cmd("rm -f /var/lib/apt/lists/lock", quiet=True)
-            run_cmd("rm -f /var/cache/apt/archives/lock", quiet=True)
+            run_cmd(["rm", "-f", "/var/lib/dpkg/lock*"], quiet=True)
+            run_cmd(["rm", "-f", "/var/lib/apt/lists/lock"], quiet=True)
+            run_cmd(["rm", "-f", "/var/cache/apt/archives/lock"], quiet=True)
             
             # Fix interrupted dpkg
-            run_cmd("dpkg --configure -a", quiet=True)
-            
+            run_cmd(["dpkg", "--configure", "-a"], quiet=True)      
+
             # Update apt repository with resilience
             gre.update_apt_repositories()
         # --- End robust error handling ---
@@ -578,7 +582,7 @@ class Miner(BaseMinerNeuron):
         # Detect system capabilities and calculate resource allocation
         # Moat node needs more resources as it's the central router
         capabilities = gre.detect_system_capabilities()
-        resource_plan = gre.calculate_resource_allocation(capabilities, "moat")
+        resource_plan = gre.calculate_resource_allocation(capabilities)
         
         # Install AF_XDP dependencies
         gre.install_afxdp_dependencies()
@@ -592,93 +596,103 @@ class Miner(BaseMinerNeuron):
         
         # Clean any existing policy routing
         gre.clean_policy_routing()
+
+        # 1. Create GRE tunnel to Benign
+        run_cmd(["ip", "tunnel", "add", "gre-benign", "mode", "gre", 
+                "local", local_ip, "remote", self.benign_private_ip, "ttl", "inherit", 
+                "key", benign_moat_key], check=True)
         
-         # 1. Create GRE tunnel to Benign
-        run_cmd("ip tunnel add gre-benign mode gre local {0} remote {1} ttl inherit key {2}".format(local_ip, self.benign_private_ip, benign_moat_key), check=True)
-        
-        run_cmd("ip link set gre-benign mtu {0}".format(str(gre_mtu)))
-        run_cmd("ip addr add 192.168.100.2/30 dev gre-benign")
-        run_cmd("ip link set gre-benign up")
+        run_cmd(["ip", "link", "set", "gre-benign", "mtu", str(gre_mtu)])
+        run_cmd(["ip", "addr", "add", "192.168.100.2/30", "dev", "gre-benign"])
+        run_cmd(["ip", "link", "set", "gre-benign", "up"])
         
         # Apply tunnel-specific optimizations
         gre.optimize_tunnel_interface("gre-benign")
         
         # 2. Create GRE tunnel to King
-        run_cmd("ip tunnel add gre-king mode gre local {0} remote {1} ttl inherit key {2}".format(local_ip, self.king_private_ip, moat_king_key), check=True)
+        run_cmd(["ip", "tunnel", "add", "gre-king", "mode", "gre", 
+                "local", local_ip, "remote", self.king_private_ip, "ttl", "inherit", 
+                "key", moat_king_key], check=True)
         
-        run_cmd("ip link set gre-king mtu {0}".format(str(gre_mtu)))
-        run_cmd("ip addr add 192.168.101.1/30 dev gre-king")
-        run_cmd("ip link set gre-king up")
+        run_cmd(["ip", "link", "set", "gre-king", "mtu", str(gre_mtu)])
+        run_cmd(["ip", "addr", "add", "192.168.101.1/30", "dev", "gre-king"])
+        run_cmd(["ip", "link", "set", "gre-king", "up"])
+
         
         # Apply tunnel-specific optimizations
         gre.optimize_tunnel_interface("gre-king")
-        
+
         # 3. Create IPIP tunnel to King
-        run_cmd("ip tunnel add ipip-to-king mode ipip local 192.168.101.1 remote 192.168.101.2 ttl inherit", check=True)
+        run_cmd(["ip", "tunnel", "add", "ipip-to-king", "mode", "ipip", 
+                "local", "192.168.101.1", "remote", "192.168.101.2", 
+                "ttl", "inherit"], check=True)
         
-        run_cmd("ip link set ipip-to-king mtu {0}".format(str(ipip_mtu)))
-        run_cmd("ip link set ipip-to-king up")
-        
+        run_cmd(["ip", "link", "set", "ipip-to-king", "mtu", str(ipip_mtu)])
+        run_cmd(["ip", "link", "set", "ipip-to-king", "up"])
+
         # Apply tunnel-specific optimizations
         gre.optimize_tunnel_interface("ipip-to-king")
         
         # 4. Create GRE tunnel to Attacker if provided
         if self.attacker_private_ip:
-            run_cmd("ip tunnel add gre-attacker mode gre local {0} remote {1} ttl inherit key {2}".format(local_ip, self.attacker_private_ip, attacker_moat_key), check=True)
+            run_cmd(["ip", "tunnel", "add", "gre-attacker", "mode", "gre", 
+                    "local", local_ip, "remote", self.attacker_private_ip, "ttl", "inherit", 
+                    "key", attacker_moat_key], check=True)
             
-            run_cmd("ip link set gre-attacker mtu {0}".format(str(gre_mtu)))
-            run_cmd("ip addr add 192.168.102.2/30 dev gre-attacker")
-            run_cmd("ip link set gre-attacker up")
+            run_cmd(["ip", "link", "set", "gre-attacker", "mtu", str(gre_mtu)])
+            run_cmd(["ip", "addr", "add", "192.168.102.2/30", "dev", "gre-attacker"])
+            run_cmd(["ip", "link", "set", "gre-attacker", "up"])
             
             # Apply tunnel-specific optimizations
             gre.optimize_tunnel_interface("gre-attacker")
         
         # 5. Set up routing for overlay IPs
-        run_cmd("ip route add {0} via 192.168.100.1 dev gre-benign metric 100".format(self.benign_overlay_ip))
-        run_cmd("ip route add {0} via 192.168.101.2 dev gre-king metric 100".format(self.king_overlay_ip))
+        run_cmd(["ip", "route", "add", self.benign_overlay_ip, "via", "192.168.100.1", "dev", "gre-benign", "metric", "100"])
+        run_cmd(["ip", "route", "add", self.king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "metric", "100"])
         
         if self.attacker_private_ip:
-            run_cmd("ip route add {0} via 192.168.102.1 dev gre-attacker metric 100".format(self.attacker_overlay_ip))
-    
+            run_cmd(["ip", "route", "add", self.attacker_overlay_ip, "via", "192.168.102.1", "dev", "gre-attacker", "metric", "100"])
+        
         # 6. Create policy routing tables for different directions
         # Table 100: Benign → King
-        run_cmd("ip rule add iif gre-benign lookup 100 pref 100")
-        run_cmd("ip route add {0} via 192.168.101.2 dev gre-king table 100".format(self.king_overlay_ip))
-        run_cmd("ip route add 10.0.0.0/8 via 192.168.101.2 dev gre-king table 100")
+        run_cmd(["ip", "rule", "add", "iif", "gre-benign", "lookup", "100", "pref", "100"])
+        run_cmd(["ip", "route", "add", self.king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "table", "100"])
+        run_cmd(["ip", "route", "add", "10.0.0.0/8", "via", "192.168.101.2", "dev", "gre-king", "table", "100"])
         
         # Table 101: King → Benign/Attacker
-        run_cmd("ip rule add iif gre-king lookup 101 pref 101")
-        run_cmd("ip route add {0} via 192.168.100.1 dev gre-benign table 101".format(self.benign_overlay_ip))
+        run_cmd(["ip", "rule", "add", "iif", "gre-king", "lookup", "101", "pref", "101"])
+        run_cmd(["ip", "route", "add", self.benign_overlay_ip, "via", "192.168.100.1", "dev", "gre-benign", "table", "101"])
         # Add broad route for 10.200.77.0/24 network (for dynamic IPs on Benign)
-        run_cmd("ip route add 10.200.77.0/24 via 192.168.100.1 dev gre-benign table 101")
-    
+        run_cmd(["ip", "route", "add", "10.200.77.0/24", "via", "192.168.100.1", "dev", "gre-benign", "table", "101"])
+
         if self.attacker_private_ip:
             # Add route for Attacker in king->x table
-            run_cmd("ip route add {0} via 192.168.102.1 dev gre-attacker table 101".format(self.attacker_overlay_ip))
+            run_cmd(["ip", "route", "add", self.attacker_overlay_ip, "via", "192.168.102.1", "dev", "gre-attacker", "table", "101"])
             # Add broad route for 10.200.77.0/24 network (for dynamic IPs on Attacker too)
-            run_cmd("ip route add 10.200.77.128/25 via 192.168.102.1 dev gre-attacker table 101")
+            run_cmd(["ip", "route", "add", "10.200.77.128/25", "via", "192.168.102.1", "dev", "gre-attacker", "table", "101"])
             
             # Table 102: Attacker → King
-            run_cmd("ip rule add iif gre-attacker lookup 102 pref 102")
-            run_cmd("ip route add {0} via 192.168.101.2 dev gre-king table 102".format(self.king_overlay_ip))
-            run_cmd("ip route add 10.0.0.0/8 via 192.168.101.2 dev gre-king table 102")
-    
+            run_cmd(["ip", "rule", "add", "iif", "gre-attacker", "lookup", "102", "pref", "102"])
+            run_cmd(["ip", "route", "add", self.king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "table", "102"])
+            run_cmd(["ip", "route", "add", "10.0.0.0/8", "via", "192.168.101.2", "dev", "gre-king", "table", "102"])
         
         # Table 103: Catch-all for any 10.0.0.0/8 traffic from any tunnel interface
-        run_cmd("ip rule add from 10.0.0.0/8 lookup 103 pref 110")
-        run_cmd("ip rule add to 10.0.0.0/8 lookup 103 pref 111")
-        run_cmd("ip route add {0} via 192.168.101.2 dev gre-king table 103".format(self.king_overlay_ip))
-        run_cmd("ip route add {0} via 192.168.100.1 dev gre-benign table 103".format(self.benign_overlay_ip))
+        run_cmd(["ip", "rule", "add", "from", "10.0.0.0/8", "lookup", "103", "pref", "110"])
+        run_cmd(["ip", "rule", "add", "to", "10.0.0.0/8", "lookup", "103", "pref", "111"])
+        run_cmd(["ip", "route", "add", self.king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "table", "103"])
+        run_cmd(["ip", "route", "add", self.benign_overlay_ip, "via", "192.168.100.1", "dev", "gre-benign", "table", "103"])
+
         if self.attacker_private_ip:
-            run_cmd("ip route add {0} via 192.168.102.1 dev gre-attacker table 103".format(self.attacker_overlay_ip))
-        
+            run_cmd(["ip", "route", "add", self.attacker_overlay_ip, "via", "192.168.102.1", "dev", "gre-attacker", "table", "103"])
+
         # 7. Set up enhanced acceleration for the moat node (central router)
-        gre.setup_enhanced_acceleration("moat", "gre-benign", resource_plan)
+        gre.setup_enhanced_acceleration("gre-benign", resource_plan)
         
         # 8. Allow ICMP traffic for testing
-        run_cmd("iptables -A INPUT -p icmp -j ACCEPT")
-        run_cmd("iptables -A OUTPUT -p icmp -j ACCEPT")
-        run_cmd("iptables -A FORWARD -p icmp -j ACCEPT")
+        run_cmd(["iptables", "-A", "INPUT", "-p", "icmp", "-j", "ACCEPT"])
+        run_cmd(["iptables", "-A", "OUTPUT", "-p", "icmp", "-j", "ACCEPT"])
+        run_cmd(["iptables", "-A", "FORWARD", "-p", "icmp", "-j", "ACCEPT"])
+    
         
         log("[INFO] Moat node setup complete with enhanced acceleration", level=1)
         log("[INFO] Supporting dynamic IPs in 10.0.0.0/8 subnet for Benign/Attacker", level=1)

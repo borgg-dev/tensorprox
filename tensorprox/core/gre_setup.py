@@ -24,47 +24,40 @@ class GRESetup(BaseModel):
     xdp_log_dir: str = "/var/log/tunnel"
 
     
-    async def detect_primary_interface(self):
-        """Detect the primary network interface with a public IP."""
+    def detect_primary_interface(self):
+        """Detect the primary network interface with a public IP"""
         # First try common interface names for cloud VMs
         common_interfaces = ['ens5', 'eth0', 'ens3', 'enp0s3', 'en0']
         
-        # Loop through each common interface
         for interface in common_interfaces:
-            # Check if interface exists (command is now a string)
-            cmd = f"ip link show {interface}"
-            result = await self.run_cmd_on_machine(cmd, quiet=True)
+            # Check if interface exists
+            result = run_cmd(["ip", "link", "show", interface], quiet=True)
             if result.returncode == 0:
                 # Check if it has an IP
-                cmd_ip = f"ip -o -4 addr show dev {interface}"
-                ip_result = await self.run_cmd_on_machine(cmd_ip, quiet=True)
+                ip_result = run_cmd(["ip", "-o", "-4", "addr", "show", "dev", interface], quiet=True)
                 if ip_result.returncode == 0 and ip_result.stdout.strip():
-                    # Extract the IP address from the result
                     match = re.search(r'inet\s+([0-9.]+)', ip_result.stdout)
                     if match and match.group(1) != "127.0.0.1":
                         ip = match.group(1)
                         log("[AUTO] Detected primary interface: {0} with IP: {1}".format(interface, ip), level=1)
                         return interface, ip
-
-        # If no primary interface found from common names, try to find via default route
-        cmd_route = "ip -o route get 1.1.1.1"
-        route_result = await self.run_cmd_on_machine(cmd_route, quiet=True)
+        
+        # If not found with common names, try to find via default route
+        route_result = run_cmd(["ip", "-o", "route", "get", "1.1.1.1"], quiet=True)
         if route_result.returncode == 0:
             match = re.search(r'dev\s+(\S+)', route_result.stdout)
             if match:
                 interface = match.group(1)
-                cmd_ip = f"ip -o -4 addr show dev {interface}"
-                ip_result = await self.run_cmd_on_machine(cmd_ip, quiet=True)
+                ip_result = run_cmd(["ip", "-o", "-4", "addr", "show", "dev", interface], quiet=True)
                 if ip_result.returncode == 0:
                     match = re.search(r'inet\s+([0-9.]+)', ip_result.stdout)
                     if match:
                         ip = match.group(1)
                         log("[AUTO] Detected primary interface via route: {0} with IP: {1}".format(interface, ip), level=1)
                         return interface, ip
-
+        
         # Last resort - get all interfaces and pick first non-loopback with IPv4
-        cmd_all_interfaces = "ip link show"
-        all_interfaces_result = await self.run_cmd_on_machine(cmd_all_interfaces, quiet=True)
+        all_interfaces_result = run_cmd(["ip", "link", "show"], quiet=True)
         if all_interfaces_result.returncode == 0:
             for line in all_interfaces_result.stdout.splitlines():
                 match = re.search(r'\d+:\s+(\S+):', line)
@@ -73,46 +66,42 @@ class GRESetup(BaseModel):
                     if interface == 'lo' or interface.startswith(('gre', 'tun', 'br')):
                         continue
                     
-                    cmd_ip = f"ip -o -4 addr show dev {interface}"
-                    ip_result = await self.run_cmd_on_machine(cmd_ip, quiet=True)
+                    ip_result = run_cmd(["ip", "-o", "-4", "addr", "show", "dev", interface], quiet=True)
                     if ip_result.returncode == 0 and ip_result.stdout.strip():
                         match = re.search(r'inet\s+([0-9.]+)', ip_result.stdout)
                         if match and not match.group(1).startswith('127.'):
                             ip = match.group(1)
                             log("[AUTO] Found usable interface: {0} with IP: {1}".format(interface, ip), level=1)
                             return interface, ip
-
+        
         log("[ERROR] Could not detect primary network interface", level=0)
         return None, None
 
-    async def flush_device(self, dev):
+    def flush_device(self, dev):
         """Delete network device if it exists"""
-        await self.run_cmd_on_machine(f"ip link set {dev} down", quiet=True)
-        await self.run_cmd_on_machine(f"ip link del {dev}", quiet=True)
+        run_cmd(["ip", "link", "set", dev, "down"], quiet=True)
+        run_cmd(["ip", "link", "del", dev], quiet=True)
 
-    async def clean_policy_routing(self):
+    def clean_policy_routing(self):
         """Clean existing policy routing rules and tables"""
-
         # Save original rules that aren't ours
-        cmd_rule_list = "ip rule list"
-        existing_rules = await self.run_cmd_on_machine(cmd_rule_list, quiet=True).stdout
-
+        existing_rules = run_cmd(["ip", "rule", "list"], quiet=True).stdout
+        
         # First, delete any custom rules we've set (lookups to table 100-110)
         for i in range(100, 111):
-            await self.run_cmd_on_machine(f"ip rule del lookup {i}", quiet=True)
+            run_cmd(["ip", "rule", "del", "lookup", str(i)], quiet=True)
         
         # Flush custom routing tables
         for i in range(100, 111):
-            await self.run_cmd_on_machine(f"ip route flush table {i}", quiet=True)
+            run_cmd(["ip", "route", "flush", "table", str(i)], quiet=True)
         
         # Restore system default rules (just to be safe)
-        await self.run_cmd_on_machine("ip rule add from all lookup local pref 0", quiet=True)
-        await self.run_cmd_on_machine("ip rule add from all lookup main pref 32766", quiet=True)
-        await self.run_cmd_on_machine("ip rule add from all lookup default pref 32767", quiet=True)
+        run_cmd(["ip", "rule", "add", "from", "all", "lookup", "local", "pref", "0"], quiet=True)
+        run_cmd(["ip", "rule", "add", "from", "all", "lookup", "main", "pref", "32766"], quiet=True)
+        run_cmd(["ip", "rule", "add", "from", "all", "lookup", "default", "pref", "32767"], quiet=True)
 
-    async def detect_system_capabilities(self):
+    def detect_system_capabilities(self):
         """Detect and return system capabilities for auto-scaling"""
-
         capabilities = {
             "is_virtualized": False,
             "cpu_count": multiprocessing.cpu_count(),
@@ -126,14 +115,14 @@ class GRESetup(BaseModel):
         }
         
         # Check virtualization
-        virt_check = await self.run_cmd_on_machine("systemd-detect-virt", quiet=True)
+        virt_check = run_cmd(["systemd-detect-virt"], quiet=True)
         if virt_check.returncode == 0 and virt_check.stdout.strip() != "none":
             capabilities["is_virtualized"] = True
             capabilities["virtualization_type"] = virt_check.stdout.strip()
             log("[INFO] Virtualized environment detected: {0}".format(virt_check.stdout.strip()), level=1)
         
         # Get total memory
-        mem_info = await self.run_cmd_on_machine("grep MemTotal /proc/meminfo", quiet=True)
+        mem_info = run_cmd(["grep", "MemTotal", "/proc/meminfo"], quiet=True)
         if mem_info.returncode == 0:
             match = re.search(r'MemTotal:\s+(\d+)', mem_info.stdout)
             if match:
@@ -142,7 +131,7 @@ class GRESetup(BaseModel):
                 log("[INFO] System memory: {:.1f} GB".format(capabilities["memory_gb"]), level=1)
         
         # Check NUMA topology
-        numa_check = await self.run_cmd_on_machine("lscpu", quiet=True)
+        numa_check = run_cmd(["lscpu"], quiet=True)
         if numa_check.returncode == 0:
             numa_match = re.search(r'NUMA node\(s\):\s+(\d+)', numa_check.stdout)
             if numa_match:
@@ -152,7 +141,7 @@ class GRESetup(BaseModel):
         # Check NIC driver and speed
         primary_interface, _ = self.detect_primary_interface()
         if primary_interface:
-            driver_info = await self.run_cmd_on_machine(f"ethtool -i {primary_interface}", quiet=True)
+            driver_info = run_cmd(["ethtool", "-i", primary_interface], quiet=True)
             if driver_info.returncode == 0:
                 driver_match = re.search(r'driver:\s+(\S+)', driver_info.stdout)
                 if driver_match:
@@ -165,7 +154,7 @@ class GRESetup(BaseModel):
                     log("[INFO] virtio_net detected - Generic XDP mode support", level=1)
             
             # Try to determine NIC speed
-            speed_info = await self.run_cmd_on_machine(f"ethtool {primary_interface}", quiet=True)
+            speed_info = run_cmd(["ethtool", primary_interface], quiet=True)
             if speed_info.returncode == 0:
                 speed_match = re.search(r'Speed:\s+(\d+)([GMK]b/s)', speed_info.stdout)
                 if speed_match:
@@ -178,20 +167,20 @@ class GRESetup(BaseModel):
                     log("[INFO] NIC speed: {0} Gbps".format(capabilities["nic_speed_gbps"]), level=1)
         
         # Check XDP support
-        xdp_check = await self.run_cmd_on_machine("grep CONFIG_XDP_SOCKETS=y /boot/config-$(uname -r)", quiet=True)
+        xdp_check = run_cmd(["grep", "CONFIG_XDP_SOCKETS=y", "/boot/config-$(uname -r)"], quiet=True)
         if xdp_check.returncode == 0:
             capabilities["xdp_support"] = "generic"
             log("[INFO] Generic XDP support detected", level=1)
             
             # Try to determine if native XDP is also supported by the driver
             if not capabilities["is_virtualized"]:
-                native_check = await self.run_cmd_on_machine(f"ip link set dev {primary_interface} xdp off", quiet=True)
+                native_check = run_cmd(["ip", "link", "set", "dev", primary_interface, "xdp", "off"], quiet=True)
                 if native_check.returncode == 0:
                     capabilities["xdp_support"] = "native"
                     log("[INFO] Native XDP support detected", level=1)
         
         # Check DPDK possibility
-        dpdk_check = await self.run_cmd_on_machine("apt-cache search ^dpdk$", quiet=True)
+        dpdk_check = run_cmd(["apt-cache", "search", "^dpdk$"], quiet=True)
         if dpdk_check.returncode == 0 and "dpdk" in dpdk_check.stdout:
             capabilities["dpdk_possible"] = True
             log("[INFO] DPDK packages available in repository", level=1)
@@ -202,7 +191,6 @@ class GRESetup(BaseModel):
 
     def calculate_resource_allocation(self, capabilities):
         """Calculate optimal resource allocation based on system capabilities and node type"""
-
         resource_plan = {
             "dpdk_cores": 0,
             "reserve_cores": 0,
@@ -300,61 +288,61 @@ class GRESetup(BaseModel):
         
         return resource_plan
 
-    async def optimize_kernel_params(self):
+    def optimize_kernel_params(self):
         """Optimize kernel parameters for high performance tunneling"""
         # Load required modules
-        await self.run_cmd_on_machine("modprobe ip_gre", quiet=True)
-        await self.run_cmd_on_machine("modprobe ipip", quiet=True)
-        await self.run_cmd_on_machine("modprobe xdp", quiet=True)
-        await self.run_cmd_on_machine("modprobe veth", quiet=True)
+        run_cmd(["modprobe", "ip_gre"], quiet=True)
+        run_cmd(["modprobe", "ipip"], quiet=True)
+        run_cmd(["modprobe", "xdp"], quiet=True)
+        run_cmd(["modprobe", "veth"], quiet=True)
         
         # Critical performance parameters for high throughput
-        await self.run_cmd_on_machine("sysctl -w net.core.rmem_max=268435456")  # 256 MB
-        await self.run_cmd_on_machine("sysctl -w net.core.wmem_max=268435456")  # 256 MB
-        await self.run_cmd_on_machine("sysctl -w net.core.optmem_max=134217728")  # 128 MB
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.tcp_rmem=4096 87380 134217728")
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.tcp_wmem=4096 65536 134217728")
-        await self.run_cmd_on_machine("sysctl -w net.core.netdev_max_backlog=1000000")
-        await self.run_cmd_on_machine("sysctl -w net.core.somaxconn=1048576")
+        run_cmd(["sysctl", "-w", "net.core.rmem_max=268435456"])  # 256 MB
+        run_cmd(["sysctl", "-w", "net.core.wmem_max=268435456"])  # 256 MB
+        run_cmd(["sysctl", "-w", "net.core.optmem_max=134217728"])  # 128 MB
+        run_cmd(["sysctl", "-w", "net.ipv4.tcp_rmem=4096 87380 134217728"])
+        run_cmd(["sysctl", "-w", "net.ipv4.tcp_wmem=4096 65536 134217728"])
+        run_cmd(["sysctl", "-w", "net.core.netdev_max_backlog=1000000"])
+        run_cmd(["sysctl", "-w", "net.core.somaxconn=1048576"])
         
         # Enable IP forwarding
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.ip_forward=1")
+        run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"])
         
         # Disable ICMP redirects completely (prevent routing loops)
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.conf.all.accept_redirects=0")
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.conf.default.accept_redirects=0")
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.conf.all.send_redirects=0")
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.conf.default.send_redirects=0")
+        run_cmd(["sysctl", "-w", "net.ipv4.conf.all.accept_redirects=0"])
+        run_cmd(["sysctl", "-w", "net.ipv4.conf.default.accept_redirects=0"])
+        run_cmd(["sysctl", "-w", "net.ipv4.conf.all.send_redirects=0"])
+        run_cmd(["sysctl", "-w", "net.ipv4.conf.default.send_redirects=0"])
         
         # Tunnel specific parameters
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.conf.all.accept_local=1")
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.conf.default.accept_local=1")
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.ip_forward_use_pmtu=1")
+        run_cmd(["sysctl", "-w", "net.ipv4.conf.all.accept_local=1"])
+        run_cmd(["sysctl", "-w", "net.ipv4.conf.default.accept_local=1"])
+        run_cmd(["sysctl", "-w", "net.ipv4.ip_forward_use_pmtu=1"])
         
         # Optimize for XDP performance
-        await self.run_cmd_on_machine("sysctl -w net.core.bpf_jit_enable=1")
-        await self.run_cmd_on_machine("sysctl -w net.core.bpf_jit_harden=0")
-        await self.run_cmd_on_machine("sysctl -w net.core.bpf_jit_kallsyms=1")
+        run_cmd(["sysctl", "-w", "net.core.bpf_jit_enable=1"])
+        run_cmd(["sysctl", "-w", "net.core.bpf_jit_harden=0"])
+        run_cmd(["sysctl", "-w", "net.core.bpf_jit_kallsyms=1"])
         
         # Optimize network device budget for throughput
-        await self.run_cmd_on_machine("sysctl -w net.core.netdev_budget=50000")
-        await self.run_cmd_on_machine("sysctl -w net.core.netdev_budget_usecs=5000")
+        run_cmd(["sysctl", "-w", "net.core.netdev_budget=50000"])
+        run_cmd(["sysctl", "-w", "net.core.netdev_budget_usecs=5000"])
         
         # Optimize flow director for direct hardware mapping
-        await self.run_cmd_on_machine("sysctl -w net.core.flow_limit_table_len=8192")
+        run_cmd(["sysctl", "-w", "net.core.flow_limit_table_len=8192"])
         
         log("[INFO] Kernel parameters optimized for tunnel performance", level=1)
 
-    async def optimize_kernel_for_overlay_network(self):
+    def optimize_kernel_for_overlay_network(self):
         """Apply advanced kernel optimizations for overlay network in virtualized environments"""
         log("[INFO] Applying advanced kernel optimizations for overlay network", level=1)
         
         # Optimize TCP congestion control for tunneled traffic
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.tcp_congestion_control=bbr", quiet=True)
+        run_cmd(["sysctl", "-w", "net.ipv4.tcp_congestion_control=bbr"], quiet=True)
         
         # Increase PPS handling capacity
-        await self.run_cmd_on_machine("sysctl -w net.core.netdev_budget=1000", quiet=True)
-        await self.run_cmd_on_machine("sysctl -w net.core.netdev_budget_usecs=2000", quiet=True)
+        run_cmd(["sysctl", "-w", "net.core.netdev_budget=1000"], quiet=True)
+        run_cmd(["sysctl", "-w", "net.core.netdev_budget_usecs=2000"], quiet=True)
         
         # Optimize RPS/RFS for virtio networking
         cpu_count = multiprocessing.cpu_count()
@@ -370,30 +358,30 @@ class GRESetup(BaseModel):
                 pass
         
         # Optimize network memory allocation
-        await self.run_cmd_on_machine("sysctl -w net.core.rmem_default=16777216", quiet=True)  # 16MB default
-        await self.run_cmd_on_machine("sysctl -w net.core.wmem_default=16777216", quiet=True)  # 16MB default
+        run_cmd(["sysctl", "-w", "net.core.rmem_default=16777216"], quiet=True)  # 16MB default
+        run_cmd(["sysctl", "-w", "net.core.wmem_default=16777216"], quiet=True)  # 16MB default
         
         # Increase connection tracking table size for tunneled traffic
-        await self.run_cmd_on_machine("sysctl -w net.netfilter.nf_conntrack_max=2097152", quiet=True)
+        run_cmd(["sysctl", "-w", "net.netfilter.nf_conntrack_max=2097152"], quiet=True)
         
         # Enable direct packet access in the fast path
-        await self.run_cmd_on_machine("sysctl -w net.core.bpf_jit_enable=2", quiet=True)
+        run_cmd(["sysctl", "-w", "net.core.bpf_jit_enable=2"], quiet=True)
         
         # Optimize TCP for tunnels
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.tcp_timestamps=1", quiet=True)
-        await self.run_cmd_on_machine("sysctl -w net.ipv4.tcp_sack=1", quiet=True)
+        run_cmd(["sysctl", "-w", "net.ipv4.tcp_timestamps=1"], quiet=True)
+        run_cmd(["sysctl", "-w", "net.ipv4.tcp_sack=1"], quiet=True)
         
         # Disable swap for networking performance
-        await self.run_cmd_on_machine("sysctl -w vm.swappiness=0", quiet=True)
+        run_cmd(["sysctl", "-w", "vm.swappiness=0"], quiet=True)
         
         # Optimize memory allocation for network buffers
-        await self.run_cmd_on_machine("sysctl -w vm.min_free_kbytes=65536", quiet=True)
-        await self.run_cmd_on_machine("sysctl -w vm.zone_reclaim_mode=0", quiet=True)
+        run_cmd(["sysctl", "-w", "vm.min_free_kbytes=65536"], quiet=True)
+        run_cmd(["sysctl", "-w", "vm.zone_reclaim_mode=0"], quiet=True)
         
         log("[INFO] Advanced kernel optimizations applied", level=1)
         return True
 
-    async def optimize_cpu_irq_for_tunnel(self, resource_plan):
+    def optimize_cpu_irq_for_tunnel(self, resource_plan):
         """Optimize CPU scheduling and IRQ handling for tunnel traffic"""
         log("[INFO] Optimizing CPU scheduling and IRQ handling", level=1)
         
@@ -411,7 +399,7 @@ class GRESetup(BaseModel):
                         new_file.write(line)
                 
                 # Replace old file with new one
-                await self.run_cmd_on_machine("mv /etc/default/grub.new /etc/default/grub", quiet=True)
+                run_cmd(["mv", "/etc/default/grub.new", "/etc/default/grub"], quiet=True)
                 log("[INFO] Updated GRUB config with isolcpus - reboot required for CPU isolation", level=1)
             except:
                 log("[WARN] Failed to update GRUB config for CPU isolation", level=1)
@@ -439,89 +427,89 @@ class GRESetup(BaseModel):
         
         # Set high priority for network processing
         for irq in irqs:
-            await self.run_cmd_on_machine(f"chrt -f -p 99 {irq}", quiet=True)
+            run_cmd(["chrt", "-f", "-p", "99", irq], quiet=True)
         
         # Enable IRQ balancing for network queues
-        await self.run_cmd_on_machine("systemctl stop irqbalance", quiet=True)
+        run_cmd(["systemctl", "stop", "irqbalance"], quiet=True)
         
         log("[INFO] CPU scheduling and IRQ handling optimized", level=1)
         return True
 
-    async def optimize_virtio_for_tunneling(self):
+    def optimize_virtio_for_tunneling(self):
         """Apply virtio-specific optimizations for tunnel traffic"""
         log("[INFO] Applying virtio-specific optimizations", level=1)
         
         primary_interface, _ = self.detect_primary_interface()
         
         # Check if this is a virtio interface
-        driver_info = await self.run_cmd_on_machine(f"ethtool -i {primary_interface}", quiet=True)
+        driver_info = run_cmd(["ethtool", "-i", primary_interface], quiet=True)
         if "virtio" not in driver_info.stdout:
             log("[INFO] Not a virtio interface, skipping virtio-specific optimizations", level=1)
             return False
         
         # Enable multi-queue support for virtio
         cpu_count = multiprocessing.cpu_count()
-        await self.run_cmd_on_machine(f"ethtool -L {primary_interface} combined {max(1, cpu_count - 1)}", quiet=True)
+        run_cmd(["ethtool", "-L", primary_interface, "combined", str(max(1, cpu_count - 1))], quiet=True)
         
         # Increase descriptor ring size for virtio
-        await self.run_cmd_on_machine(f"ethtool -G {primary_interface} rx 1024 tx 1024", quiet=True)
+        run_cmd(["ethtool", "-G", primary_interface, "rx", "1024", "tx", "1024"], quiet=True)
         
         # Optimize virtio queue processing
-        await self.run_cmd_on_machine(f"ethtool -C {primary_interface} adaptive-rx on adaptive-tx on", quiet=True)
+        run_cmd(["ethtool", "-C", primary_interface, "adaptive-rx", "on", "adaptive-tx", "on"], quiet=True)
         
         # Enable offloads that virtio supports
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} rx-checksumming on", quiet=True)
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} tx-checksumming on", quiet=True)
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} sg on", quiet=True)
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} tso on", quiet=True)
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} gso on", quiet=True)
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} gro on", quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "rx-checksumming", "on"], quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "tx-checksumming", "on"], quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "sg", "on"], quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "tso", "on"], quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "gso", "on"], quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "gro", "on"], quiet=True)
         
         # Enable Busy Polling for virtio - reduces latency at cost of CPU
-        await self.run_cmd_on_machine("sysctl -w net.core.busy_read=50", quiet=True)
-        await self.run_cmd_on_machine("sysctl -w net.core.busy_poll=50", quiet=True)
+        run_cmd(["sysctl", "-w", "net.core.busy_read=50"], quiet=True)
+        run_cmd(["sysctl", "-w", "net.core.busy_poll=50"], quiet=True)
         
         # Optimize I/O scheduling for virtio
-        await self.run_cmd_on_machine(f"echo none > /sys/block/vda/queue/scheduler", shell=True, quiet=True)
+        run_cmd(["echo", "none", ">", f"/sys/block/vda/queue/scheduler"], shell=True, quiet=True)
         
         log("[INFO] Virtio-specific optimizations applied", level=1)
         return True
 
-    async def optimize_tunnel_interface(self, interface):
+    def optimize_tunnel_interface(self, interface):
         """Apply performance optimizations to tunnel interfaces only"""
         # Disable reverse path filtering on the tunnel interface
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.rp_filter=0")
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.rp_filter=0"])
         
         # Enable source routing for the tunnel interface
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.accept_source_route=1")
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.accept_source_route=1"])
         
         # Allow local routing on the tunnel interface
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.route_localnet=1")
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.route_localnet=1"])
         
         # Disable ICMP redirects on the tunnel interface
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.accept_redirects=0")
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.send_redirects=0")
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.accept_redirects=0"])
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.send_redirects=0"])
         
         # Increase the interface queue length for high throughput
-        await self.run_cmd_on_machine(f"ip link set dev {interface} txqueuelen 100000", quiet=True)
+        run_cmd(["ip", "link", "set", "dev", interface, "txqueuelen", "100000"], quiet=True)
         
         # Additional tunnel-specific optimizations
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.accept_local=1")
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.forwarding=1")
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.accept_local=1"])
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.forwarding=1"])
         
         # Set MTU discovery to "want"
-        await self.run_cmd_on_machine(f"sysctl -w net.ipv4.conf.{interface}.mtu_probing=1")
+        run_cmd(["sysctl", "-w", f"net.ipv4.conf.{interface}.mtu_probing=1"])
         
         # Explicitly configure GRO/GSO for tunnel
-        await self.run_cmd_on_machine(f"ethtool -K {interface} gro on", quiet=True)
-        await self.run_cmd_on_machine(f"ethtool -K {interface} gso on", quiet=True)
+        run_cmd(["ethtool", "-K", interface, "gro", "on"], quiet=True)
+        run_cmd(["ethtool", "-K", interface, "gso", "on"], quiet=True)
         
         # Set TSO on when possible for tunnels
-        await self.run_cmd_on_machine(f"ethtool -K {interface} tso on", quiet=True)
+        run_cmd(["ethtool", "-K", interface, "tso", "on"], quiet=True)
         
         log(f"[INFO] Tunnel interface {interface} optimized for performance", level=1)
 
-    async def update_apt_repositories(self, max_retries=3, switch_mirrors=True):
+    def update_apt_repositories(self, max_retries=3, switch_mirrors=True):
         """Update apt repositories with retries and mirror switching"""
         log("[INFO] Updating apt repositories with resiliency measures", level=1)
         
@@ -531,7 +519,7 @@ class GRESetup(BaseModel):
         for attempt in range(max_retries):
             log(f"[INFO] APT update attempt {attempt+1}/{max_retries}", level=1)
             
-            update_result = await self.run_cmd_on_machine("apt-get update -y", quiet=True, timeout=120)
+            update_result = run_cmd(["apt-get", "update", "-y"], quiet=True, timeout=120)
             
             if update_result.returncode == 0:
                 success = True
@@ -551,8 +539,7 @@ class GRESetup(BaseModel):
         
         return success
 
-
-    async def try_switch_mirrors(self):
+    def try_switch_mirrors(self):
         """Attempt to switch to a different mirror if the current one is failing"""
         log("[INFO] Attempting to switch to different package mirrors", level=1)
         
@@ -564,8 +551,7 @@ class GRESetup(BaseModel):
             
             # Backup the original sources.list
             if not os.path.exists("/etc/apt/sources.list.backup"):
-                log("[INFO] Backing up current sources.list", level=1)
-                await self.run_cmd_on_machine("cp /etc/apt/sources.list /etc/apt/sources.list.backup", shell=True, quiet=True)
+                run_cmd(["cp", "/etc/apt/sources.list", "/etc/apt/sources.list.backup"], quiet=True)
             
             # Read the current sources.list
             with open("/etc/apt/sources.list", "r") as f:
@@ -579,7 +565,6 @@ class GRESetup(BaseModel):
                 with open("/etc/apt/sources.list", "w") as f:
                     f.write(new_sources)
                 
-                log("[INFO] Successfully switched to main mirror", level=1)
                 return True
             
             # If using main mirrors already, try switching to CloudFlare mirrors
@@ -590,7 +575,6 @@ class GRESetup(BaseModel):
                 with open("/etc/apt/sources.list", "w") as f:
                     f.write(new_sources)
                 
-                log("[INFO] Successfully switched to CloudFlare mirror", level=1)
                 return True
             
             log("[INFO] No suitable mirror switch found", level=1)
@@ -600,7 +584,7 @@ class GRESetup(BaseModel):
             log(f"[WARN] Error switching mirrors: {e}", level=1)
             return False
 
-    async def install_packages_resilient(self, package_list, max_retries=3, timeout=600):
+    def install_packages_resilient(self, package_list, max_retries=3, timeout=600):
         """Install packages with retry logic and increased resilience"""
         log(f"[INFO] Installing packages with resilience: {' '.join(package_list)}", level=1)
         
@@ -612,12 +596,15 @@ class GRESetup(BaseModel):
             log(f"[INFO] Installation attempt {attempt+1}/{max_retries}", level=1)
             
             # Add apt flags for resilience
-            install_cmd = (
-                f"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
-                f"--fix-missing --allow-downgrades {' '.join(package_list)}"
-            )
+            install_cmd = [
+                "DEBIAN_FRONTEND=noninteractive", 
+                "apt-get", "install", "-y", 
+                "--no-install-recommends",  # Don't install recommended packages to reduce dependencies
+                "--fix-missing",            # Try to continue if packages are missing
+                "--allow-downgrades",       # Allow version downgrades if needed
+            ] + package_list
             
-            install_result = await self.run_cmd_on_machine(install_cmd, shell=True, quiet=True, timeout=timeout)
+            install_result = run_cmd(install_cmd, shell=True, quiet=True, timeout=timeout)
             
             if install_result.returncode == 0:
                 log(f"[INFO] Successfully installed packages: {' '.join(package_list)}", level=1)
@@ -626,11 +613,10 @@ class GRESetup(BaseModel):
                 log(f"[WARN] Package installation failed on attempt {attempt+1}", level=1)
                 
                 # Try to fix interrupted installations
-                await self.run_cmd_on_machine("dpkg --configure -a", shell=True, quiet=True)
+                run_cmd(["dpkg", "--configure", "-a"], quiet=True)
                 
                 # If not the last attempt, try switching mirrors and updating again
                 if attempt < max_retries - 1:
-                    log("[INFO] Retrying package installation after switching mirrors", level=1)
                     self.try_switch_mirrors()
                     self.update_apt_repositories(max_retries=1, switch_mirrors=False)
                     # Wait before retry
@@ -640,7 +626,7 @@ class GRESetup(BaseModel):
         # Even if we fail, return True to let the script continue
         return True
 
-    async def install_afxdp_dependencies(self):
+    def install_afxdp_dependencies(self):
         """Install dependencies needed for AF_XDP kernel bypass with network resilience"""
         log("[INFO] Installing AF_XDP dependencies", level=1)
         
@@ -649,13 +635,13 @@ class GRESetup(BaseModel):
         os.makedirs(self.xdp_log_dir, exist_ok=True)
         
         # Check for running dpkg/apt processes and clean up if needed
-        dpkg_check = await self.run_cmd_on_machine("pgrep dpkg", shell=True, quiet=True)
-        apt_check = await self.run_cmd_on_machine("pgrep apt", shell=True, quiet=True)
+        dpkg_check = run_cmd(["pgrep", "dpkg"], quiet=True)
+        apt_check = run_cmd(["pgrep", "apt"], quiet=True)
         
         if dpkg_check.returncode == 0 or apt_check.returncode == 0:
             log("[INFO] Package manager already running, cleaning up...", level=1)
             # Try to gracefully finish existing operations
-            await self.run_cmd_on_machine("dpkg --configure -a", shell=True, quiet=True, timeout=120)
+            run_cmd(["dpkg", "--configure", "-a"], quiet=True, timeout=120)
         
         # Install essential packages first (in smaller batches for better reliability)
         self.install_packages_resilient(["clang", "llvm", "libelf-dev"])
@@ -664,19 +650,19 @@ class GRESetup(BaseModel):
         self.install_packages_resilient(["libpcap-dev", "libbpf-dev", "pip", "python3-numpy"])
         
         # Install Python packages for AF_XDP
-        await self.run_cmd_on_machine("pip3 install pyroute2", shell=True, quiet=True)
+        run_cmd(["pip3", "install", "pyroute2"], quiet=True)
         
         # Load necessary kernel modules
-        await self.run_cmd_on_machine("modprobe xdp", shell=True, quiet=True)
-        await self.run_cmd_on_machine("modprobe veth", shell=True, quiet=True)
-        await self.run_cmd_on_machine("modprobe tun", shell=True, quiet=True)
+        run_cmd(["modprobe", "xdp"], quiet=True)
+        run_cmd(["modprobe", "veth"], quiet=True)
+        run_cmd(["modprobe", "tun"], quiet=True)
         
         # Enable BPF JIT compilation
-        await self.run_cmd_on_machine("sysctl -w net.core.bpf_jit_enable=1", shell=True, quiet=True)
+        run_cmd(["sysctl", "-w", "net.core.bpf_jit_enable=1"], quiet=True)
         
         log("[INFO] AF_XDP dependencies installed", level=1)
 
-    async def setup_hugepages(self, resource_plan):
+    def setup_hugepages(self, resource_plan):
         """Configure hugepages for DPDK based on resource allocation"""
         hugepages_gb = resource_plan["hugepages_gb"]
         log(f"[INFO] Setting up {hugepages_gb}GB of hugepages for DPDK", level=1)
@@ -689,21 +675,21 @@ class GRESetup(BaseModel):
             page_size_kb = 1048576
             num_pages = math.ceil((hugepages_gb * 1024 * 1024) / page_size_kb)
             log(f"[INFO] Using {num_pages} 1GB hugepages", level=1)
-            await self.run_cmd_on_machine(f"sysctl -w vm.nr_hugepages={num_pages}", shell=True)
+            run_cmd(["sysctl", "-w", f"vm.nr_hugepages={num_pages}"])
         
         # Otherwise use 2MB hugepages
         else:
             page_size_kb = 2048
             num_pages = math.ceil((hugepages_gb * 1024 * 1024) / page_size_kb)
             log(f"[INFO] Using {num_pages} 2MB hugepages", level=1)
-            await self.run_cmd_on_machine(f"sysctl -w vm.nr_hugepages={num_pages}", shell=True)
+            run_cmd(["sysctl", "-w", f"vm.nr_hugepages={num_pages}"])
         
         # Create mount point if not exists
         if not os.path.exists("/mnt/huge"):
-            await self.run_cmd_on_machine("mkdir -p /mnt/huge", shell=True)
+            run_cmd(["mkdir", "-p", "/mnt/huge"])
         
         # Mount hugepages
-        await self.run_cmd_on_machine("mount -t hugetlbfs nodev /mnt/huge", shell=True)
+        run_cmd(["mount", "-t", "hugetlbfs", "nodev", "/mnt/huge"])
         
         # Make mount persistent by adding to /etc/fstab if not already there
         try:
@@ -717,14 +703,14 @@ class GRESetup(BaseModel):
             log("[WARN] Could not update /etc/fstab for persistent hugepages", level=1)
         
         # Create directory for DPDK
-        await self.run_cmd_on_machine("mkdir -p /dev/hugepages/dpdk", shell=True, quiet=True)
+        run_cmd(["mkdir", "-p", "/dev/hugepages/dpdk"], quiet=True)
         
         # Verify hugepages setup
-        hugepages_check = await self.run_cmd_on_machine("grep Huge /proc/meminfo", shell=True, show_output=True)
+        hugepages_check = run_cmd(["grep", "Huge", "/proc/meminfo"], show_output=True)
         
         return True
 
-    async def optimize_dpdk_for_virtio(self, resource_plan):
+    def optimize_dpdk_for_virtio(self, resource_plan):
         """Further optimize DPDK specifically for virtio environments with robust error handling"""
         log("[INFO] Enhancing DPDK for virtio environments", level=1)
         
@@ -760,35 +746,35 @@ class GRESetup(BaseModel):
         
         # Set CPU isolation for DPDK
         if resource_plan["isolated_cpus"]:
-            await self.run_cmd_on_machine(f"systemctl set-property dpdk.service CPUAffinity={resource_plan['isolated_cpus']}", shell=True, quiet=True)
+            run_cmd(["systemctl", "set-property", "dpdk.service", f"CPUAffinity={resource_plan['isolated_cpus']}"], quiet=True)
         
         # Optimize memory access patterns for DPDK
-        await self.run_cmd_on_machine("sysctl -w vm.zone_reclaim_mode=0", shell=True, quiet=True)
-        await self.run_cmd_on_machine("sysctl -w vm.swappiness=0", shell=True, quiet=True)
+        run_cmd(["sysctl", "-w", "vm.zone_reclaim_mode=0"], quiet=True)
+        run_cmd(["sysctl", "-w", "vm.swappiness=0"], quiet=True)
         
         # Use real-time scheduling for DPDK processes
-        await self.run_cmd_on_machine("sysctl -w kernel.sched_rt_runtime_us=-1", shell=True, quiet=True)
+        run_cmd(["sysctl", "-w", "kernel.sched_rt_runtime_us=-1"], quiet=True)
         
         # Configure virtio for optimal DPDK performance
         primary_interface, _ = self.detect_primary_interface()
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} rx on tx on", shell=True, quiet=True)
-        await self.run_cmd_on_machine(f"ethtool --offload {primary_interface} sg on tso on gso on gro on", shell=True, quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "rx", "on", "tx", "on"], quiet=True)
+        run_cmd(["ethtool", "--offload", primary_interface, "sg", "on", "tso", "on", "gso", "on", "gro", "on"], quiet=True)
         
         log("[INFO] DPDK optimized for virtualized environment", level=1)
         return True
 
-    async def install_dpdk_dependencies(self):
+    def install_dpdk_dependencies(self):
         """Install DPDK and related dependencies with robust error handling and network resilience"""
         log("[INFO] Installing DPDK and related dependencies", level=1)
         
         # Check if dpkg is currently running - wait for it to finish if it is
-        dpkg_check = await self.run_cmd_on_machine("pgrep dpkg", shell=True, quiet=True)
+        dpkg_check = run_cmd(["pgrep", "dpkg"], quiet=True)
         if dpkg_check.returncode == 0:
             log("[INFO] Waiting for existing package operations to complete...", level=1)
             # Wait for dpkg to finish (up to 5 minutes)
             for _ in range(30):
                 time.sleep(10)
-                dpkg_check = await self.run_cmd_on_machine("pgrep dpkg", shell=True, quiet=True)
+                dpkg_check = run_cmd(["pgrep", "dpkg"], quiet=True)
                 if dpkg_check.returncode != 0:
                     break
             if dpkg_check.returncode == 0:
@@ -801,6 +787,7 @@ class GRESetup(BaseModel):
         self.install_packages_resilient(["python3-pyelftools", "libnuma-dev"])
         
         # Now handle DPDK packages more carefully
+        # Try different installation methods with increasing robustness
         dpdk_installed = False
         
         # Method 1: Standard installation with noninteractive frontend
@@ -808,7 +795,7 @@ class GRESetup(BaseModel):
         self.install_packages_resilient(["dpdk", "dpdk-dev"], timeout=600)
         
         # Check if DPDK was successfully installed
-        dpdk_check = await self.run_cmd_on_machine("dpdk-devbind.py --status", shell=True, quiet=True)
+        dpdk_check = run_cmd(["dpdk-devbind.py", "--status"], quiet=True)
         if dpdk_check.returncode == 0:
             dpdk_installed = True
             log("[INFO] DPDK installation successful", level=1)
@@ -819,7 +806,7 @@ class GRESetup(BaseModel):
             self.install_packages_resilient(["dpdk-tools", "dpdk-runtime"], timeout=600)
             
             # Check again
-            dpdk_check = await self.run_cmd_on_machine("dpdk-devbind.py --status", shell=True, quiet=True)
+            dpdk_check = run_cmd(["dpdk-devbind.py", "--status"], quiet=True)
             if dpdk_check.returncode == 0:
                 dpdk_installed = True
                 log("[INFO] DPDK installation successful with alternative packages", level=1)
@@ -828,8 +815,8 @@ class GRESetup(BaseModel):
         if not dpdk_installed:
             log("[INFO] Using background installation approach (attempt 3)...", level=1)
             # Start installation in background and don't wait for it
-            await self.run_cmd_on_machine("nohup bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing dpdk dpdk-dev dpdk-tools dpdk-runtime > /tmp/dpdk_install.log 2>&1 &'",
-                            shell=True, quiet=True)
+            run_cmd(["nohup bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y --fix-missing dpdk dpdk-dev dpdk-tools dpdk-runtime > /tmp/dpdk_install.log 2>&1 &'"],
+                shell=True, quiet=True)
             
             # Give it some time to start but don't wait for completion
             time.sleep(10)
@@ -842,7 +829,7 @@ class GRESetup(BaseModel):
         log("[INFO] DPDK dependencies installation initiated", level=1)
         return True
 
-    async def create_optimized_xdp_program(self, interface):
+    def create_optimized_xdp_program(self, interface):
         """Create optimized XDP program for virtio environments"""
         log("[INFO] Creating optimized XDP program for {0}".format(self.node_type), level=1)
         
@@ -932,27 +919,27 @@ class GRESetup(BaseModel):
             f.write(xdp_program)
         
         # Install clang and LLVM if needed
-        await self.run_cmd_on_machine("apt-get install -y clang llvm", quiet=True)
+        run_cmd(["apt-get", "install", "-y", "clang", "llvm"], quiet=True)
         
         # Compile the XDP program
         object_file = os.path.join(self.xdp_program_dir, "{0}_xdp.o".format(self.node_type))
-        compile_result = await self.run_cmd_on_machine(f"clang -O2 -g -Wall -target bpf -c {program_file} -o {object_file}", quiet=True)
+        compile_result = run_cmd(["clang", "-O2", "-g", "-Wall", "-target", "bpf", "-c", program_file, "-o", object_file], quiet=True)
         
         if compile_result.returncode == 0:
             # When loading XDP program
             primary_interface, _ = self.detect_primary_interface()
-            driver_info = await self.run_cmd_on_machine(f"ethtool -i {primary_interface}", quiet=True)
+            driver_info = run_cmd(["ethtool", "-i", primary_interface], quiet=True)
             
             if "virtio" in driver_info.stdout:
                 log("[INFO] Using generic XDP mode for virtio_net", level=1)
                 # Always use generic mode for virtio
-                load_result = await self.run_cmd_on_machine(f"ip link set dev {primary_interface} xdpgeneric obj {object_file} sec xdp", show_output=True, quiet=False)
+                load_result = run_cmd(["ip", "link", "set", "dev", primary_interface, "xdpgeneric", "obj", object_file, "sec", "xdp"], show_output=True, quiet=False)
             else:
                 # Try native mode first, fall back to generic
-                load_result = await self.run_cmd_on_machine(f"ip link set dev {primary_interface} xdp obj {object_file} sec xdp", quiet=True)
+                load_result = run_cmd(["ip", "link", "set", "dev", primary_interface, "xdp", "obj", object_file, "sec", "xdp"], quiet=True)
                 if load_result.returncode != 0:
                     log("[INFO] Native XDP failed, falling back to generic XDP mode", level=1)
-                    load_result = await self.run_cmd_on_machine(f"ip link set dev {primary_interface} xdpgeneric obj {object_file} sec xdp", quiet=True)
+                    load_result = run_cmd(["ip", "link", "set", "dev", primary_interface, "xdpgeneric", "obj", object_file, "sec", "xdp"], quiet=True)
             
             if load_result.returncode == 0:
                 log("[INFO] Optimized XDP program loaded successfully on {0}".format(primary_interface), level=1)
@@ -964,7 +951,7 @@ class GRESetup(BaseModel):
             log("[WARN] Failed to compile XDP program", level=1)
             return False
 
-    async def create_enhanced_afxdp_program(self, interface, resource_plan):
+    def create_enhanced_afxdp_program(self, interface, resource_plan):
         """Create AF_XDP program optimized for VM environments"""
         log("[INFO] Creating enhanced AF_XDP program for {0}".format(self.node_type), level=1)
         
@@ -1017,7 +1004,7 @@ class GRESetup(BaseModel):
     # Global control flag
     running = True
 
-    async def log_message(message):
+    def log_message(message):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             with open(LOG_FILE, "a") as f:
@@ -1025,7 +1012,7 @@ class GRESetup(BaseModel):
         except:
             pass
 
-    async def signal_handler(sig, frame):
+    def signal_handler(sig, frame):
         global running
         print("Stopping AF_XDP workers...")
         running = False
@@ -1033,7 +1020,7 @@ class GRESetup(BaseModel):
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    async def get_interface_info(interface):
+    def get_interface_info(interface):
         # Get interface index using ioctl
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         ifr = struct.pack('16si', interface.encode(), 0)
@@ -1047,7 +1034,7 @@ class GRESetup(BaseModel):
         finally:
             sock.close()
 
-    async def set_realtime_priority():
+    def set_realtime_priority():
         try:
             # Set SCHED_FIFO with RT priority 99
             param = struct.pack('I', 99)
@@ -1056,7 +1043,7 @@ class GRESetup(BaseModel):
         except Exception as e:
             log_message(f"Failed to set realtime priority: {{e}}")
 
-    async def pin_to_cpu(cpu_id):
+    def pin_to_cpu(cpu_id):
         try:
             # Pin current thread to specified CPU
             if len(CPU_CORES) > 0:
@@ -1068,7 +1055,7 @@ class GRESetup(BaseModel):
             log_message(f"Failed to pin thread to CPU: {{e}}")
         return False
 
-    async def process_packets_zerocopy(sock, batch_size=BATCH_SIZE):
+    def process_packets_zerocopy(sock, batch_size=BATCH_SIZE):
         # Optimized packet processing with zero-copy (placeholder)
         # In a real implementation, this would use vectored I/O or DPDK-like techniques
         try:
@@ -1085,7 +1072,7 @@ class GRESetup(BaseModel):
         
         return False
 
-    async def worker_thread(queue_id):
+    def worker_thread(queue_id):
         # Set thread priority and CPU affinity
         pin_to_cpu(queue_id)
         set_realtime_priority()
@@ -1128,7 +1115,7 @@ class GRESetup(BaseModel):
                 except:
                     pass
 
-    async def stats_thread():
+    def stats_thread():
         last_packets = 0
         last_bytes = 0
         last_errors = 0
@@ -1157,7 +1144,7 @@ class GRESetup(BaseModel):
             last_errors = errors
             start_time = time.time()
 
-    async def main():
+    def main():
         print(f"Starting enhanced AF_XDP acceleration for {{NODE_TYPE}} on {{INTERFACE}}")
         log_message(f"Starting enhanced AF_XDP acceleration with {{QUEUES}} queues")
         
@@ -1230,56 +1217,41 @@ class GRESetup(BaseModel):
             f.write(service_content)
         
         # Reload systemd and enable/start the service
-        await self.run_cmd_on_machine("systemctl daemon-reload", quiet=True)
-        await self.run_cmd_on_machine(f"systemctl enable afxdp-{self.node_type}", quiet=True)
-        await self.run_cmd_on_machine(f"systemctl start afxdp-{self.node_type}", quiet=True)
-
+        run_cmd(["systemctl", "daemon-reload"], quiet=True)
+        run_cmd(["systemctl", "enable", "afxdp-{0}".format(self.node_type)], quiet=True)
+        run_cmd(["systemctl", "start", "afxdp-{0}".format(self.node_type)], quiet=True)
+        
         log("[INFO] Enhanced AF_XDP acceleration enabled for {0} on {1}".format(self.node_type, interface), level=1)
         return True
 
-    async def setup_enhanced_acceleration(self, interface, resource_plan):
+    def setup_enhanced_acceleration(self, interface, resource_plan):
         """Set up enhanced hybrid acceleration with intelligent scaling and improved reliability"""
         log("[INFO] Setting up enhanced acceleration for {0}".format(self.node_type), level=1)
         
         # 1. Apply kernel optimizations
-        await self.optimize_kernel_for_overlay_network()
+        self.optimize_kernel_for_overlay_network()
         
         # 2. Set up hugepages
-        await self.setup_hugepages(resource_plan)
+        self.setup_hugepages(resource_plan)
         
         # 3. CPU and IRQ optimization
-        await self.optimize_cpu_irq_for_tunnel(resource_plan)
+        self.optimize_cpu_irq_for_tunnel(resource_plan)
         
         # 4. Virtio-specific optimizations if applicable
-        await self.optimize_virtio_for_tunneling()
+        self.optimize_virtio_for_tunneling()
         
         # 5. Create optimized XDP program
-        await self.create_optimized_xdp_program(interface, self.node_type)
+        self.create_optimized_xdp_program(interface)
         
         # 6. DPDK optimization - moved after XDP to allow for background installation
-        await self.optimize_dpdk_for_virtio(resource_plan)
+        self.optimize_dpdk_for_virtio(resource_plan)
         
         # 7. Create enhanced AF_XDP program
-        await self.create_enhanced_afxdp_program(interface, self.node_type, resource_plan)
+        self.create_enhanced_afxdp_program(interface, resource_plan)
         
         log("[INFO] Enhanced acceleration setup complete for {0}".format(self.node_type), level=1)
         return True
 
-    async def run_cmd_on_machine(self, cmd, ip=None, key_path=None, ssh_user=None, show_output=False, check=False, quiet=False, timeout=360, shell=False):
-        """Run command on the appropriate machine (local or remote)."""
 
-        if self.node_type not in tensorprox.node_types:
-            return None
-        
-        if self.node_type == 'Moat':
-            # Execute locally using run_cmd
-            return run_cmd(cmd, show_output, check, quiet, timeout, shell)
-        
-        elif self.node_type in ['Attacker', 'Benign', 'King'] :
-            conn = await create_and_test_connection(ip, key_path, ssh_user)
-            if not conn:
-                return None
-            # Execute remotely using run_cmd_async
-            return await run_cmd_async(conn, cmd, ignore_errors=True, logging_output=show_output)
 
 
