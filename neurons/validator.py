@@ -196,13 +196,20 @@ class Validator(BaseValidatorNeuron):
 
                 label_hashes = generate_random_hashes()
 
-                playlist = create_random_playlist(total_seconds=settings.CHALLENGE_DURATION, label_hashes = label_hashes, role="Benign", seed=seed)
-
-                logger.debug(playlist)
+                playlist_attacker = create_random_playlist(total_seconds=settings.CHALLENGE_DURATION, label_hashes = label_hashes, role="Attacker", seed=seed)
+                playlist_benign = create_random_playlist(total_seconds=settings.CHALLENGE_DURATION, label_hashes = label_hashes, role="Benign", seed=seed)
 
                 # Now reset the random seed to None before shuffling
                 random.seed(None)
-                random.shuffle(playlist)
+                random.shuffle(playlist_attacker)
+                random.shuffle(playlist_benign)
+
+                playlist = {
+                    "Attacker" : playlist_attacker,
+                    "Benign" : playlist_benign
+                }
+                
+                logger.debug(playlist)
 
                 if subset_miners:
                     success = False
