@@ -11,3 +11,4 @@ __spec_version__ = _version_to_int(__version__)
 
 labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 node_types = ["Attacker", "Benign", "King", "Moat"]
+session_key_dir = "/var/tmp/session_keys"

@@ -77,9 +77,6 @@ NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 ATTACKER_PUBLIC_IP: str = os.environ.get("ATTACKER_PUBLIC_IP")
 BENIGN_PUBLIC_IP: str = os.environ.get("BENIGN_PUBLIC_IP")
 KING_PUBLIC_IP: str = os.environ.get("KING_PUBLIC_IP")
-ATTACKER_OVERLAY_IP: str = os.environ.get("ATTACKER_OVERLAY_IP")
-BENIGN_OVERLAY_IP: str = os.environ.get("BENIGN_OVERLAY_IP")
-KING_OVERLAY_IP: str = os.environ.get("KING_OVERLAY_IP")
 ATTACKER_PRIVATE_IP: str = os.environ.get("ATTACKER_PRIVATE_IP")
 BENIGN_PRIVATE_IP: str = os.environ.get("BENIGN_PRIVATE_IP")
 KING_PRIVATE_IP: str = os.environ.get("KING_PRIVATE_IP")
@@ -140,9 +137,9 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username=ATTACKER_USERNAME, private_ip=ATTACKER_PRIVATE_IP, overlay_ip=ATTACKER_OVERLAY_IP)
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username=BENIGN_USERNAME, private_ip=BENIGN_PRIVATE_IP, overlay_ip=BENIGN_OVERLAY_IP)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username=KING_USERNAME, private_ip=KING_PRIVATE_IP, overlay_ip=KING_OVERLAY_IP)
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username=ATTACKER_USERNAME, private_ip=ATTACKER_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username=BENIGN_USERNAME, private_ip=BENIGN_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username=KING_USERNAME, private_ip=KING_PRIVATE_IP)
             synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
             # Use the initial private key for initial connection
@@ -636,7 +633,7 @@ if __name__ == "__main__":
 
         #Performing GRE Setup before starting 
         gre = GRESetup(node_type="Moat")
-        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP, BENIGN_OVERLAY_IP, ATTACKER_OVERLAY_IP, KING_OVERLAY_IP)
+        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
 
         while not miner.should_exit:
             miner.log_status()

@@ -49,7 +49,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.round_manager import RoundManager
 from tensorprox.core.sync_active_validators import fetch_active_validators
-from tensorprox.utils.utils import create_random_playlist, get_remaining_time
+from tensorprox.utils.utils import create_random_playlist, get_remaining_time, generate_random_hashes
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
 from tensorprox.rewards.weight_setter import weight_setter
@@ -57,6 +57,7 @@ from datetime import datetime
 import random
 import time
 import hashlib
+
 
 # Global variables to store the runner references
 fetch_runner = None
@@ -193,7 +194,11 @@ class Validator(BaseValidatorNeuron):
                 
                 labels_dict = {label:label for label in tensorprox.labels}
 
-                playlist = create_random_playlist(seed)
+                label_hashes = generate_random_hashes()
+
+                playlist = create_random_playlist(total_seconds=settings.CHALLENGE_DURATION, label_hashes = label_hashes, role="Benign", seed=seed)
+
+                logger.debug(playlist)
 
                 # Now reset the random seed to None before shuffling
                 random.seed(None)

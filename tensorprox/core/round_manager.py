@@ -73,6 +73,7 @@ Version: 0.1.0
 import asyncio
 import os
 import random
+import tensorprox
 from typing import List, Dict, Tuple, Union, Optional, Callable
 from loguru import logger
 from pydantic import BaseModel
@@ -227,7 +228,7 @@ class RoundManager(BaseModel):
 
         # A) CONNECT WITH ORIGINAL KEY + PREPARE
         # logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
-        session_key_path = os.path.join(settings.SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+        session_key_path = os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
         session_priv, session_pub = await generate_local_session_keypair(session_key_path)
 
         try:
@@ -639,7 +640,7 @@ class RoundManager(BaseModel):
                 ssh_user = machine_details.username
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(settings.SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
                 king_ip = self.king_ips[uid]

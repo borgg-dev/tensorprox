@@ -11,7 +11,6 @@ class MachineDetails(BaseModel):
     iface: str | None = None
     username: str | None = None
     private_ip: str | None = None
-    overlay_ip: str | None = None
     
     def get(self, key, default=None):
         return getattr(self, key, default)

@@ -16,6 +16,10 @@ import math
 from pydantic import BaseModel
 import shutil 
 
+BENIGN_OVERLAY_IP="10.200.77.102"
+ATTACKER_OVERLAY_IP="10.200.77.103"
+KING_OVERLAY_IP="10.200.77.1"
+
 class GRESetup(BaseModel):
 
     node_type: str
@@ -1252,7 +1256,7 @@ class GRESetup(BaseModel):
         return True
 
 
-    def moat(self, benign_private_ip, attacker_private_ip, king_private_ip, benign_overlay_ip, attacker_overlay_ip, king_overlay_ip, benign_moat_key="77", attacker_moat_key="79", moat_king_key="88", gre_mtu=1465, ipip_mtu=1445):
+    def moat(self, benign_private_ip, attacker_private_ip, king_private_ip, benign_moat_key="77", attacker_moat_key="79", moat_king_key="88", gre_mtu=1465, ipip_mtu=1445):
                 
         """Configure Moat node with enhanced acceleration and improved reliability"""
         # --- Begin robust error handling ---
@@ -1368,40 +1372,40 @@ class GRESetup(BaseModel):
             self.optimize_tunnel_interface("gre-attacker")
         
         # 5. Set up routing for overlay IPs
-        run_cmd(["ip", "route", "add", benign_overlay_ip, "via", "192.168.100.1", "dev", "gre-benign", "metric", "100"])
-        run_cmd(["ip", "route", "add", king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "metric", "100"])
+        run_cmd(["ip", "route", "add", BENIGN_OVERLAY_IP, "via", "192.168.100.1", "dev", "gre-benign", "metric", "100"])
+        run_cmd(["ip", "route", "add", KING_OVERLAY_IP, "via", "192.168.101.2", "dev", "gre-king", "metric", "100"])
         
         if attacker_private_ip:
-            run_cmd(["ip", "route", "add", attacker_overlay_ip, "via", "192.168.102.1", "dev", "gre-attacker", "metric", "100"])
+            run_cmd(["ip", "route", "add", ATTACKER_OVERLAY_IP, "via", "192.168.102.1", "dev", "gre-attacker", "metric", "100"])
         
         # 6. Create policy routing tables for different directions
         # Table 100: Benign → King
         run_cmd(["ip", "rule", "add", "iif", "gre-benign", "lookup", "100", "pref", "100"])
-        run_cmd(["ip", "route", "add", king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "table", "100"])
+        run_cmd(["ip", "route", "add", KING_OVERLAY_IP, "via", "192.168.101.2", "dev", "gre-king", "table", "100"])
         run_cmd(["ip", "route", "add", "10.0.0.0/8", "via", "192.168.101.2", "dev", "gre-king", "table", "100"])
         
         # Table 101: King → Benign/Attacker
         run_cmd(["ip", "rule", "add", "iif", "gre-king", "lookup", "101", "pref", "101"])
-        run_cmd(["ip", "route", "add", benign_overlay_ip, "via", "192.168.100.1", "dev", "gre-benign", "table", "101"])
+        run_cmd(["ip", "route", "add", BENIGN_OVERLAY_IP, "via", "192.168.100.1", "dev", "gre-benign", "table", "101"])
         # Add broad route for 10.200.77.0/24 network (for dynamic IPs on Benign)
         run_cmd(["ip", "route", "add", "10.200.77.0/24", "via", "192.168.100.1", "dev", "gre-benign", "table", "101"])
 
         if attacker_private_ip:
             # Add route for Attacker in king->x table
-            run_cmd(["ip", "route", "add", attacker_overlay_ip, "via", "192.168.102.1", "dev", "gre-attacker", "table", "101"])
+            run_cmd(["ip", "route", "add", ATTACKER_OVERLAY_IP, "via", "192.168.102.1", "dev", "gre-attacker", "table", "101"])
             # Add broad route for 10.200.77.0/24 network (for dynamic IPs on Attacker too)
             run_cmd(["ip", "route", "add", "10.200.77.128/25", "via", "192.168.102.1", "dev", "gre-attacker", "table", "101"])
             
             # Table 102: Attacker → King
             run_cmd(["ip", "rule", "add", "iif", "gre-attacker", "lookup", "102", "pref", "102"])
-            run_cmd(["ip", "route", "add", king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "table", "102"])
+            run_cmd(["ip", "route", "add", KING_OVERLAY_IP, "via", "192.168.101.2", "dev", "gre-king", "table", "102"])
             run_cmd(["ip", "route", "add", "10.0.0.0/8", "via", "192.168.101.2", "dev", "gre-king", "table", "102"])
         
         # Table 103: Catch-all for any 10.0.0.0/8 traffic from any tunnel interface
         run_cmd(["ip", "rule", "add", "from", "10.0.0.0/8", "lookup", "103", "pref", "110"])
         run_cmd(["ip", "rule", "add", "to", "10.0.0.0/8", "lookup", "103", "pref", "111"])
-        run_cmd(["ip", "route", "add", king_overlay_ip, "via", "192.168.101.2", "dev", "gre-king", "table", "103"])
-        run_cmd(["ip", "route", "add", benign_overlay_ip, "via", "192.168.100.1", "dev", "gre-benign", "table", "103"])
+        run_cmd(["ip", "route", "add", KING_OVERLAY_IP, "via", "192.168.101.2", "dev", "gre-king", "table", "103"])
+        run_cmd(["ip", "route", "add", BENIGN_OVERLAY_IP, "via", "192.168.100.1", "dev", "gre-benign", "table", "103"])
 
         if attacker_private_ip:
             run_cmd(["ip", "route", "add", attacker_private_ip, "via", "192.168.102.1", "dev", "gre-attacker", "table", "103"])
