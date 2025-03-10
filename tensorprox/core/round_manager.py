@@ -352,7 +352,7 @@ class RoundManager(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlist: list, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -568,7 +568,7 @@ class RoundManager(BaseModel):
         task_function: Callable[..., bool],
         backup_suffix: str = "", 
         labels_dict: dict = None,
-        playlist: list = [],
+        playlists: dict = {},
         challenge_duration: int = settings.CHALLENGE_DURATION,
         timeout: int = settings.ROUND_TIMEOUT
     ) -> List[Dict[str, Union[int, str]]]:
@@ -654,7 +654,7 @@ class RoundManager(BaseModel):
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlist=playlist, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlists=playlists, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   

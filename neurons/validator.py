@@ -204,12 +204,11 @@ class Validator(BaseValidatorNeuron):
                 random.shuffle(playlist_attacker)
                 random.shuffle(playlist_benign)
 
-                playlist = {
+                playlists = {
                     "Attacker" : playlist_attacker,
                     "Benign" : playlist_benign
                 }
                 
-                logger.debug(playlist)
 
                 if subset_miners:
                     success = False
@@ -217,7 +216,7 @@ class Validator(BaseValidatorNeuron):
                         try:
                             elapsed_time = (datetime.now() - start_time).total_seconds()
                             timeout_process = settings.ROUND_TIMEOUT - elapsed_time
-                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict, playlist), timeout=timeout_process)
+                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict, playlists), timeout=timeout_process)
                         except asyncio.TimeoutError:
                             logger.warning(f"Timeout reached for this round after {int(settings.ROUND_TIMEOUT / 60)} minutes.")
                         except Exception as ex:
@@ -311,7 +310,7 @@ class Validator(BaseValidatorNeuron):
         return True  # The condition is met, the loop ends
     
 
-    async def _process_miners(self, subset_miners, backup_suffix, labels_dict, playlist):
+    async def _process_miners(self, subset_miners, backup_suffix, labels_dict, playlists):
         """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
         
         # Step 1: Query miner availability
@@ -391,7 +390,7 @@ class Validator(BaseValidatorNeuron):
             try:
                 ready_results = await round_manager.get_ready(ready_uids)
                 await asyncio.sleep(0.01)
-                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlist=playlist)
+                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlists=playlists)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
