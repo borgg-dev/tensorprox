@@ -12,3 +12,7 @@ __spec_version__ = _version_to_int(__version__)
 labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 node_types = ["Attacker", "Benign", "King", "Moat"]
 session_key_dir = "/var/tmp/session_keys"
+
+ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
+CHALLENGE_DURATION: int = 60 #15 minutes
+EPSILON: int = 30

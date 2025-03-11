@@ -284,38 +284,79 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     return priv, pub
 
 
-async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
+async def run_cmd_async(
+    conn: asyncssh.SSHClientConnection,
+    cmd: str | list,
+    ignore_errors: bool = True,
+    logging_output: bool = False,
+    use_sudo: bool = True,
+    timeout: int = None  # ⏳ Add timeout parameter
+) -> object:
     """
     Executes a command on a remote machine asynchronously using SSH.
 
     Args:
         conn (asyncssh.SSHClientConnection): An active SSH connection.
-        cmd (str): The command to execute.
+        cmd (str | list): The command to execute as a string or list.
         ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
+        logging_output (bool, optional): Whether to log the command output. Defaults to False.
         use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
+        timeout (int, optional): Timeout in seconds. Defaults to None (no timeout).
 
     Returns:
-        object: A response object with stdout, stderr, and exit_status.
+        object: A response object with stdout, stderr, exit_status, and returncode.
     """
 
+    # Convert list to properly formatted command string
+    if isinstance(cmd, list):
+        cmd = " ".join(f"'{arg}'" if " " in arg else arg for arg in cmd)
+
+    # Escape single quotes
     escaped = cmd.replace("'", "'\\''")
-    if use_sudo:
-        final_cmd = f"sudo -S bash -c '{escaped}'"
-    else:
-        final_cmd = f"bash -c '{escaped}'"
 
-    result = await conn.run(final_cmd, check=True)
-    out = result.stdout.strip()
-    err = result.stderr.strip()
+    # Construct final command with sudo if needed
+    final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
 
-    if err and not ignore_errors:
-        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-    elif out and logging_output:
-        log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
+    try:
+        result = await asyncio.wait_for(conn.run(final_cmd, check=False), timeout=timeout)
 
-    # Create an object-like response with exit_status, stdout, and stderr
-    return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
+        out = result.stdout.strip()
+        err = result.stderr.strip()
 
+        if err and not ignore_errors:
+            log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
+        elif out and logging_output:
+            log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
+
+        # Return object with both exit_status and returncode
+        return type('Result', (object,), {
+            'stdout': out,
+            'stderr': err,
+            'exit_status': result.exit_status,
+            'returncode': result.exit_status,  # Alias for compatibility
+        })()
+
+    except asyncio.TimeoutError:
+        log_message("ERROR", f"🚨 Command timed out after {timeout} seconds: {cmd}")
+
+        return type('Result', (object,), {
+            'stdout': '',
+            'stderr': f"Command timed out after {timeout} seconds",
+            'exit_status': -1,
+            'returncode': -1,  # Timeout case
+        })()
+
+    except asyncssh.ProcessError as e:
+        log_message("ERROR", f"🚨 Command execution failed: {cmd} - {str(e)}")
+        if not ignore_errors:
+            raise
+
+        return type('Result', (object,), {
+            'stdout': '',
+            'stderr': str(e),
+            'exit_status': e.exit_status,
+            'returncode': e.exit_status,
+        })()
 
 async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
     """
@@ -347,7 +388,6 @@ def log(message, level=1):
         print("[{0}] {1}".format(timestamp, message))
 
 
-    
 def get_remaining_time(duration):
     current_time = time.time()
     next_event_time = ((current_time // duration) + 1) * duration

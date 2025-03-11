@@ -73,6 +73,7 @@ Version: 0.1.0
 import asyncio
 import os
 import random
+from tensorprox import *
 import tensorprox
 from typing import List, Dict, Tuple, Union, Callable
 from loguru import logger
@@ -259,13 +260,7 @@ class RoundManager(BaseModel):
             # C) TEST SESSION KEY
             # logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
             async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
-                # logger.info(f"✨ Session key success for {ip}.")
-
-                # D) CLEAN STALE SUDOERS
-                # logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
-                revert_cleanup_cmd = f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*"
-                await run_cmd_async(ep_conn, revert_cleanup_cmd, ignore_errors=True)
-
+                # logger.info("✨ Session key success for {ip}. 🧩 Setting up passwordless sudo.")
                 sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
                 await run_cmd_async(ep_conn, sudo_setup_cmd)
 
@@ -352,28 +347,26 @@ class RoundManager(BaseModel):
         except Exception as e:
             logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
             return False
-        
 
-    
+
     async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, moat_ip: str) -> bool:
         try:
-            # Use create_and_test_connection for SSH connection
+            # Establish SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
-
             if not client:
                 return False
 
             gre = GRESetup(node_type=machine_name, conn=client)
 
-            # Run configure_node in a separate thread to keep async behavior
-            success = await asyncio.to_thread(gre.configure_node, machine_name, moat_ip)
+            # Run configure_node in a separate thread since it's synchronous
+            success = await gre.configure_node(machine_name, moat_ip)
 
             return success
 
         except Exception as e:
             logger.error(f"Error occurred: {e}")
             return False
-
+        
     async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
@@ -592,8 +585,8 @@ class RoundManager(BaseModel):
         backup_suffix: str = "", 
         labels_dict: dict = None,
         playlists: dict = {},
-        challenge_duration: int = settings.CHALLENGE_DURATION,
-        timeout: int = settings.ROUND_TIMEOUT
+        challenge_duration: int = CHALLENGE_DURATION,
+        timeout: int = ROUND_TIMEOUT
     ) -> List[Dict[str, Union[int, str]]]:
         """
         A generic function to execute different tasks (such as setup, lockdown, revert, challenge) on miners. 
@@ -739,7 +732,7 @@ class RoundManager(BaseModel):
                 state = (
                     "GET_READY" if task == "gre" 
                     else "END_ROUND" if task == "challenge" 
-                    else None
+                    else ""
                 )
                 
                 try:

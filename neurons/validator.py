@@ -39,6 +39,7 @@ import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
 from aiohttp import web
 import asyncio
+from tensorprox import *
 import tensorprox
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
@@ -62,7 +63,7 @@ import hashlib
 # Global variables to store the runner references
 fetch_runner = None
 client_runner = None
-EPOCH_TIME = settings.ROUND_TIMEOUT + settings.EPSILON
+EPOCH_TIME = ROUND_TIMEOUT + EPSILON
 
 class Validator(BaseValidatorNeuron):
     """Tensorprox validator neuron responsible for managing miners and running validation tasks."""
@@ -102,13 +103,13 @@ class Validator(BaseValidatorNeuron):
 
         return miner_subsets
         
-    def check_timeout(self, start_time: datetime, round_timeout: float = settings.ROUND_TIMEOUT) -> tuple:
+    def check_timeout(self, start_time: datetime, round_timeout: float = ROUND_TIMEOUT) -> tuple:
         """
         Checks if the round should be broken due to a timeout.
 
         Args:
             start_time (datetime): The start time of the round.
-            round_timeout (float): Timeout for the round (default is settings.ROUND_TIMEOUT).
+            round_timeout (float): Timeout for the round (default is ROUND_TIMEOUT).
 
         Returns:
             tuple: A tuple containing:
@@ -196,8 +197,8 @@ class Validator(BaseValidatorNeuron):
 
                 label_hashes = generate_random_hashes()
 
-                playlist_attacker = create_random_playlist(total_seconds=settings.CHALLENGE_DURATION, label_hashes = label_hashes, role="Attacker", seed=seed)
-                playlist_benign = create_random_playlist(total_seconds=settings.CHALLENGE_DURATION, label_hashes = label_hashes, role="Benign", seed=seed)
+                playlist_attacker = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="Attacker", seed=seed)
+                playlist_benign = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="Benign", seed=seed)
 
                 # Now reset the random seed to None before shuffling
                 random.seed(None)
@@ -215,10 +216,10 @@ class Validator(BaseValidatorNeuron):
                     while not success :
                         try:
                             elapsed_time = (datetime.now() - start_time).total_seconds()
-                            timeout_process = settings.ROUND_TIMEOUT - elapsed_time
+                            timeout_process = ROUND_TIMEOUT - elapsed_time
                             success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict, playlists), timeout=timeout_process)
                         except asyncio.TimeoutError:
-                            logger.warning(f"Timeout reached for this round after {int(settings.ROUND_TIMEOUT / 60)} minutes.")
+                            logger.warning(f"Timeout reached for this round after {int(ROUND_TIMEOUT / 60)} minutes.")
                         except Exception as ex:
                             logger.exception(f"Unexpected error while processing miners: {ex}.")
 
@@ -405,7 +406,7 @@ class Validator(BaseValidatorNeuron):
 
         # Step 5: Challenge
         with Timer() as challenge_timer:
-            logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {settings.CHALLENGE_DURATION} seconds")
+            logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {CHALLENGE_DURATION} seconds")
             try:
                 challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlists=playlists)
             except Exception as e:
