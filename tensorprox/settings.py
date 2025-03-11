@@ -20,8 +20,8 @@ class Settings(BaseSettings):
     #Subnet parameters
     SUBNET_NEURON_SIZE: int = 256
     WEIGHT_SETTER_STEP: int = 30240 #2520 blocks / 8 hours and 24 minutes
-    ROUND_TIMEOUT: int = 40 #150 blocks / 30 minutes
-    CHALLENGE_DURATION: int = 60*15 #15 minutes
+    ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
+    CHALLENGE_DURATION: int = 60 #15 minutes
     EPSILON: int = 30
 
 

@@ -74,10 +74,11 @@ import asyncio
 import os
 import random
 import tensorprox
-from typing import List, Dict, Tuple, Union, Optional, Callable
+from typing import List, Dict, Tuple, Union, Callable
 from loguru import logger
 from pydantic import BaseModel
 from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
+from tensorprox.core.gre_setup import GRESetup
 from tensorprox.utils.utils import *
 from tensorprox.settings import settings
 from tensorprox.base.protocol import MachineConfig
@@ -153,6 +154,7 @@ class RoundManager(BaseModel):
     miners: Dict[int, 'PingSynapse'] = {}
     validator_ip: str = get_public_ip()
     king_ips: Dict[int, str] = {}
+    moat_private_ips: Dict[int, str] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         """
@@ -350,7 +352,27 @@ class RoundManager(BaseModel):
         except Exception as e:
             logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
             return False
+        
 
+    
+    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, moat_ip: str) -> bool:
+        try:
+            # Use create_and_test_connection for SSH connection
+            client = await create_and_test_connection(ip, key_path, ssh_user)
+
+            if not client:
+                return False
+
+            gre = GRESetup(node_type=machine_name, conn=client)
+
+            # Run configure_node in a separate thread to keep async behavior
+            success = await asyncio.to_thread(gre.configure_node, machine_name, moat_ip)
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error occurred: {e}")
+            return False
 
     async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
@@ -558,6 +580,7 @@ class RoundManager(BaseModel):
         synapse, uid_status_availability = await self.query_availability(uid)  
 
         self.king_ips[uid] = synapse.machine_availabilities.machine_config["King"].ip
+        self.moat_private_ips[uid] = synapse.machine_availabilities.machine_config["Moat"].private_ip
         return synapse, uid_status_availability
     
     async def execute_task(
@@ -644,6 +667,7 @@ class RoundManager(BaseModel):
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
                 king_ip = self.king_ips[uid]
+                moat_private_ip = self.moat_private_ips[uid]
 
                 # Map task function to a version with specific arguments
                 if task == "setup":
@@ -653,6 +677,8 @@ class RoundManager(BaseModel):
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
+                elif task=="gre":
+                    task_function = partial(task_function, moat_ip=moat_private_ip)
                 elif task=="challenge":
                     task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlists=playlists, challenge_duration=challenge_duration)
 
@@ -710,17 +736,22 @@ class RoundManager(BaseModel):
                 # Apply timeout to the entire setup_miner function for each miner
                 await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
 
-                if task == "challenge" :
+                state = (
+                    "GET_READY" if task == "gre" 
+                    else "END_ROUND" if task == "challenge" 
+                    else None
+                )
+                
+                try:
+                    challenge_synapse = ChallengeSynapse(
+                        task="Defend The King",
+                        state=state,
+                    )
+                    await self.dendrite_call(uid, challenge_synapse, timeout=settings.NEURON_TIMEOUT)
+                    
+                except Exception as e:
+                    logger.error(f"Error sending synapse to miner {uid}: {e}")
 
-                    try:
-                        end_round_synapse = ChallengeSynapse(
-                            task="Defend The King",
-                            state="END_ROUND",
-                        )
-                        await self.dendrite_call(uid, end_round_synapse, timeout=settings.NEURON_TIMEOUT)
-                        
-                    except Exception as e:
-                        logger.error(f"Error sending synapse to miner {uid}: {e}")
 
             except asyncio.TimeoutError:
                 logger.error(f"⏰ Timeout reached for {task} with miner {uid}.")
@@ -745,35 +776,4 @@ class RoundManager(BaseModel):
         return [{"uid": uid, **status} for uid, status in task_status.items()]
 
 
-    async def get_ready(self, ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
-        """
-        Sends a "GET_READY" ChallengeSynapse to miners before the challenge starts and collects responses.
-
-        Args:
-            ready_uids (List[int]): A list of miner UIDs that need to receive the readiness signal.
-
-        Returns:
-            Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
-        """
-
-        ready_results = {}
-
-        async def inform_miner(uid):
-            try:
-                get_ready_synapse = ChallengeSynapse(
-                    task="Defend The King",
-                    state="GET_READY",
-                )
-                miner_uid, synapse = await self.dendrite_call(uid, get_ready_synapse)
-
-                # Store result in dictionary
-                ready_results[miner_uid] = synapse
-            except Exception as e:
-                logger.error(f"Error sending synapse to miner {uid}: {e}")
-                ready_results[uid] = f"Error: {e}"
-
-        # Run all tasks concurrently
-        await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
-
-        return ready_results
 

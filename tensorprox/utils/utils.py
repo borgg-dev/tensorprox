@@ -283,6 +283,7 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
+
 async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
     """
     Executes a command on a remote machine asynchronously using SSH.
@@ -345,50 +346,7 @@ def log(message, level=1):
     if DEBUG_LEVEL >= level:
         print("[{0}] {1}".format(timestamp, message))
 
-def run_cmd(cmd, show_output=False, check=False, quiet=False, timeout=360, shell=False, async_mode=False, conn=None):
-    """Run command and return result with environment variables support."""
-    
-    cmd_str = ' '.join(cmd) if isinstance(cmd, list) else cmd
-    if not quiet:
-        log("[CMD] {0}".format(cmd_str), level=1)
-    
-    # Handle shell commands differently
-    if shell and isinstance(cmd, list):
-        cmd = cmd_str
-    
-    # Set environment variables for apt operations
-    env = os.environ.copy()
-    if any(x in cmd_str for x in ['apt-get', 'apt', 'dpkg']):
-        env['DEBIAN_FRONTEND'] = 'noninteractive'
-    
-    # For SSH remote execution, call run_cmd_async (this should be handled outside of run_cmd)
-    if async_mode:
-        if conn is not None:
-            # Call run_cmd_async but don't await here, since we want it synchronous
-            loop = asyncio.get_event_loop()
-            result = loop.run_until_complete(run_cmd_async(conn, cmd_str, check, quiet, show_output))
-            return result
-        else:
-            log("[ERROR] SSH connection is required for async execution.", level=1)
-            return None
-    
-    # Synchronous execution (local execution)
-    try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=shell, timeout=timeout, env=env)
-        
-        if result.returncode != 0 and result.stderr and "Cannot find device" not in result.stderr and "File exists" not in result.stderr and not quiet:
-            log("[ERROR] {0}".format(cmd_str), level=1)
-            log("stderr: {0}".format(result.stderr.strip()), level=1)
-            if check:
-                sys.exit(1)
-        
-        if show_output and result.stdout and not quiet:
-            log(result.stdout, level=2)
-            
-        return result
-    except subprocess.TimeoutExpired:
-        log("[ERROR] Command timed out after {0} seconds: {1}".format(timeout, cmd_str), level=1)
-        return subprocess.CompletedProcess(cmd, -1, "", "Timeout occurred")
+
     
 def get_remaining_time(duration):
     current_time = time.time()
