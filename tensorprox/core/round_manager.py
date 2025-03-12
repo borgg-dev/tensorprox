@@ -356,10 +356,10 @@ class RoundManager(BaseModel):
             if not client:
                 return False
 
-            gre = GRESetup(node_type=machine_name, conn=client)
+            gre = GRESetup(node_type=machine_name.lower(), conn=client)
 
             # Run configure_node in a separate thread since it's synchronous
-            success = await gre.configure_node(machine_name, moat_ip)
+            success = await gre.configure_node(moat_ip)
 
             return success
 
@@ -732,18 +732,19 @@ class RoundManager(BaseModel):
                 state = (
                     "GET_READY" if task == "gre" 
                     else "END_ROUND" if task == "challenge" 
-                    else ""
+                    else None
                 )
                 
-                try:
-                    challenge_synapse = ChallengeSynapse(
-                        task="Defend The King",
-                        state=state,
-                    )
-                    await self.dendrite_call(uid, challenge_synapse, timeout=settings.NEURON_TIMEOUT)
-                    
-                except Exception as e:
-                    logger.error(f"Error sending synapse to miner {uid}: {e}")
+                if state :
+                    try:
+                        challenge_synapse = ChallengeSynapse(
+                            task="Defend The King",
+                            state=state,
+                        )
+                        await self.dendrite_call(uid, challenge_synapse, timeout=settings.NEURON_TIMEOUT)
+                        
+                    except Exception as e:
+                        logger.error(f"Error sending synapse to miner {uid}: {e}")
 
 
             except asyncio.TimeoutError:

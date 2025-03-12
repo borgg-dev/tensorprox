@@ -290,7 +290,6 @@ async def run_cmd_async(
     ignore_errors: bool = True,
     logging_output: bool = False,
     use_sudo: bool = True,
-    timeout: int = None  # ⏳ Add timeout parameter
 ) -> object:
     """
     Executes a command on a remote machine asynchronously using SSH.
@@ -308,8 +307,12 @@ async def run_cmd_async(
     """
 
     # Convert list to properly formatted command string
-    if isinstance(cmd, list):
-        cmd = " ".join(f"'{arg}'" if " " in arg else arg for arg in cmd)
+    cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
+
+    # Set environment variables for apt operations
+    env = os.environ.copy()
+    if any(x in cmd for x in ['apt-get', 'apt', 'dpkg']):
+        env['DEBIAN_FRONTEND'] = 'noninteractive'
 
     # Escape single quotes
     escaped = cmd.replace("'", "'\\''")
@@ -318,7 +321,7 @@ async def run_cmd_async(
     final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
 
     try:
-        result = await asyncio.wait_for(conn.run(final_cmd, check=False), timeout=timeout)
+        result = await conn.run(final_cmd, check=True)
 
         out = result.stdout.strip()
         err = result.stderr.strip()
@@ -336,18 +339,8 @@ async def run_cmd_async(
             'returncode': result.exit_status,  # Alias for compatibility
         })()
 
-    except asyncio.TimeoutError:
-        log_message("ERROR", f"🚨 Command timed out after {timeout} seconds: {cmd}")
-
-        return type('Result', (object,), {
-            'stdout': '',
-            'stderr': f"Command timed out after {timeout} seconds",
-            'exit_status': -1,
-            'returncode': -1,  # Timeout case
-        })()
-
     except asyncssh.ProcessError as e:
-        log_message("ERROR", f"🚨 Command execution failed: {cmd} - {str(e)}")
+        # log_message("ERROR", f"🚨 Command execution failed: {cmd} - {str(e)}")
         if not ignore_errors:
             raise
 

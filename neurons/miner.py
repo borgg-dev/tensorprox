@@ -115,9 +115,11 @@ class Miner(BaseMinerNeuron):
 
         super().__init__(**data)
         self._lock = asyncio.Lock()
-        self._model = joblib.load("/home/borgg/tensorprox/model/decision_tree.pkl")
-        self._imputer = joblib.load("/home/borgg/tensorprox/model/imputer.pkl")
-        self._scaler = joblib.load("/home/borgg/tensorprox/model/scaler.pkl")
+
+        base_path = os.path.expanduser("~/tensorprox/model") 
+        self._model = joblib.load(os.path.join(base_path, "decision_tree.pkl"))
+        self._imputer = joblib.load(os.path.join(base_path, "imputer.pkl"))
+        self._scaler = joblib.load(os.path.join(base_path, "scaler.pkl"))
 
 
     async def forward(self, synapse: PingSynapse) -> PingSynapse:

@@ -47,6 +47,7 @@ Version: 0.1.0
 from aiohttp import ClientSession, ClientTimeout
 import asyncio
 import bittensor as bt
+from loguru import logger
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
@@ -131,6 +132,7 @@ async def fetch_active_validators():
 
         validators = neurons_to_ips(settings.NETUID, settings.NEURON_VPERMIT_TAO_LIMIT, settings.SUBTENSOR_NETWORK)
 
+        logger.debug(f"ggggggggggggggggggggggggggggg {validators}")
         tasks = [send_ready_request(session, v["host"], v["hotkey"]) for v in validators]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         

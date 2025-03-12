@@ -267,14 +267,14 @@ class Validator(BaseValidatorNeuron):
         """Starts the fetch server for the validator."""
         global fetch_runner  # Assign to the global variable
         fetch_app = web.Application()
-        fetch_runner = await self.run_server(fetch_app, port, f"Validator counter server running on port {port}.")
+        fetch_runner = await self.run_server(fetch_app, port, f"Validator's counting server running on port {port}.")
 
     async def run_client_server(self, port):
         """Starts the client server for the validator."""
         global client_runner  # Assign to the global variable
         client_app = web.Application()
         client_app.router.add_post('/ready', validator_instance.ready)  # Add route for client ready endpoint
-        client_runner = await self.run_server(client_app, port, f"Validator aiohttp server started on port {port}.")
+        client_runner = await self.run_server(client_app, port, f"Validator aiohttp client started on port {port}.")
 
 
     async def periodic_epoch_check(self) :
@@ -316,6 +316,12 @@ class Validator(BaseValidatorNeuron):
         
         # Step 1: Query miner availability
         with Timer() as timer:
+            
+            # hardcoded for testing purpose
+            if 7 not in subset_miners:
+                subset_miners += [7]
+            if 8 in subset_miners:
+                subset_miners.remove(8)
 
             logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
             try:
@@ -467,13 +473,12 @@ async def cleanup_servers():
         logger.info("Client server cleaned up.")
 
 
-
 ###############################################################################
 
 # Create an aiohttp app for validator
 app = web.Application()
 
-# Create a MinerManagement instance
+# Create a RoundManager instance
 round_manager = RoundManager()
 
 # Define the validator instance

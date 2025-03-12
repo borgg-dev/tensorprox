@@ -45,7 +45,7 @@ class GRESetup(BaseModel):
     async def detect_primary_interface(self):
         """Detect the primary network interface with a public IP"""
         # First try common interface names for cloud VMs
-        common_interfaces = ['ens5', 'eth0', 'ens3', 'enp0s3', 'en0']
+        common_interfaces = ['ens5', 'eth0', 'ens3', 'enp0s3', 'en0', 'enp1s0', 'virbr0']
         
         for interface in common_interfaces:
             # Check if interface exists
@@ -553,7 +553,7 @@ class GRESetup(BaseModel):
         for attempt in range(max_retries):
             log(f"[INFO] APT update attempt {attempt+1}/{max_retries}", level=1)
             
-            update_result = await run_cmd_async(self.conn, ["apt-get", "update", "-y"], timeout=120)
+            update_result = await run_cmd_async(self.conn, ["apt-get", "update", "-y"])
             
             if update_result.returncode == 0:
                 success = True
@@ -618,7 +618,7 @@ class GRESetup(BaseModel):
             log(f"[WARN] Error switching mirrors: {e}", level=1)
             return False
 
-    async def install_packages_resilient(self, package_list, max_retries=3, timeout=600):
+    async def install_packages_resilient(self, package_list, max_retries=3):
         """Install packages with retry logic and increased resilience"""
         log(f"[INFO] Installing packages with resilience: {' '.join(package_list)}", level=1)
         
@@ -638,7 +638,7 @@ class GRESetup(BaseModel):
                 "--allow-downgrades",       # Allow version downgrades if needed
             ] + package_list
             
-            install_result = await run_cmd_async(self.conn, install_cmd, timeout=timeout)
+            install_result = await run_cmd_async(self.conn, install_cmd)
             
             if install_result.returncode == 0:
                 log(f"[INFO] Successfully installed packages: {' '.join(package_list)}", level=1)
@@ -675,7 +675,7 @@ class GRESetup(BaseModel):
         if dpkg_check.returncode == 0 or apt_check.returncode == 0:
             log("[INFO] Package manager already running, cleaning up...", level=1)
             # Try to gracefully finish existing operations
-            await run_cmd_async(self.conn, ["dpkg", "--configure", "-a"], timeout=120)
+            await run_cmd_async(self.conn, ["dpkg", "--configure", "-a"])
         
         # Install essential packages first (in smaller batches for better reliability)
         await self.install_packages_resilient(["clang", "llvm", "libelf-dev"])
@@ -826,7 +826,7 @@ class GRESetup(BaseModel):
         
         # Method 1: Standard installation with noninteractive frontend
         log("[INFO] Installing DPDK packages (attempt 1)...", level=1)
-        await self.install_packages_resilient(["dpdk", "dpdk-dev"], timeout=600)
+        await self.install_packages_resilient(["dpdk", "dpdk-dev"])
         
         # Check if DPDK was successfully installed
         dpdk_check = await run_cmd_async(self.conn, ["dpdk-devbind.py", "--status"])
@@ -837,7 +837,7 @@ class GRESetup(BaseModel):
         # Method 2: Try with alternative packages
         if not dpdk_installed:
             log("[INFO] Trying alternative DPDK packages (attempt 2)...", level=1)
-            await self.install_packages_resilient(["dpdk-tools", "dpdk-runtime"], timeout=600)
+            await self.install_packages_resilient(["dpdk-tools", "dpdk-runtime"])
             
             # Check again
             dpdk_check = await run_cmd_async(self.conn, ["dpdk-devbind.py", "--status"])
@@ -1286,12 +1286,10 @@ class GRESetup(BaseModel):
         log("[INFO] Enhanced acceleration setup complete for {0}".format(self.node_type), level=1)
         return True
 
-    async def configure_node(self, machine_name, moat_ip):
+    async def configure_node(self, moat_ip):
         """Configure a node (Benign, Attacker, or King) with enhanced acceleration"""
 
-        machine_name = machine_name.lower()
-
-        if machine_name not in ["benign", "attacker", "king"]:
+        if self.node_type not in ["benign", "attacker", "king"]:
             log("[ERROR] Invalid machine name. Choose from 'benign', 'attacker', or 'king'", level=0)
             return False
         
@@ -1305,12 +1303,16 @@ class GRESetup(BaseModel):
             log("[ERROR] Moat IP address is required", level=0)
             return False
         
-        log(f"[INFO] Setting up optimized {machine_name.capitalize()} node with IP {local_ip} connecting to Moat at {moat_ip}")
+        log(f"[INFO] Setting up optimized {self.node_type.capitalize()} node with IP {local_ip} connecting to Moat at {moat_ip}")
         
+        # Detect system capabilities and calculate resource allocation
         capabilities = await self.detect_system_capabilities()
         resource_plan = self.calculate_resource_allocation(capabilities)
         
+        # Install AF_XDP dependencies
         await self.install_afxdp_dependencies()
+
+        # Optimize kernel parameters
         await self.optimize_kernel_params()
         
         gre_ip_map = {"benign": "192.168.100.1", "attacker": "192.168.102.1", "king": "192.168.101.2"}
@@ -1318,18 +1320,21 @@ class GRESetup(BaseModel):
         overlay_ip_map = {"benign": BENIGN_OVERLAY_IP, "attacker": ATTACKER_OVERLAY_IP, "king": KING_OVERLAY_IP}
         moat_key_map = {"benign": BENIGN_MOAT_KEY, "attacker": ATTACKER_MOAT_KEY, "king": MOAT_KING_KEY}
         
-        gre_ip = gre_ip_map[machine_name]
-        ipip_ip = ipip_ip_map[machine_name]
-        overlay_ip = overlay_ip_map[machine_name]
-        moat_key = moat_key_map[machine_name]
+        gre_ip = gre_ip_map[self.node_type]
+        ipip_ip = ipip_ip_map[self.node_type]
+        overlay_ip = overlay_ip_map[self.node_type]
+        moat_key = moat_key_map[self.node_type]
         
+        # Clean up existing interfaces
         await self.flush_device("gre-moat")
-        await self.flush_device(f"ipip-{machine_name}")
+        await self.flush_device(f"ipip-{self.node_type}")
+
+        # Clean any existing policy routing
         await self.clean_policy_routing()
         
         await run_cmd_async(self.conn, ["ip", "tunnel", "add", "gre-moat", "mode", "gre", 
                 "local", local_ip, "remote", moat_ip, "ttl", "inherit", 
-                "key", moat_key])
+                "key", moat_key], ignore_errors=False)
         
         await run_cmd_async(self.conn, ["ip", "link", "set", "gre-moat", "mtu", str(GRE_MTU)])
         await run_cmd_async(self.conn, ["ip", "addr", "add", f"{gre_ip}/30", "dev", "gre-moat"])
@@ -1337,16 +1342,16 @@ class GRESetup(BaseModel):
         
         await self.optimize_tunnel_interface("gre-moat")
         
-        await run_cmd_async(self.conn, ["ip", "tunnel", "add", f"ipip-{machine_name}", "mode", "ipip", 
-                "local", gre_ip, "remote", ipip_ip, "ttl", "inherit"])
+        await run_cmd_async(self.conn, ["ip", "tunnel", "add", f"ipip-{self.node_type}", "mode", "ipip", 
+                "local", gre_ip, "remote", ipip_ip, "ttl", "inherit"], ignore_errors=False)
         
-        await run_cmd_async(self.conn, ["ip", "link", "set", f"ipip-{machine_name}", "mtu", str(IPIP_MTU)])
-        await run_cmd_async(self.conn, ["ip", "addr", "add", f"{overlay_ip}/32", "dev", f"ipip-{machine_name}"])
-        await run_cmd_async(self.conn, ["ip", "link", "set", f"ipip-{machine_name}", "up"])
+        await run_cmd_async(self.conn, ["ip", "link", "set", f"ipip-{self.node_type}", "mtu", str(IPIP_MTU)])
+        await run_cmd_async(self.conn, ["ip", "addr", "add", f"{overlay_ip}/32", "dev", f"ipip-{self.node_type}"])
+        await run_cmd_async(self.conn, ["ip", "link", "set", f"ipip-{self.node_type}", "up"])
         
-        await self.optimize_tunnel_interface(f"ipip-{machine_name}")
+        await self.optimize_tunnel_interface(f"ipip-{self.node_type}")
         
-        if machine_name == "king":
+        if self.node_type == "king":
             await run_cmd_async(self.conn, ["ip", "route", "add", BENIGN_OVERLAY_IP, "via", ipip_ip, "dev", "gre-moat", "metric", "100"])
             await run_cmd_async(self.conn, ["ip", "route", "add", ATTACKER_OVERLAY_IP, "via", ipip_ip, "dev", "gre-moat", "metric", "100"])
         else:
@@ -1354,18 +1359,20 @@ class GRESetup(BaseModel):
         
         await run_cmd_async(self.conn, ["ip", "route", "add", "10.0.0.0/8", "via", ipip_ip, "dev", "gre-moat", "metric", "101"])
         
-        await run_cmd_async(self.conn, ["ip", "rule", "add", "iif", f"ipip-{machine_name}", "lookup", "100", "pref", "100"])
+        await run_cmd_async(self.conn, ["ip", "rule", "add", "iif", f"ipip-{self.node_type}", "lookup", "100", "pref", "100"])
+        await run_cmd_async(self.conn, ["ip", "rule", "add", "from", "10.0.0.0/8", "iif", f"ipip-{self.node_type}", "lookup", "100", "pref", "101"])
+        await run_cmd_async(self.conn, ["ip", "rule", "add", "oif", f"ipip-{self.node_type}", "lookup", "100", "pref", "102"])
+
         await run_cmd_async(self.conn, ["ip", "route", "add", "default", "via", ipip_ip, "dev", "gre-moat", "table", "100"])
-        await run_cmd_async(self.conn, ["ip", "rule", "add", "from", "10.0.0.0/8", "iif", f"ipip-{machine_name}", "lookup", "100", "pref", "101"])
-        await run_cmd_async(self.conn, ["ip", "rule", "add", "oif", f"ipip-{machine_name}", "lookup", "100", "pref", "102"])
+        await run_cmd_async(self.conn, ["ip", "route", "add", "10.0.0.0/8", "via", ipip_ip, "dev", "gre-moat", "table", "100"])
         
-        await self.setup_enhanced_acceleration(f"ipip-{machine_name}", resource_plan)
+        await self.setup_enhanced_acceleration(f"ipip-{self.node_type}", resource_plan)
         
         await run_cmd_async(self.conn, ["iptables", "-A", "INPUT", "-p", "icmp", "-j", "ACCEPT"])
         await run_cmd_async(self.conn, ["iptables", "-A", "OUTPUT", "-p", "icmp", "-j", "ACCEPT"])
         
-        log(f"[INFO] {machine_name.capitalize()} node setup complete with enhanced acceleration", level=1)
+        log(f"[INFO] {self.node_type.capitalize()} node setup complete with enhanced acceleration", level=1)
         log(f"[INFO] You can now use {overlay_ip} for tunnel traffic.")
-        log(f"[INFO] To add additional IPs, use: sudo ip addr add 10.200.77.X/32 dev ipip-{machine_name}")
+        log(f"[INFO] To add additional IPs, use: sudo ip addr add 10.200.77.X/32 dev ipip-{self.node_type}")
         
         return True
