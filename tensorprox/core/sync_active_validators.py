@@ -131,11 +131,8 @@ async def fetch_active_validators():
     async with ClientSession(timeout=ClientTimeout(total=3)) as session:
 
         validators = neurons_to_ips(settings.NETUID, settings.NEURON_VPERMIT_TAO_LIMIT, settings.SUBTENSOR_NETWORK)
-
-        logger.debug(f"ggggggggggggggggggggggggggggg {validators}")
         tasks = [send_ready_request(session, v["host"], v["hotkey"]) for v in validators]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
         active_uids = [validator["uid"] for validator, is_ready in zip(validators, results) if is_ready]
 
         return active_uids

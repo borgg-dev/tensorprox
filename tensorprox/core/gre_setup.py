@@ -14,7 +14,6 @@ import re
 import multiprocessing
 import math
 from pydantic import BaseModel, ConfigDict
-import shutil 
 
 # ===== CONFIGURATION =====
 # Fixed overlay network IPs
@@ -95,6 +94,7 @@ class GRESetup(BaseModel):
         log("[ERROR] Could not detect primary network interface", level=0)
         return None, None
 
+    
     async def flush_device(self, dev):
         """Delete network device if it exists"""
         await run_cmd_async(self.conn, ["ip", "link", "set", dev, "down"])

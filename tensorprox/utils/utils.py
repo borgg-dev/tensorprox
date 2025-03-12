@@ -14,6 +14,8 @@ from typing import Tuple, Optional, Dict
 from loguru import logger
 import string
 import hashlib
+import psutil
+import ipaddress
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -65,6 +67,16 @@ def get_local_ip() -> str:
         pass
     return "127.0.0.1"
 
+
+def get_subnet(interface):
+    interfaces = psutil.net_if_addrs()
+    if interface not in interfaces:
+        return None  # Interface not found
+    for addr in interfaces[interface]:
+        if addr.family == 2:  # AF_INET (IPv4)
+            ip_network = ipaddress.ip_network(f"{addr.address}/{addr.netmask}", strict=False)
+            return str(ip_network)
+    return None  # No IPv4 address found
 
 def log_message(level: str, message: str):
     """
@@ -127,6 +139,7 @@ def save_private_key(priv_key_str: str, path: str):
         # log_message("ERROR", f"Error saving private key: {e}")
         pass
 
+    
 def get_attack_classes() -> Dict[str, list]:
     """Get all available attack classes.
     
