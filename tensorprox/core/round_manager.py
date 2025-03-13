@@ -741,7 +741,7 @@ class RoundManager(BaseModel):
                             task="Defend The King",
                             state=state,
                         )
-                        await self.dendrite_call(uid, challenge_synapse, timeout=settings.NEURON_TIMEOUT)
+                        await self.dendrite_call(uid, challenge_synapse)
                         
                     except Exception as e:
                         logger.error(f"Error sending synapse to miner {uid}: {e}")

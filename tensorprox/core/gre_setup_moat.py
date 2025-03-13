@@ -42,7 +42,7 @@ class GRESetup(BaseModel):
     def detect_primary_interface(self):
         """Detect the primary network interface with a public IP"""
         # First try common interface names for cloud VMs
-        common_interfaces = ['ens5', 'eth0', 'ens3', 'enp1s0', 'virbr0', 'enp0s3', 'en0']
+        common_interfaces = ['ens5', 'eth0', 'enp1s0', 'ens3', 'enp0s3', 'en0']
         
         for interface in common_interfaces:
             # Check if interface exists
@@ -1432,7 +1432,7 @@ class GRESetup(BaseModel):
     
         
         log("[INFO] Moat node setup complete with enhanced acceleration", level=1)
-        log("[INFO] Supporting dynamic IPs in {0} subnet for Benign/Attacker".format("10.0.0.0/8"), level=1)
+        log("[INFO] Supporting dynamic IPs in 10.0.0.0/8 subnet for Benign/Attacker", level=1)
         
         # Log resource allocation for performance monitoring
         log(f"[INFO] MOAT node using {resource_plan['dpdk_cores']} DPDK cores, {resource_plan['hugepages_gb']}GB hugepages", level=0)

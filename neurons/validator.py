@@ -320,8 +320,11 @@ class Validator(BaseValidatorNeuron):
             # hardcoded for testing purpose
             if 7 not in subset_miners:
                 subset_miners += [7]
-            if 8 in subset_miners:
-                subset_miners.remove(8)
+            if 14 not in subset_miners:
+                subset_miners += [14]
+
+            to_remove = [8,9,11,12,13,16]
+            subset_miners = [miner for miner in subset_miners if miner not in to_remove]
 
             logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
             try:
