@@ -80,8 +80,8 @@ class Validator(BaseValidatorNeuron):
         self._lock = asyncio.Lock()
         self.active_count = 0
         self.first_round = True
-        self.fetch_port = int(os.environ.get("AXON_PORT")) + 2
-        self.aiohttp_port = int(os.environ.get("AXON_PORT")) + 1
+        self.aiohttp_port = int(os.environ.get("AXON_PORT")) + self.uid
+        self.fetch_port = int(os.environ.get("AXON_PORT")) + self.uid + 1
                     
     def map_to_consecutive(self, active_uids):
         # Sort the input list
@@ -177,6 +177,7 @@ class Validator(BaseValidatorNeuron):
                 self.active_count = len(active_validators_uids)     
 
                 logger.debug(f"Number of active validators = {self.active_count}")
+                logger.info(f"ACTIVE UID : {active_validators_uids}")
 
                 #Generate hash seed from universal time sync
                 seed = int(hashlib.sha256(str(sync_time).encode('utf-8')).hexdigest(), 16) % (2**32)

@@ -107,7 +107,7 @@ def neurons_to_ips(netuid, vpermit, network):
     validators = []
     for neuron in subnet_neurons :
         if neuron.validator_permit and int(neuron.total_stake) >= vpermit : 
-            validators.append({"host": f"http://127.0.0.1:{neuron.axon_info.port+1}", "hotkey": neuron.axon_info.hotkey, "uid": neuron.uid})
+            validators.append({"host": f"http://{neuron.axon_info.ip}:{neuron.axon_info.port+neuron.uid}", "hotkey": neuron.axon_info.hotkey, "uid": neuron.uid})
     return list({tuple(v.items()): dict(v) for v in validators}.values())
 
 
@@ -134,5 +134,4 @@ async def fetch_active_validators():
         tasks = [send_ready_request(session, v["host"], v["hotkey"]) for v in validators]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         active_uids = [validator["uid"] for validator, is_ready in zip(validators, results) if is_ready]
-
         return active_uids
