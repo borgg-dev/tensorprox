@@ -80,8 +80,8 @@ class Validator(BaseValidatorNeuron):
         self._lock = asyncio.Lock()
         self.active_count = 0
         self.first_round = True
-        self.fetch_port = int(os.environ.get("VALIDATOR_AXON_PORT")) + 2
-        self.aiohttp_port = int(os.environ.get("VALIDATOR_AXON_PORT")) + 1
+        self.fetch_port = int(os.environ.get("AXON_PORT")) + 2
+        self.aiohttp_port = int(os.environ.get("AXON_PORT")) + 1
                     
     def map_to_consecutive(self, active_uids):
         # Sort the input list

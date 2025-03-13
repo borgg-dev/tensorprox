@@ -628,15 +628,16 @@ class Miner(BaseMinerNeuron):
         return
 
 
-logger.info("Miner Instance started. Running GRE Setup...")
-
-#Performing GRE Setup before starting 
-gre = GRESetup(node_type="Moat")
-gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
 
 if __name__ == "__main__":
     with Miner() as miner:
 
+        logger.info("Miner Instance started. Running GRE Setup...")
+
+        #Performing GRE Setup before starting 
+        gre = GRESetup(node_type="Moat")
+        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
+        
         while not miner.should_exit:
             miner.log_status()
             time.sleep(5)
