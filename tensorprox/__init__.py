@@ -28,22 +28,6 @@ TRAFFIC_GEN_PATH = os.path.join(BASE_DIR, "tensorprox", "core", "traffic_generat
 session_key_dir = "/var/tmp/session_keys"
 REMOTE_TRAFFIC_GEN_PATH: str = '/tmp/traffic_generator.py'
 
-#Miner global vars
-ATTACKER_PUBLIC_IP: str = os.environ.get("ATTACKER_PUBLIC_IP")
-BENIGN_PUBLIC_IP: str = os.environ.get("BENIGN_PUBLIC_IP")
-KING_PUBLIC_IP: str = os.environ.get("KING_PUBLIC_IP")
-ATTACKER_PRIVATE_IP: str = os.environ.get("ATTACKER_PRIVATE_IP")
-BENIGN_PRIVATE_IP: str = os.environ.get("BENIGN_PRIVATE_IP")
-KING_PRIVATE_IP: str = os.environ.get("KING_PRIVATE_IP")
-MOAT_PRIVATE_IP: str = os.environ.get("MOAT_PRIVATE_IP")
-FORWARD_PORT: int = os.environ.get("FORWARD_PORT", 8080)
-ATTACKER_IFACE: str = os.environ.get("ATTACKER_IFACE", "eth0")
-ATTACKER_USERNAME: str = os.environ.get("ATTACKER_USERNAME", "root")
-BENIGN_IFACE: str = os.environ.get("BENIGN_IFACE", "eth0")
-BENIGN_USERNAME: str = os.environ.get("BENIGN_USERNAME", "root")
-KING_IFACE: str = os.environ.get("KING_IFACE", "eth0")
-KING_USERNAME: str = os.environ.get("KING_USERNAME", "root")
-MOAT_IFACE: str = os.environ.get("MOAT_IFACE", "eth0")
 
 # ===== GRE CONFIGURATION =====
 # Fixed overlay network IPs

@@ -670,7 +670,7 @@ class RoundManager(BaseModel):
                 elif task=="gre":
                     task_function = partial(task_function, moat_ip=moat_private_ip)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, king_ip=king_ip, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   

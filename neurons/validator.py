@@ -209,7 +209,6 @@ class Validator(BaseValidatorNeuron):
                     "Benign" : playlist_benign
                 }
                 
-                logger.info(playlists)
 
                 if subset_miners:
                     success = False

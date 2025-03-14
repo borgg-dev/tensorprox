@@ -27,7 +27,7 @@ class GRESetup(BaseModel):
     async def detect_primary_interface(self):
         """Detect the primary network interface with a public IP"""
         # First try common interface names for cloud VMs
-        common_interfaces = ['ens5', 'eth0', 'enp1s0', 'ens3', 'enp0s3', 'en0']
+        common_interfaces = ['ens5', 'eth0', 'enp1s0','virbr0', 'ens3', 'enp0s3', 'en0']
         
         for interface in common_interfaces:
             # Check if interface exists
