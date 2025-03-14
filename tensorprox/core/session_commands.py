@@ -316,7 +316,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_challenge_cmd(machine_name: str, challenge_duration: str, labels_dict: dict, playlist: list, king_ip: str = KING_OVERLAY_IP) -> str:
+def get_challenge_cmd(machine_name: str, challenge_duration: str, label_hashes: dict, playlist: list, king_ip: str = KING_OVERLAY_IP) -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP, 
     along with RTT measurement for packets from Attacker and Benign to King.
@@ -325,13 +325,18 @@ def get_challenge_cmd(machine_name: str, challenge_duration: str, labels_dict: d
         machine_name (str): The name of the machine (e.g., "Attacker", "Benign", "King").
         king_ip (str): The IP address of the King machine.
         challenge_duration (str): Duration of the pcap capture.
-        labels_dict (dict): Dictionary containing the labels for different traffic types.
+        label_hashes (dict): Dictionary containing the labels for different traffic types.
         playlist (list): The playlist to be used for the traffic generator.
         iface (str, optional): The network interface to capture traffic.
 
     Returns:
         str: The command string to execute on the remote machine.
     """
+
+    # Build grep patterns for counting occurrences of each label
+    benign_pattern = "\\|".join(label_hashes["BENIGN"])
+    udp_flood_pattern = "\\|".join(label_hashes["UDP_FLOOD"])
+    tcp_syn_flood_pattern = "\\|".join(label_hashes["TCP_SYN_FLOOD"])
 
     rtt_file = f"/tmp/{machine_name}_rtt.txt"  # Store RTT measurements
 
@@ -379,6 +384,7 @@ def get_challenge_cmd(machine_name: str, challenge_duration: str, labels_dict: d
         nohup python3 /tmp/traffic_generator.py --playlist /tmp/playlist.json --receiver-ips {king_ip} --interface ipip-{machine_name} > /tmp/traffic_generator.log 2>&1 &
         """
 
+
     # Generate the remote command
     cmd = f"""
     # Ensure tcpdump is installed
@@ -401,12 +407,12 @@ def get_challenge_cmd(machine_name: str, challenge_duration: str, labels_dict: d
     sudo timeout {challenge_duration} tcpdump -i ipip-{machine_name} -w /tmp/capture.pcap '{filter_traffic}'
 
     # Extract the payload data from pcap file and count occurrences
-    sudo tcpdump -nn -r /tmp/capture.pcap -A | grep -o '{labels_dict["BENIGN"]}\|{labels_dict["UDP_FLOOD"]}\|{labels_dict["TCP_SYN_FLOOD"]}' > /tmp/traffic_data.txt
+    sudo tcpdump -nn -r /tmp/capture.pcap -A | grep -o '{benign_pattern}\\|{udp_flood_pattern}\\|{tcp_syn_flood_pattern}' > /tmp/traffic_data.txt
 
     # Count occurrences of each label
-    benign_count=$(grep -o {labels_dict["BENIGN"]} /tmp/traffic_data.txt | wc -l)
-    udp_flood_count=$(grep -o {labels_dict["UDP_FLOOD"]} /tmp/traffic_data.txt | wc -l)
-    tcp_syn_flood_count=$(grep -o {labels_dict["TCP_SYN_FLOOD"]} /tmp/traffic_data.txt | wc -l)
+    benign_count=$(grep -o -E "{benign_pattern}" /tmp/traffic_data.txt | wc -l)
+    udp_flood_count=$(grep -o -E "{udp_flood_pattern}" /tmp/traffic_data.txt | wc -l)
+    tcp_syn_flood_count=$(grep -o -E "{tcp_syn_flood_pattern}" /tmp/traffic_data.txt | wc -l)
 
     # Measure RTT if the machine is Attacker or Benign
     if [ {machine_name} == "attacker" ] || [ {machine_name} == "benign" ]; then
@@ -418,14 +424,15 @@ def get_challenge_cmd(machine_name: str, challenge_duration: str, labels_dict: d
         rtt_avg=$(grep -oP 'rtt min/avg/max/mdev = \d+\.\d+/(\d+\.\d+)' {rtt_file} | awk -F'/' '{{print $5}}')
 
         # Output the counts along with the average RTT
-        echo "{labels_dict["BENIGN"]}:$benign_count, {labels_dict["UDP_FLOOD"]}:$udp_flood_count, {labels_dict["TCP_SYN_FLOOD"]}:$tcp_syn_flood_count, AVG_RTT:$rtt_avg"
+        echo "BENIGN:$benign_count, UDP_FLOOD:$udp_flood_count, TCP_SYN_FLOOD:$tcp_syn_flood_count, AVG_RTT:$rtt_avg"
     else
         # Output just the counts if the machine is neither Attacker nor Benign
-        echo "{labels_dict["BENIGN"]}:$benign_count, {labels_dict["UDP_FLOOD"]}:$udp_flood_count, {labels_dict["TCP_SYN_FLOOD"]}:$tcp_syn_flood_count"
+        echo "BENIGN:$benign_count, UDP_FLOOD:$udp_flood_count, TCP_SYN_FLOOD:$tcp_syn_flood_count"
     fi
 
     #Delete temporary files
     rm -f /tmp/capture.pcap
+    rm -f /tmp/traffic_generator.py
     rm -f /tmp/playlist.json
     rm -f {rtt_file}
     rm -f traffic_data.txt

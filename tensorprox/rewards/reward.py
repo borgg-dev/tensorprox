@@ -102,13 +102,13 @@ class ChallengeRewardModel(BaseModel):
     def exponential_ratio(ratio):
         return (math.exp(ratio**2) - 1) / (math.exp(1) - 1)
 
-    def reward(self, response_event: DendriteResponseEvent, uids: List[int], labels_dict: Dict) -> BatchRewardOutput:
+    def reward(self, response_event: DendriteResponseEvent, uids: List[int], label_hashes: Dict) -> BatchRewardOutput:
         """
         Calculate rewards for a batch of users based on their packet capture data.
 
         Args:
             uids (List[int]): A list of user IDs.
-            labels_dict (Dict): A dictionary mapping original labels to encrypted labels.
+            label_hashes (Dict): A dictionary mapping original labels to encrypted labels.
 
         Returns:
             BatchRewardOutput: An instance containing an array of computed rewards.
@@ -132,7 +132,7 @@ class ChallengeRewardModel(BaseModel):
 
             label_counts_results = response_event.challenge_status_by_uid[uid]["label_counts_results"]
 
-            default_count = {label:0 for label in labels_dict.keys()}
+            default_count = {label:0 for label in label_hashes.keys()}
 
             attack_counts = next((counts for machine, counts, _ in label_counts_results if machine == "Attacker"), default_count)
             benign_counts = next((counts for machine, counts, _ in label_counts_results if machine == "Benign"), default_count)
@@ -231,21 +231,21 @@ class BaseRewardConfig(BaseModel):
         cls,
         response_event: DendriteResponseEvent,
         uids: list[int],
-        labels_dict: dict,
+        label_hashes: dict,
     ) -> ChallengeRewardEvent:
         """
         Apply the reward model to a list of user IDs with optional custom labels.
 
         Args:
             uids (list[int]): A list of user IDs.
-            labels_dict (dict, optional): A custom dictionary mapping original labels to encrypted labels. Defaults to None.
+            label_hashes (dict): A custom dictionary mapping original labels to encrypted labels.
 
         Returns:
             ChallengeRewardEvent: An event containing the computed rewards and associated user IDs.
         """
 
         # Get the reward output
-        batch_rewards_output = cls.reward_model.reward(response_event, uids, labels_dict)
+        batch_rewards_output = cls.reward_model.reward(response_event, uids, label_hashes)
 
         # Return the ChallengeRewardEvent using the BatchRewardOutput
         return ChallengeRewardEvent(

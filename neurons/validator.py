@@ -194,8 +194,6 @@ class Validator(BaseValidatorNeuron):
                 start_time = datetime.now()
                 backup_suffix = start_time.strftime("%Y%m%d%H%M%S")
                 
-                labels_dict = {label:label for label in tensorprox.labels}
-
                 label_hashes = generate_random_hashes()
 
                 playlist_attacker = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="Attacker", seed=seed)
@@ -219,7 +217,7 @@ class Validator(BaseValidatorNeuron):
                         try:
                             elapsed_time = (datetime.now() - start_time).total_seconds()
                             timeout_process = ROUND_TIMEOUT - elapsed_time
-                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, labels_dict, playlists), timeout=timeout_process)
+                            success = await asyncio.wait_for(self._process_miners(subset_miners, backup_suffix, label_hashes, playlists), timeout=timeout_process)
                         except asyncio.TimeoutError:
                             logger.warning(f"Timeout reached for this round after {int(ROUND_TIMEOUT / 60)} minutes.")
                         except Exception as ex:
@@ -313,7 +311,7 @@ class Validator(BaseValidatorNeuron):
         return True  # The condition is met, the loop ends
     
 
-    async def _process_miners(self, subset_miners, backup_suffix, labels_dict, playlists):
+    async def _process_miners(self, subset_miners, backup_suffix, label_hashes, playlists):
         """Handles processing of miners, including availability check, setup, challenge, and revert phases."""
         
         # Step 1: Query miner availability
@@ -419,7 +417,7 @@ class Validator(BaseValidatorNeuron):
         with Timer() as challenge_timer:
             logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {CHALLENGE_DURATION} seconds")
             try:
-                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, labels_dict=labels_dict, playlists=playlists)
+                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, label_hashes=label_hashes, playlists=playlists)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
@@ -452,7 +450,7 @@ class Validator(BaseValidatorNeuron):
         logger.debug(f"🎯 Scoring round and adding it to reward event ..")
 
         # Scoring manager will score the round
-        task_scorer.score_round(response=response_event, uids=subset_miners, labels_dict=labels_dict, block=self.block, step=self.step)
+        task_scorer.score_round(response=response_event, uids=subset_miners, label_hashes=label_hashes, block=self.block, step=self.step)
         
         return True
         

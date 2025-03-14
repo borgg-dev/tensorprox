@@ -367,7 +367,7 @@ class RoundManager(BaseModel):
             logger.error(f"Error occurred: {e}")
             return False
         
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -379,7 +379,7 @@ class RoundManager(BaseModel):
             ssh_user (str): The SSH user account on the miner.
             key_path (str): Path to the SSH key used for authentication.
             machine_name (str): Name of the machine to challenge.
-            labels_dict (dict): Dictionary containing the encrypted labels for each label type.
+            label_hashes (dict): Dictionary containing the encrypted labels for each label type.
             playlists: (dict): Dictionary containings two playlists for Attacker and Benign.
             challenge_duration (int): Duration for which the challenge should run, in seconds.
 
@@ -390,7 +390,7 @@ class RoundManager(BaseModel):
         try:
 
             # Generate the pcap command
-            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, labels_dict, playlists[machine_name])
+            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, label_hashes, playlists[machine_name])
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
@@ -408,7 +408,7 @@ class RoundManager(BaseModel):
             counts_and_rtt = result.stdout.strip().split(", ")
 
             # Initialize a dictionary to store counts using a for loop
-            label_counts = {label: 0 for label in labels_dict.values()}
+            label_counts = {label: 0 for label in label_hashes.keys()}
 
             rtt_avg = None
 
@@ -580,7 +580,7 @@ class RoundManager(BaseModel):
         subset_miners: list[int],
         task_function: Callable[..., bool],
         backup_suffix: str = "", 
-        labels_dict: dict = None,
+        label_hashes: dict = None,
         playlists: dict = {},
         challenge_duration: int = CHALLENGE_DURATION,
         timeout: int = ROUND_TIMEOUT
@@ -670,7 +670,7 @@ class RoundManager(BaseModel):
                 elif task=="gre":
                     task_function = partial(task_function, moat_ip=moat_private_ip)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlists=playlists, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, king_ip=king_ip, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
