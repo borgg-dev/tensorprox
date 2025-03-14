@@ -7,7 +7,7 @@ numpy==2.0.2
 pandas==2.2.3
 websockets
 requests==2.31.0
-psutil
+psutil==7.0.0
 asyncio
 pymongo
 pyopenssl==24.2.1
@@ -16,7 +16,7 @@ paramiko==3.5.0
 aiohttp
 asyncssh==2.19.0
 joblib==1.4.2
-scikit-learn==1.6.1
+scikit-learn==1.6.0
 dpkt==1.9.8
 pyshark==0.6
 redis==5.2.1

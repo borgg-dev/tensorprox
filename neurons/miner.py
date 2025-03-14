@@ -53,6 +53,8 @@ from loguru import logger
 from tensorprox.base.miner import BaseMinerNeuron
 from tensorprox.utils.logging import ErrorLoggingEvent, log_event
 from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetails
+from tensorprox.utils.utils import *
+from tensorprox.core.gre_setup_moat import GRESetup
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from threading import Thread, Event
@@ -72,6 +74,21 @@ import asyncssh
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
+ATTACKER_PUBLIC_IP: str = os.environ.get("ATTACKER_PUBLIC_IP")
+BENIGN_PUBLIC_IP: str = os.environ.get("BENIGN_PUBLIC_IP")
+KING_PUBLIC_IP: str = os.environ.get("KING_PUBLIC_IP")
+ATTACKER_PRIVATE_IP: str = os.environ.get("ATTACKER_PRIVATE_IP")
+BENIGN_PRIVATE_IP: str = os.environ.get("BENIGN_PRIVATE_IP")
+KING_PRIVATE_IP: str = os.environ.get("KING_PRIVATE_IP")
+MOAT_PRIVATE_IP: str = os.environ.get("MOAT_PRIVATE_IP")
+FORWARD_PORT: int = os.environ.get("FORWARD_PORT", 8080)
+ATTACKER_IFACE: str = os.environ.get("ATTACKER_IFACE", "eth0")
+ATTACKER_USERNAME: str = os.environ.get("ATTACKER_USERNAME", "root")
+BENIGN_IFACE: str = os.environ.get("BENIGN_IFACE", "eth0")
+BENIGN_USERNAME: str = os.environ.get("BENIGN_USERNAME", "root")
+KING_IFACE: str = os.environ.get("KING_IFACE", "eth0")
+KING_USERNAME: str = os.environ.get("KING_USERNAME", "root")
+MOAT_IFACE: str = os.environ.get("MOAT_IFACE", "eth0")
 
 class Miner(BaseMinerNeuron):
     """
@@ -81,24 +98,12 @@ class Miner(BaseMinerNeuron):
     """
 
     should_exit: bool = False
+    moat_gre_setup_completed: bool = False
     firewall_active: bool = False
     firewall_thread: Thread = None
     stop_firewall_event: Event = Field(default_factory=Event)
     packet_buffer: List[Tuple[bytes, int]] = Field(default_factory=list)
     batch_interval: int = 10
-    king_private_ip: str = os.environ.get("KING_PRIVATE_IP")
-    attacker_ip: str = os.environ.get("ATTACKER_IP")
-    benign_ip: str = os.environ.get("BENIGN_IP")
-    king_ip: str = os.environ.get("KING_IP")
-    moat_private_ip: str = os.environ.get("MOAT_PRIVATE_IP")
-    forward_port: int = os.environ.get("FORWARD_PORT", 8080)
-    attacker_iface: str = os.environ.get("ATTACKER_IFACE", "eth0")
-    attacker_username: str = os.environ.get("ATTACKER_USERNAME", "root")
-    benign_iface: str = os.environ.get("BENIGN_IFACE", "eth0")
-    benign_username: str = os.environ.get("BENIGN_USERNAME", "root")
-    king_iface: str = os.environ.get("KING_IFACE", "eth0")
-    king_username: str = os.environ.get("KING_USERNAME", "root")
-    moat_iface: str = os.environ.get("MOAT_IFACE", "eth0")
             
     _lock: asyncio.Lock = PrivateAttr()
     _model: DecisionTreeClassifier = PrivateAttr()
@@ -110,9 +115,11 @@ class Miner(BaseMinerNeuron):
 
         super().__init__(**data)
         self._lock = asyncio.Lock()
-        self._model = joblib.load("/home/borgg/tensorprox/model/decision_tree.pkl")
-        self._imputer = joblib.load("/home/borgg/tensorprox/model/imputer.pkl")
-        self._scaler = joblib.load("/home/borgg/tensorprox/model/scaler.pkl")
+
+        base_path = os.path.expanduser("~/tensorprox/model") 
+        self._model = joblib.load(os.path.join(base_path, "decision_tree.pkl"))
+        self._imputer = joblib.load(os.path.join(base_path, "imputer.pkl"))
+        self._scaler = joblib.load(os.path.join(base_path, "scaler.pkl"))
 
 
     async def forward(self, synapse: PingSynapse) -> PingSynapse:
@@ -132,10 +139,10 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=self.attacker_ip, iface=self.attacker_iface, username=self.attacker_username)
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=self.benign_ip, iface=self.benign_iface, username=self.benign_username)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=self.king_ip, iface=self.king_iface, username=self.king_username, private_ip=self.king_private_ip)
-            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=self.moat_private_ip)
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username=ATTACKER_USERNAME, private_ip=ATTACKER_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username=BENIGN_USERNAME, private_ip=BENIGN_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username=KING_USERNAME, private_ip=KING_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
@@ -176,6 +183,10 @@ class Miner(BaseMinerNeuron):
         Returns:
             ChallengeSynapse: The same `synapse` object after processing the challenge.
         """
+
+        if not self.moat_gre_setup_completed:
+            logger.warning("Moat GRE Setup is not finished yet. Cannot handle challenge.")
+            return  # Don't proceed with the challenge handling if setup is not done
 
         try:
             # Extract challenge information from the synapse
@@ -435,7 +446,7 @@ class Miner(BaseMinerNeuron):
                 if is_allowed:
                     logger.info(f"Allowing batch of {len(batch)} packets...")
                     for packet_data, protocol in batch:  # Extract packet and protocol
-                        await self.moat_forward_packet(packet_data, self.king_private_ip, int(self.forward_port), protocol)
+                        await self.moat_forward_packet(packet_data, KING_PRIVATE_IP, int(self.forward_port), protocol)
                 else:
                     logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
         except Exception as e:
@@ -500,7 +511,7 @@ class Miner(BaseMinerNeuron):
         prediction = self._model.predict(sample_data_scaled)
 
         return prediction[0] if isinstance(prediction, np.ndarray) and len(prediction) > 0 else None
-    
+
     def generate_ssh_key_pair(self) -> tuple[str, str]:
         """
         Generates a random RSA SSH key pair and returns the private and public keys as strings.
@@ -617,8 +628,16 @@ class Miner(BaseMinerNeuron):
         return
 
 
+
 if __name__ == "__main__":
     with Miner() as miner:
+
+        logger.info("Miner Instance started. Running GRE Setup...")
+
+        #Performing GRE Setup before starting 
+        gre = GRESetup(node_type="Moat")
+        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
+        
         while not miner.should_exit:
             miner.log_status()
             time.sleep(5)

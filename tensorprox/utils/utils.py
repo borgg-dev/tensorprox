@@ -1,4 +1,7 @@
 from requests import get
+import tensorprox
+import sys
+from datetime import datetime
 import subprocess
 import re
 import logging
@@ -6,10 +9,13 @@ import os
 import asyncio
 import random
 import time
-from typing import Tuple
-from tensorprox import settings
-settings.settings = settings.Settings.load(mode="validator")
-settings = settings.settings
+import asyncssh
+from typing import Tuple, Optional, Dict
+from loguru import logger
+import string
+import hashlib
+import psutil
+import ipaddress
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -62,6 +68,16 @@ def get_local_ip() -> str:
     return "127.0.0.1"
 
 
+def get_subnet(interface):
+    interfaces = psutil.net_if_addrs()
+    if interface not in interfaces:
+        return None  # Interface not found
+    for addr in interfaces[interface]:
+        if addr.family == 2:  # AF_INET (IPv4)
+            ip_network = ipaddress.ip_network(f"{addr.address}/{addr.netmask}", strict=False)
+            return str(ip_network)
+    return None  # No IPv4 address found
+
 def log_message(level: str, message: str):
     """
     Logs a message with the specified logging level.
@@ -93,16 +109,16 @@ def get_authorized_keys_dir(ssh_user: str) -> str:
 
     return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
 
-def create_session_key_dir(path = settings.SESSION_KEY_DIR) :
+def create_session_key_dir(path = tensorprox.session_key_dir) :
 
     if not os.path.exists(path):
         try:
             os.makedirs(path, mode=0o700, exist_ok=True)
         except PermissionError as e:
-            #log_message("ERROR", f"Permission denied while creating {SESSION_KEY_DIR}: {e}")
+            #log_message("ERROR", f"Permission denied while creating {tensorprox.session_key_dir}: {e}")
             raise
         except Exception as e:
-            #log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
+            #log_message("ERROR", f"Unexpected error while creating {tensorprox.session_key_dir}: {e}")
             raise
 
 def save_private_key(priv_key_str: str, path: str):
@@ -123,35 +139,127 @@ def save_private_key(priv_key_str: str, path: str):
         # log_message("ERROR", f"Error saving private key: {e}")
         pass
 
-def create_random_playlist(seed=None, total_minutes=15):
+    
+def get_attack_classes() -> Dict[str, list]:
+    """Get all available attack classes.
+    
+    Returns:
+        Dictionary mapping internal labels with the traffic vectors.
     """
-    Create a random playlist totaling a specified duration.
+    return {
+        "BENIGN": ['udp_traffic', 'tcp_traffic'],
 
-    Generates a playlist consisting of random activities ('pause' or a class type)
-    with durations summing up to the specified total minutes.
+        "TCP_SYN_FLOOD": [
+            'tcp_variable_window_syn_flood',
+            'tcp_amplified_syn_flood_reflection',
+            'tcp_async_slow_syn_flood',
+            'tcp_batch_syn_flood',
+            'tcp_randomized_syn_flood',
+            'tcp_variable_ttl_syn_flood',
+            'tcp_targeted_syn_flood_common_ports',
+            'tcp_adaptive_flood',
+            'tcp_batch_flood',
+            'tcp_variable_syn_flood',
+            'tcp_max_randomized_flood'
+        ],
+
+        "UDP_FLOOD": [
+            'udp_malformed_packet',
+            'udp_multi_protocol_amplification_attack',
+            'udp_adaptive_payload_flood',
+            'udp_compressed_encrypted_flood',
+            'udp_max_randomized_flood',
+            'udp_and_tcp_flood',
+            'udp_single_ip_flood',
+            'udp_ip_packet',
+            'udp_reflection_attack',
+            'udp_memcached_amplification_attack',
+            'udp_hybrid_flood',
+            'udp_dynamic_payload_flood',
+            'udp_encrypted_payload_flood'
+        ]
+    }
+
+
+def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
+    """
+    Create a random playlist totaling a specified duration, either for an 'attacker' or 'benign' role.
+    Generates a playlist consisting of random activities ('pause' or a class type) with durations summing up to the specified total duration.
 
     Args:
-        total_minutes (int): The total duration of the playlist in minutes. Defaults to 15.
-        seed (int, optional): The seed for the random number generator. If None, the seed is not set. Defaults to None.
+        total_seconds (int): The total duration of the playlist in seconds.
+        label_hashes (dict): Dictionary of labels and corresponding lists of random hashes.
+        role (str, optional): The role for the playlist ('attacker' or 'benign'). Defaults to None.
+        seed (int, optional): The seed for the random number generator. If None, the seed is not set.
 
     Returns:
-        list: A list of dictionaries, each containing 'name' and 'duration' keys.
+        list: A list of dictionaries, each containing 'name', 'class_vector', 'label_identifier', and 'duration'.
     """
-    
+
     if seed is not None:
         random.seed(seed)
-    
-    type_class_map = {'a': "ClassA", 'b': "ClassB", 'c': "ClassC", 'd': "ClassD"}
+
+    type_class_map = get_attack_classes()
     playlist = []
     current_total = 0
-    while current_total < total_minutes:
-        name = "pause" if random.random() < 0.5 else random.choice(list(type_class_map.keys()))
-        duration = min(random.randint(1, 3), total_minutes - current_total)
-        playlist.append({"name": name, "duration": duration})
+    attack_labels = [key for key in type_class_map.keys() if key != "BENIGN"]
+    benign_labels = ["BENIGN"]
+
+    # Role-specific weight calculation using a dictionary
+    weights = {
+        "Attacker": (0.8, 0.2),
+        "Benign": (0.2, 0.8)
+    }.get(role, (0.5, 0.5))  # Default to (0.5, 0.5) if role is neither 'Attacker' nor 'Benign'
+
+    attack_weight, benign_weight = weights
+
+    # Calculate individual weights
+    attack_weight_per_label = attack_weight / len(attack_labels)
+    weights = [attack_weight_per_label] * len(attack_labels) + [benign_weight]
+
+    while current_total < total_seconds:
+        # Select label based on role-specific weight distribution
+        name = random.choices(attack_labels + benign_labels, weights, k=1)[0]
+        class_vector = random.choice(type_class_map[name]) if name != "pause" else None
+        label_identifier = random.choice(label_hashes[name]) if name != "pause" else None
+        duration = min(random.randint(60, 180), total_seconds - current_total)
+
+        # Add activity to the playlist
+        playlist.append({
+            "name": name, 
+            "class_vector": class_vector,
+            "label_identifier": label_identifier, 
+            "duration": duration
+        })
+
         current_total += duration
 
     return playlist
+
  
+def generate_random_hashes(n=10):
+    # Function to generate a random hash
+    def generate_random_string(length=16):
+        return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+    def generate_hash(value):
+        return hashlib.sha256(value.encode()).hexdigest()
+    
+    # Create a dictionary to store the hashes for each label
+    label_hashes = {
+        "BENIGN": [],
+        "TCP_SYN_FLOOD": [],
+        "UDP_FLOOD": []
+    }
+    
+    # Generate n random hashes for each label
+    for label in label_hashes:
+        for _ in range(n):
+            random_string = generate_random_string()
+            label_hashes[label].append(generate_hash(random_string))
+    
+    return label_hashes
+
 async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     """
     Asynchronously generates an ED25519 SSH key pair and stores it securely.
@@ -187,6 +295,104 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
+
+
+async def run_cmd_async(
+    conn: asyncssh.SSHClientConnection,
+    cmd: str | list,
+    ignore_errors: bool = True,
+    logging_output: bool = False,
+    use_sudo: bool = True,
+) -> object:
+    """
+    Executes a command on a remote machine asynchronously using SSH.
+
+    Args:
+        conn (asyncssh.SSHClientConnection): An active SSH connection.
+        cmd (str | list): The command to execute as a string or list.
+        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
+        logging_output (bool, optional): Whether to log the command output. Defaults to False.
+        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
+        timeout (int, optional): Timeout in seconds. Defaults to None (no timeout).
+
+    Returns:
+        object: A response object with stdout, stderr, exit_status, and returncode.
+    """
+
+    # Convert list to properly formatted command string
+    cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
+
+    # Set environment variables for apt operations
+    env = os.environ.copy()
+    if any(x in cmd for x in ['apt-get', 'apt', 'dpkg']):
+        env['DEBIAN_FRONTEND'] = 'noninteractive'
+
+    # Escape single quotes
+    escaped = cmd.replace("'", "'\\''")
+
+    # Construct final command with sudo if needed
+    final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
+
+    try:
+        result = await conn.run(final_cmd, check=True)
+
+        out = result.stdout.strip()
+        err = result.stderr.strip()
+
+        if err and not ignore_errors:
+            log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
+        elif out and logging_output:
+            log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
+
+        # Return object with both exit_status and returncode
+        return type('Result', (object,), {
+            'stdout': out,
+            'stderr': err,
+            'exit_status': result.exit_status,
+            'returncode': result.exit_status,  # Alias for compatibility
+        })()
+
+    except asyncssh.ProcessError as e:
+        # log_message("ERROR", f"🚨 Command execution failed: {cmd} - {str(e)}")
+        if not ignore_errors:
+            raise
+
+        return type('Result', (object,), {
+            'stdout': '',
+            'stderr': str(e),
+            'exit_status': e.exit_status,
+            'returncode': e.exit_status,
+        })()
+
+async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
+    """
+    Establishes and tests an SSH connection using asyncssh.
+
+    Args:
+        ip (str): The target machine's IP address.
+        private_key_path (str): The path to the private key used for authentication.
+        username (str): The SSH user to authenticate as.
+
+    Returns:
+        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
+    """
+
+    try:
+        client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
+        return client
+    except asyncssh.Error as e:
+        logger.error(f"SSH connection failed for {ip}: {str(e)}")
+        return None
+
+# Debug level (0=minimal, 1=normal, 2=verbose)
+DEBUG_LEVEL = 2
+
+def log(message, level=1):
+    """Log message if debug level is sufficient"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    if DEBUG_LEVEL >= level:
+        print("[{0}] {1}".format(timestamp, message))
+
 
 def get_remaining_time(duration):
     current_time = time.time()

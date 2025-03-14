@@ -20,13 +20,6 @@ class Settings(BaseSettings):
     #Subnet parameters
     SUBNET_NEURON_SIZE: int = 256
     WEIGHT_SETTER_STEP: int = 30240 #2520 blocks / 8 hours and 24 minutes
-    ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
-    CHALLENGE_DURATION: int = 60 #15 minutes
-    EPSILON: int = 30
-    
-    #Additional parameters
-    SESSION_KEY_DIR: str = "/var/tmp/session_keys"
-    labels: list = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 
     SAVE_PATH: Optional[str] = Field("./storage", env="SAVE_PATH")
 
@@ -62,10 +55,8 @@ class Settings(BaseSettings):
     # Additional Fields.
     NETUID: Optional[int] = Field(234, env="NETUID")
     WALLET_NAME: Optional[str] = Field(None, env="WALLET_NAME")
-    VALIDATOR_HOTKEY: Optional[str] = Field(None, env="HOTKEY")
-    VALIDATOR_AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
-    MINER_HOTKEY: Optional[str] = Field(None, env="HOTKEY")
-    MINER_AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
+    AXON_PORT: Optional[int] = Field(None, env="AXON_PORT")
+    HOTKEY: Optional[str] = Field(None, env="HOTKEY")
     SUBTENSOR_NETWORK: Optional[str] = Field(None, env="SUBTENSOR_NETWORK")
 
     # Class variables for singleton.
@@ -115,18 +106,14 @@ class Settings(BaseSettings):
 
         return values
 
-    @cached_property
-    def WALLET(self) -> bt.wallet:
-        wallet_name = self.WALLET_NAME or config().wallet.name
 
-        if self.VALIDATOR_HOTKEY :
-            HOTKEY = self.VALIDATOR_HOTKEY
-        elif self.MINER_HOTKEY :
-            HOTKEY = self.MINER_HOTKEY
-        hotkey = HOTKEY or config().wallet.hotkey
+    @cached_property
+    def WALLET(self):
+        wallet_name = self.WALLET_NAME  # or config().wallet.name
+        hotkey = self.HOTKEY  # or config().wallet.hotkey
         logger.info(f"Instantiating wallet with name: {wallet_name}, hotkey: {hotkey}")
         return bt.wallet(name=wallet_name, hotkey=hotkey)
-
+    
     @cached_property
     def SUBTENSOR(self) -> bt.subtensor:
         subtensor_network = os.environ.get("SUBTENSOR_CHAIN_ENDPOINT", "wss://test.finney.opentensor.ai:443") 

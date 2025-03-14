@@ -1,3 +1,6 @@
+from tensorprox import settings
+settings.settings = settings.Settings.load(mode="validator")
+settings = settings.settings
 import asyncio
 import copy
 import sys
@@ -38,7 +41,7 @@ class BaseValidatorNeuron(BaseNeuron):
         self.sync()
 
         # Serve axon to enable external connections.
-        self.axon = bt.axon(wallet=settings.WALLET, port=settings.VALIDATOR_AXON_PORT)
+        self.axon = bt.axon(wallet=settings.WALLET, port=settings.AXON_PORT)
         if self.axon is not None:
             self._serve_axon()
         else:

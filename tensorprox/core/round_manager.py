@@ -73,10 +73,13 @@ Version: 0.1.0
 import asyncio
 import os
 import random
-from typing import List, Dict, Tuple, Union, Optional, Callable
+from tensorprox import *
+import tensorprox
+from typing import List, Dict, Tuple, Union, Callable
 from loguru import logger
 from pydantic import BaseModel
 from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
+from tensorprox.core.gre_setup import GRESetup
 from tensorprox.utils.utils import *
 from tensorprox.settings import settings
 from tensorprox.base.protocol import MachineConfig
@@ -113,27 +116,6 @@ create_session_key_dir()
 # ASYNCHRONOUS SUPPORTING UTILITIES
 ######################################################################
 
-async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
-    """
-    Establishes and tests an SSH connection using asyncssh.
-
-    Args:
-        ip (str): The target machine's IP address.
-        private_key_path (str): The path to the private key used for authentication.
-        username (str): The SSH user to authenticate as.
-
-    Returns:
-        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
-    """
-
-    try:
-        client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
-        return client
-    except asyncssh.Error as e:
-        logger.error(f"SSH connection failed for {ip}: {str(e)}")
-        return None
-
-
 async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: List[str]):
     """
     Checks for missing system packages and installs them if necessary.
@@ -155,37 +137,6 @@ async def install_packages_if_missing(client: asyncssh.SSHClientConnection, pack
             await asyncio.sleep(1)
 
 
-async def run_cmd_async(conn: asyncssh.SSHClientConnection, cmd: str, ignore_errors: bool = True, logging_output=False, use_sudo: bool = True) -> object:
-    """
-    Executes a command on a remote machine asynchronously using SSH.
-
-    Args:
-        conn (asyncssh.SSHClientConnection): An active SSH connection.
-        cmd (str): The command to execute.
-        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
-        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
-
-    Returns:
-        object: A response object with stdout, stderr, and exit_status.
-    """
-
-    escaped = cmd.replace("'", "'\\''")
-    if use_sudo:
-        final_cmd = f"sudo -S bash -c '{escaped}'"
-    else:
-        final_cmd = f"bash -c '{escaped}'"
-
-    result = await conn.run(final_cmd, check=True)
-    out = result.stdout.strip()
-    err = result.stderr.strip()
-
-    if err and not ignore_errors:
-        log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-    elif out and logging_output:
-        log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
-
-    # Create an object-like response with exit_status, stdout, and stderr
-    return type('Result', (object,), {'stdout': out, 'stderr': err, 'exit_status': result.exit_status})()
 
 
 ######################################################################
@@ -204,6 +155,7 @@ class RoundManager(BaseModel):
     miners: Dict[int, 'PingSynapse'] = {}
     validator_ip: str = get_public_ip()
     king_ips: Dict[int, str] = {}
+    moat_private_ips: Dict[int, str] = {}
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         """
@@ -279,7 +231,7 @@ class RoundManager(BaseModel):
 
         # A) CONNECT WITH ORIGINAL KEY + PREPARE
         # logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
-        session_key_path = os.path.join(settings.SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+        session_key_path = os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
         session_priv, session_pub = await generate_local_session_keypair(session_key_path)
 
         try:
@@ -308,13 +260,7 @@ class RoundManager(BaseModel):
             # C) TEST SESSION KEY
             # logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
             async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
-                # logger.info(f"✨ Session key success for {ip}.")
-
-                # D) CLEAN STALE SUDOERS
-                # logger.info("🧩 Step D: Setting up passwordless sudo & running user commands.")
-                revert_cleanup_cmd = f"rm -f /etc/sudoers.d/97_{ssh_user}_revert*"
-                await run_cmd_async(ep_conn, revert_cleanup_cmd, ignore_errors=True)
-
+                # logger.info("✨ Session key success for {ip}. 🧩 Setting up passwordless sudo.")
                 sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
                 await run_cmd_async(ep_conn, sudo_setup_cmd)
 
@@ -403,7 +349,25 @@ class RoundManager(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlist: list, challenge_duration: int) -> tuple:
+    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, moat_ip: str) -> bool:
+        try:
+            # Establish SSH connection
+            client = await create_and_test_connection(ip, key_path, ssh_user)
+            if not client:
+                return False
+
+            gre = GRESetup(node_type=machine_name.lower(), conn=client)
+
+            # Run configure_node in a separate thread since it's synchronous
+            success = await gre.configure_node(moat_ip)
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Error occurred: {e}")
+            return False
+        
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -586,9 +550,9 @@ class RoundManager(BaseModel):
                 - A list of Synapse responses from each miner.
                 - A list of dictionaries containing availability status for each miner.
         """
+        
         tasks = [self.check_miner(uid) for uid in uids]  # Call the existing check_miner method
         results = await asyncio.gather(*tasks)
-        
         if results:
             synapses, all_miners_availability = zip(*results)
         else:
@@ -609,6 +573,7 @@ class RoundManager(BaseModel):
         synapse, uid_status_availability = await self.query_availability(uid)  
 
         self.king_ips[uid] = synapse.machine_availabilities.machine_config["King"].ip
+        self.moat_private_ips[uid] = synapse.machine_availabilities.machine_config["Moat"].private_ip
         return synapse, uid_status_availability
     
     async def execute_task(
@@ -619,9 +584,9 @@ class RoundManager(BaseModel):
         task_function: Callable[..., bool],
         backup_suffix: str = "", 
         labels_dict: dict = None,
-        playlist: list = [],
-        challenge_duration: int = settings.CHALLENGE_DURATION,
-        timeout: int = settings.ROUND_TIMEOUT
+        playlists: dict = {},
+        challenge_duration: int = CHALLENGE_DURATION,
+        timeout: int = ROUND_TIMEOUT
     ) -> List[Dict[str, Union[int, str]]]:
         """
         A generic function to execute different tasks (such as setup, lockdown, revert, challenge) on miners. 
@@ -691,10 +656,11 @@ class RoundManager(BaseModel):
                 ssh_user = machine_details.username
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(settings.SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
                 king_ip = self.king_ips[uid]
+                moat_private_ip = self.moat_private_ips[uid]
 
                 # Map task function to a version with specific arguments
                 if task == "setup":
@@ -704,8 +670,10 @@ class RoundManager(BaseModel):
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
+                elif task=="gre":
+                    task_function = partial(task_function, moat_ip=moat_private_ip)
                 elif task=="challenge":
-                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlist=playlist, challenge_duration=challenge_duration)
+                    task_function = partial(task_function, iface=iface, king_ip=king_ip, labels_dict=labels_dict, playlists=playlists, challenge_duration=challenge_duration)
 
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
@@ -761,17 +729,23 @@ class RoundManager(BaseModel):
                 # Apply timeout to the entire setup_miner function for each miner
                 await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
 
-                if task == "challenge" :
-
+                state = (
+                    "GET_READY" if task == "gre" 
+                    else "END_ROUND" if task == "challenge" 
+                    else None
+                )
+                
+                if state :
                     try:
-                        end_round_synapse = ChallengeSynapse(
+                        challenge_synapse = ChallengeSynapse(
                             task="Defend The King",
-                            state="END_ROUND",
+                            state=state,
                         )
-                        await self.dendrite_call(uid, end_round_synapse, timeout=settings.NEURON_TIMEOUT)
+                        await self.dendrite_call(uid, challenge_synapse)
                         
                     except Exception as e:
                         logger.error(f"Error sending synapse to miner {uid}: {e}")
+
 
             except asyncio.TimeoutError:
                 logger.error(f"⏰ Timeout reached for {task} with miner {uid}.")
@@ -796,35 +770,4 @@ class RoundManager(BaseModel):
         return [{"uid": uid, **status} for uid, status in task_status.items()]
 
 
-    async def get_ready(self, ready_uids: List[int]) -> Dict[int, ChallengeSynapse]:
-        """
-        Sends a "GET_READY" ChallengeSynapse to miners before the challenge starts and collects responses.
-
-        Args:
-            ready_uids (List[int]): A list of miner UIDs that need to receive the readiness signal.
-
-        Returns:
-            Dict[int, ChallengeSynapse]: A dictionary mapping miner UIDs to their response synapses or error messages.
-        """
-
-        ready_results = {}
-
-        async def inform_miner(uid):
-            try:
-                get_ready_synapse = ChallengeSynapse(
-                    task="Defend The King",
-                    state="GET_READY",
-                )
-                miner_uid, synapse = await self.dendrite_call(uid, get_ready_synapse)
-
-                # Store result in dictionary
-                ready_results[miner_uid] = synapse
-            except Exception as e:
-                logger.error(f"Error sending synapse to miner {uid}: {e}")
-                ready_results[uid] = f"Error: {e}"
-
-        # Run all tasks concurrently
-        await asyncio.gather(*[inform_miner(uid) for uid in ready_uids])
-
-        return ready_results
 
