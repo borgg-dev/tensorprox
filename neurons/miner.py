@@ -45,6 +45,7 @@ Version: 0.1.0
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
 import os
+from tensorprox import *
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="miner")
 settings = settings.settings
@@ -74,21 +75,7 @@ import asyncssh
 
 NEURON_STOP_ON_FORWARD_EXCEPTION: bool = False
 
-ATTACKER_PUBLIC_IP: str = os.environ.get("ATTACKER_PUBLIC_IP")
-BENIGN_PUBLIC_IP: str = os.environ.get("BENIGN_PUBLIC_IP")
-KING_PUBLIC_IP: str = os.environ.get("KING_PUBLIC_IP")
-ATTACKER_PRIVATE_IP: str = os.environ.get("ATTACKER_PRIVATE_IP")
-BENIGN_PRIVATE_IP: str = os.environ.get("BENIGN_PRIVATE_IP")
-KING_PRIVATE_IP: str = os.environ.get("KING_PRIVATE_IP")
-MOAT_PRIVATE_IP: str = os.environ.get("MOAT_PRIVATE_IP")
-FORWARD_PORT: int = os.environ.get("FORWARD_PORT", 8080)
-ATTACKER_IFACE: str = os.environ.get("ATTACKER_IFACE", "eth0")
-ATTACKER_USERNAME: str = os.environ.get("ATTACKER_USERNAME", "root")
-BENIGN_IFACE: str = os.environ.get("BENIGN_IFACE", "eth0")
-BENIGN_USERNAME: str = os.environ.get("BENIGN_USERNAME", "root")
-KING_IFACE: str = os.environ.get("KING_IFACE", "eth0")
-KING_USERNAME: str = os.environ.get("KING_USERNAME", "root")
-MOAT_IFACE: str = os.environ.get("MOAT_IFACE", "eth0")
+
 
 class Miner(BaseMinerNeuron):
     """
@@ -628,16 +615,20 @@ class Miner(BaseMinerNeuron):
         return
 
 
-
 if __name__ == "__main__":
+
+    # logger.info("Miner Instance started. Running GRE Setup...")
+
+    # try:
+    #     # Performing GRE Setup before starting
+    #     gre = GRESetup(node_type="Moat")
+    #     gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
+
+    # except Exception as e:
+    #     logger.error(f"Error during GRE Setup: {e}")
+    #     sys.exit(1)
+
     with Miner() as miner:
-
-        logger.info("Miner Instance started. Running GRE Setup...")
-
-        #Performing GRE Setup before starting 
-        gre = GRESetup(node_type="Moat")
-        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
-        
         while not miner.should_exit:
             miner.log_status()
             time.sleep(5)

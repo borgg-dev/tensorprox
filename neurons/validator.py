@@ -171,13 +171,13 @@ class Validator(BaseValidatorNeuron):
 
                 # Check if validator's uid is in the active list
                 if self.uid not in active_validators_uids :
-                    logger.debug("UID was not found in the list of active validators, ending round.")
+                    logger.debug(f"UID was not found in the list of active validators, ending round. \
+                    Make sure ports {self.aiohttp_port} and {self.fetch_port} are open.")
                     return None
                 
                 self.active_count = len(active_validators_uids)     
 
                 logger.debug(f"Number of active validators = {self.active_count}")
-                logger.info(f"ACTIVE UID : {active_validators_uids}")
 
                 #Generate hash seed from universal time sync
                 seed = int(hashlib.sha256(str(sync_time).encode('utf-8')).hexdigest(), 16) % (2**32)
@@ -211,6 +211,7 @@ class Validator(BaseValidatorNeuron):
                     "Benign" : playlist_benign
                 }
                 
+                logger.info(playlists)
 
                 if subset_miners:
                     success = False

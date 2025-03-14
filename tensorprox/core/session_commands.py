@@ -29,6 +29,9 @@ Version: 0.1.0
 ================================================================================
 """
 
+import json
+from tensorprox import *
+
 def get_insert_key_cmd(ssh_user: str, ssh_dir: str, session_pub: str, authorized_keys_path: str, authorized_keys_bak: str) -> str:
     """
     Generates the command to insert the session key into authorized_keys.
@@ -313,18 +316,18 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_scoring_metrics_cmd(machine_name: str, king_ip: str, challenge_duration: str, labels_dict: dict, iface: str = "eth0") -> str:
+def get_challenge_cmd(machine_name: str, challenge_duration: str, labels_dict: dict, playlist: list, king_ip: str = KING_OVERLAY_IP) -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP, 
     along with RTT measurement for packets from Attacker and Benign to King.
 
     Args:
-        validator_username (str): The SSH username for the validator.
-        validator_private_key (str): The private key content as a string.
-        validator_ip (str): The IP address of the remote validator.
+        machine_name (str): The name of the machine (e.g., "Attacker", "Benign", "King").
+        king_ip (str): The IP address of the King machine.
         challenge_duration (str): Duration of the pcap capture.
-        capture_file (str): The name of the pcap file.
-        iface (str, optional): The network interface to capture traffic. Defaults to "eth0".
+        labels_dict (dict): Dictionary containing the labels for different traffic types.
+        playlist (list): The playlist to be used for the traffic generator.
+        iface (str, optional): The network interface to capture traffic.
 
     Returns:
         str: The command string to execute on the remote machine.
@@ -333,11 +336,48 @@ def get_scoring_metrics_cmd(machine_name: str, king_ip: str, challenge_duration:
     rtt_file = f"/tmp/{machine_name}_rtt.txt"  # Store RTT measurements
 
     # Define the traffic filtering based on machine_name
-    filter_traffic = "(tcp or udp) and inbound" if machine_name == "King" else "(tcp or udp) and outbound" if machine_name in ["Attacker", "Benign"] else "tcp or udp"
+    filter_traffic = "(tcp or udp) and inbound" if machine_name == "king" else "(tcp or udp) and outbound" if machine_name in ["attacker", "benign"] else "tcp or udp"
 
     # Add RTT measurement for Attacker and Benign to King traffic
     # Capture RTT in 4 pings
     rtt_measurement_cmd = f"ping -c 4 {king_ip} > {rtt_file}"
+
+    # Convert playlist list into JSON string
+    playlist_json = json.dumps(playlist)
+
+    pip_and_playlist_cmd = ""
+
+    # Wrap pip installation and playlist dump logic with the if statement for Attacker and Benign
+    if machine_name in ["attacker", "benign"]:
+        # List of Python packages to check and install
+        packages = ["faker", "scapy", "pycryptodome"]
+
+        # Add the package installation loop using Python's f-string formatting
+        pip_and_playlist_cmd += f"""
+        # Install python3 and python3-pip if not already installed
+        if ! command -v python3 &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y python3
+        fi
+
+        if ! command -v pip3 &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y python3-pip
+        fi
+        """
+
+        for package in packages:
+            pip_and_playlist_cmd += f"""
+            if ! python3 -c "import {package}" &> /dev/null; then
+                pip3 install {package}
+            fi
+            """
+
+        # Dump playlist into temporary json file
+        pip_and_playlist_cmd += f"""
+        echo '{playlist_json}' > /tmp/playlist.json
+
+        # Start traffic generator with the playlist
+        nohup python3 /tmp/traffic_generator.py --playlist /tmp/playlist.json --receiver-ips {king_ip} --interface ipip-{machine_name} > /tmp/traffic_generator.log 2>&1 &
+        """
 
     # Generate the remote command
     cmd = f"""
@@ -346,8 +386,19 @@ def get_scoring_metrics_cmd(machine_name: str, king_ip: str, challenge_duration:
         sudo apt-get update && sudo apt-get install -y tcpdump
     fi
 
+    if ! command -v python3 &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y python3
+    fi
+
+    if ! command -v pip3 &> /dev/null; then
+        sudo apt-get update && sudo apt-get install -y python3-pip
+    fi
+
+    # Install pip dependencies and Run traffic generator only if machine is Attacker or Benign
+    {pip_and_playlist_cmd}
+
     # Capture network traffic for a duration
-    sudo timeout {challenge_duration} tcpdump -i {iface} -w /tmp/capture.pcap '{filter_traffic}'
+    sudo timeout {challenge_duration} tcpdump -i ipip-{machine_name} -w /tmp/capture.pcap '{filter_traffic}'
 
     # Extract the payload data from pcap file and count occurrences
     sudo tcpdump -nn -r /tmp/capture.pcap -A | grep -o '{labels_dict["BENIGN"]}\|{labels_dict["UDP_FLOOD"]}\|{labels_dict["TCP_SYN_FLOOD"]}' > /tmp/traffic_data.txt
@@ -358,7 +409,7 @@ def get_scoring_metrics_cmd(machine_name: str, king_ip: str, challenge_duration:
     tcp_syn_flood_count=$(grep -o {labels_dict["TCP_SYN_FLOOD"]} /tmp/traffic_data.txt | wc -l)
 
     # Measure RTT if the machine is Attacker or Benign
-    if [ {machine_name} == "Attacker" ] || [ {machine_name} == "Benign" ]; then
+    if [ {machine_name} == "attacker" ] || [ {machine_name} == "benign" ]; then
 
         # Execute the RTT measurement command
         {rtt_measurement_cmd}
@@ -375,6 +426,7 @@ def get_scoring_metrics_cmd(machine_name: str, king_ip: str, challenge_duration:
 
     #Delete temporary files
     rm -f /tmp/capture.pcap
+    rm -f /tmp/playlist.json
     rm -f {rtt_file}
     rm -f traffic_data.txt
 

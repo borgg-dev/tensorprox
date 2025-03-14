@@ -93,7 +93,7 @@ from tensorprox.core.session_commands import (
     get_sudo_setup_cmd,
     get_revert_script_cmd,
     get_lockdown_cmd,
-    get_scoring_metrics_cmd
+    get_challenge_cmd
 )
 
 
@@ -367,7 +367,7 @@ class RoundManager(BaseModel):
             logger.error(f"Error occurred: {e}")
             return False
         
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, iface: str, king_ip: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, labels_dict: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -379,10 +379,8 @@ class RoundManager(BaseModel):
             ssh_user (str): The SSH user account on the miner.
             key_path (str): Path to the SSH key used for authentication.
             machine_name (str): Name of the machine to challenge.
-            uid (int): Unique identifier for the miner.
-            validator_key_path (str): Path to the validator's private key for authentication.
-            validator_username (str): Username of the validator running the challenge.
             labels_dict (dict): Dictionary containing the encrypted labels for each label type.
+            playlists: (dict): Dictionary containings two playlists for Attacker and Benign.
             challenge_duration (int): Duration for which the challenge should run, in seconds.
 
         Returns:
@@ -392,7 +390,7 @@ class RoundManager(BaseModel):
         try:
 
             # Generate the pcap command
-            scoring_metrics_cmd = get_scoring_metrics_cmd(machine_name, king_ip, challenge_duration, labels_dict, iface)
+            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, labels_dict, playlists[machine_name])
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
@@ -400,8 +398,11 @@ class RoundManager(BaseModel):
             if not client:
                 return None
 
-            # Run the pcap command
-            result = await run_cmd_async(client, scoring_metrics_cmd)
+            # Send traffic_generator.py to remote machine
+            await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
+
+            # Run the challenge command
+            result = await run_cmd_async(client, challenge_cmd)
 
             # Parse the result to get the counts from stdout
             counts_and_rtt = result.stdout.strip().split(", ")
@@ -427,7 +428,6 @@ class RoundManager(BaseModel):
         except Exception as e:
             logger.error(f"Error occurred: {e}")
             return None
-
 
     
     async def query_availability(self, uid: int) -> Tuple['PingSynapse', Dict[str, Union[int, str]]]:
@@ -458,7 +458,6 @@ class RoundManager(BaseModel):
             return synapse, uid_status_availability
 
         if not synapse.machine_availabilities.key_pair:
-            # logger.error(f"❌ Missing SSH Key Pair for UID {uid}, marking as unavailable.")
             uid_status_availability["ping_status_message"] = "Missing SSH Key Pair."
             uid_status_availability["ping_status_code"] = 400
             return synapse, uid_status_availability
@@ -479,7 +478,6 @@ class RoundManager(BaseModel):
             ssh_user = machine_details.username
 
             if not is_valid_ip(ip):
-                # logger.error(f"🚨 Invalid IP {ip} for {machine_name}, marking UID {uid} as unavailable.")
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "Invalid IP format."
                 uid_status_availability["ping_status_code"] = 400
@@ -488,7 +486,6 @@ class RoundManager(BaseModel):
             # Test SSH Connection with asyncssh
             client = await create_and_test_connection(ip, original_key_path, ssh_user)
             if not client:
-                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip}) UID {uid}")
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "SSH connection failed."
                 uid_status_availability["ping_status_code"] = 500

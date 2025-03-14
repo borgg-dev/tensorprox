@@ -296,6 +296,30 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
+async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path, remote_user):
+    # Construct the SCP command
+    scp_command = [
+        'scp',
+        '-i', remote_key_path,  # Specify the SSH private key
+        local_file,  # Local file to transfer
+        f'{remote_user}@{remote_ip}:{remote_path}'  # Remote destination
+    ]
+
+    try:
+        # Run the SCP command asynchronously using asyncio.subprocess
+        process = await asyncio.create_subprocess_exec(*scp_command)
+
+        # Wait for the SCP process to complete
+        await process.wait()
+
+        if process.returncode == 0:
+            print(f"File {local_file} successfully sent to {remote_ip}:{remote_path}")
+        else:
+            print(f"SCP failed with return code {process.returncode}")
+
+    except Exception as e:
+        print(f"Error: {e}")
+
 
 async def run_cmd_async(
     conn: asyncssh.SSHClientConnection,

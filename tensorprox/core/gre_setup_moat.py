@@ -8,6 +8,7 @@ Enhanced for virtualized environments with automatic resource scaling
 """
 
 import os
+from tensorprox import *
 from tensorprox.utils.utils import *
 import time
 import re
@@ -16,24 +17,6 @@ import math
 from pydantic import BaseModel, ConfigDict
 import shutil 
 
-# ===== CONFIGURATION =====
-# Fixed overlay network IPs
-BENIGN_OVERLAY_IP = "10.200.77.102"
-ATTACKER_OVERLAY_IP = "10.200.77.103"
-KING_OVERLAY_IP = "10.200.77.1"
-
-# Fixed GRE tunnel keys
-BENIGN_MOAT_KEY = "77"
-ATTACKER_MOAT_KEY = "79"
-MOAT_KING_KEY = "88"
-
-# MTU Sizing 
-GRE_MTU = 1465  # Standard MTU 1500 - 25 GRE - 10 random Buffer
-IPIP_MTU = 1445  # GRE_MTU - 20 for IPIP overhead
-
-# XDP program paths
-XDP_PROGRAM_DIR = "/opt/af_xdp_tools"
-XDP_LOG_DIR = "/var/log/tunnel"
 
 class GRESetup(BaseModel):
 

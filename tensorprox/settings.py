@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     NEURON_TIMEOUT: int = Field(15, env="NEURON_TIMEOUT")
     NEURON_DISABLE_SET_WEIGHTS: bool = Field(False, env="NEURON_DISABLE_SET_WEIGHTS")
     NEURON_AXON_OFF: bool = Field(False, env="NEURON_AXON_OFF")
-    NEURON_VPERMIT_TAO_LIMIT: int = Field(10*1e9, env="NEURON_VPERMIT_TAO_LIMIT")
+    NEURON_VPERMIT_TAO_LIMIT: int = Field(0*1e9, env="NEURON_VPERMIT_TAO_LIMIT")
     NEURON_QUERY_UNIQUE_COLDKEYS: bool = Field(False, env="NEURON_QUERY_UNIQUE_COLDKEYS")
     NEURON_QUERY_UNIQUE_IPS: bool = Field(False, env="NEURON_QUERY_UNIQUE_IPS")
     NEURON_FORWARD_MAX_TIME: int = Field(240, env="NEURON_FORWARD_MAX_TIME")
@@ -109,10 +109,8 @@ class Settings(BaseSettings):
 
     @cached_property
     def WALLET(self):
-        wallet_name = self.WALLET_NAME  # or config().wallet.name
-        hotkey = self.HOTKEY  # or config().wallet.hotkey
-        logger.info(f"Instantiating wallet with name: {wallet_name}, hotkey: {hotkey}")
-        return bt.wallet(name=wallet_name, hotkey=hotkey)
+        logger.info(f"Instantiating wallet with name: {self.WALLET_NAME}, hotkey: {self.HOTKEY}")
+        return bt.wallet(name=self.WALLET_NAME, hotkey=self.HOTKEY)
     
     @cached_property
     def SUBTENSOR(self) -> bt.subtensor:
