@@ -17,6 +17,10 @@ import math
 from pydantic import BaseModel, ConfigDict
 
 
+XDP_PROGRAM_DIR = "/opt/af_xdp_tools"
+XDP_LOG_DIR = "/var/log/tunnel"
+
+
 class GRESetup(BaseModel):
 
     node_type: str

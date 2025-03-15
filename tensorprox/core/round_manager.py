@@ -389,8 +389,10 @@ class RoundManager(BaseModel):
 
         try:
 
-            # Generate the pcap command
-            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, label_hashes, playlists[machine_name])
+            
+            # Generate the challenge command
+            playlist = playlists[machine_name] if machine_name != "King" else None
+            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, label_hashes, playlist)
 
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
@@ -416,11 +418,24 @@ class RoundManager(BaseModel):
             for count in counts_and_rtt:
                 
                 if "AVG_RTT" in count:
-                    rtt_avg = float(count.split(":")[1].strip())  # Get the RTT value after "AVG_RTT"
+                    extracted_rtt = count.split(":", maxsplit=1)[1].strip()
+                    
+                    # Check if extracted_rtt is a valid float before converting
+                    try:
+                        rtt_avg = float(extracted_rtt)
+                    except ValueError:
+                        logger.warning(f"Invalid RTT value: {extracted_rtt}")
+                
                 else:
-                    label, value = count.split(":")
-                    if label in label_counts:
-                        label_counts[label] = int(value.strip())
+                    try:
+                        label, value = count.split(":", maxsplit=1)
+                        value = value.strip()
+                        
+                        if label in label_counts:
+                            label_counts[label] = int(value)  # Convert only if valid
+                        
+                    except ValueError:
+                        logger.warning(f"Invalid label count entry: {count}")  # Log and skip invalid entries
 
 
             return machine_name, label_counts, rtt_avg

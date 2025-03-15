@@ -316,7 +316,7 @@ def get_lockdown_cmd(ssh_user:str, ssh_dir: str, validator_ip:str, authorized_ke
         fi
     """
 
-def get_challenge_cmd(machine_name: str, challenge_duration: str, label_hashes: dict, playlist: list, king_ip: str = KING_OVERLAY_IP) -> str:
+def get_challenge_cmd(machine_name: str, challenge_duration: str, label_hashes: dict, playlist: list = None, king_ip: str = KING_OVERLAY_IP) -> str:
     """
     Generates the command string to capture pcap analysis on a remote machine and transfer it via SCP, 
     along with RTT measurement for packets from Attacker and Benign to King.
@@ -354,8 +354,6 @@ def get_challenge_cmd(machine_name: str, challenge_duration: str, label_hashes: 
 
     # Wrap pip installation and playlist dump logic with the if statement for Attacker and Benign
     if machine_name in ["attacker", "benign"]:
-        # List of Python packages to check and install
-        packages = ["faker", "scapy", "pycryptodome"]
 
         # Add the package installation loop using Python's f-string formatting
         pip_and_playlist_cmd += f"""
@@ -369,10 +367,10 @@ def get_challenge_cmd(machine_name: str, challenge_duration: str, label_hashes: 
         fi
         """
 
-        for package in packages:
+        for package in ["faker", "scapy", "pycryptodome"]:
             pip_and_playlist_cmd += f"""
             if ! python3 -c "import {package}" &> /dev/null; then
-                pip3 install {package}
+                pip3 install {package} > /dev/null 2>&1
             fi
             """
 

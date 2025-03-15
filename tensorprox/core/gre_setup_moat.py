@@ -20,6 +20,19 @@ import shutil
 import tempfile
 import sys
 
+# Determine if running as root once at startup
+IS_ROOT = os.geteuid() == 0
+
+# Use user-specific paths for non-root users
+if IS_ROOT:
+    # Root user can use system paths
+    XDP_PROGRAM_DIR = "/opt/af_xdp_tools"
+    XDP_LOG_DIR = "/var/log/tunnel"
+else:
+    # Non-root user gets paths in home directory
+    HOME_DIR = os.path.expanduser("~")
+    XDP_PROGRAM_DIR = os.path.join(HOME_DIR, ".tensorprox", "af_xdp_tools")
+    XDP_LOG_DIR = os.path.join(HOME_DIR, ".tensorprox", "logs", "tunnel")
 
 class GRESetup(BaseModel):
 
