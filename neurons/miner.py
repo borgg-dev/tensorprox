@@ -45,6 +45,7 @@ Version: 0.1.0
 import os, sys
 sys.path.append(os.path.expanduser("~/tensorprox"))
 import os
+from tensorprox import *
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="miner")
 settings = settings.settings
@@ -99,7 +100,6 @@ class Miner(BaseMinerNeuron):
     """
 
     should_exit: bool = False
-    moat_gre_setup_completed: bool = False
     firewall_active: bool = False
     firewall_thread: Thread = None
     stop_firewall_event: Event = Field(default_factory=Event)
@@ -185,15 +185,10 @@ class Miner(BaseMinerNeuron):
             ChallengeSynapse: The same `synapse` object after processing the challenge.
         """
 
-        if not self.moat_gre_setup_completed:
-            logger.warning("Moat GRE Setup is not finished yet. Cannot handle challenge.")
-            return  # Don't proceed with the challenge handling if setup is not done
-
         try:
             # Extract challenge information from the synapse
             task = synapse.task
             state=synapse.state
-            source_ip = os.environ.get("ATTACKER_IP")
 
 
             logger.debug(f"📧 Task {task} received from {synapse.dendrite.hotkey}. State : {state}.")
@@ -203,7 +198,7 @@ class Miner(BaseMinerNeuron):
                     self.firewall_active = True
                     self.stop_firewall_event.clear()  # Reset stop event
                     # Start sniffing in a separate thread to avoid blocking
-                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(source_ip, self.moat_iface))
+                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(KING_OVERLAY_IP, "ipip-to-king"))
                     self.firewall_thread.daemon = True  # Set the thread to daemon mode to allow termination
                     self.firewall_thread.start()
                     logger.info("🔥 Moat firewall activated.")
@@ -258,7 +253,7 @@ class Miner(BaseMinerNeuron):
         return allowed, label_type
     
     
-    def run_packet_stream(self, source_ip, iface="eth0"):
+    def run_packet_stream(self, destination_ip, iface):
         """
         Runs the firewall sniffing logic in an asynchronous event loop.
 
@@ -271,7 +266,7 @@ class Miner(BaseMinerNeuron):
         asyncio.set_event_loop(loop)  # Set the new loop as the current one for this thread
         
         # Ensure that the sniffer doesn't block the main process
-        loop.create_task(self.sniff_packets_stream(source_ip, iface, self.stop_firewall_event))
+        loop.create_task(self.sniff_packets_stream(destination_ip, iface, self.stop_firewall_event))
         loop.run_forever()  # Ensure the loop keeps running
 
 
@@ -304,7 +299,7 @@ class Miner(BaseMinerNeuron):
             pass
 
 
-    async def process_packet_stream(self, packet_data, source_ip):
+    async def process_packet_stream(self, packet_data, destination_ip):
         """
         Store packet and its protocol in buffer instead of processing immediately.
         
@@ -325,12 +320,12 @@ class Miner(BaseMinerNeuron):
         if protocol not in (6, 17):
             return  # Ignore non-TCP and non-UDP packets
 
-        # Convert the source IP from binary to string format
-        src_ip = socket.inet_ntoa(iph[8])
+        # Convert the destination IP from binary to string format
+        dest_ip = socket.inet_ntoa(iph[9])
 
-        # Filter: Only process packets where the source IP matches king_private_ip
-        if src_ip != source_ip :
-            return  # Ignore packets not originating from king_private_ip
+        # Filter: Only process packets where the destination IP matches king_overlay_ip
+        if dest_ip != destination_ip :
+            return  # Ignore packets not originating from king_overlay_ip
 
         async with self._lock:
             self.packet_buffer.append((packet_data, protocol))  # Store tuple
@@ -447,14 +442,14 @@ class Miner(BaseMinerNeuron):
                 if is_allowed:
                     logger.info(f"Allowing batch of {len(batch)} packets...")
                     for packet_data, protocol in batch:  # Extract packet and protocol
-                        await self.moat_forward_packet(packet_data, KING_PRIVATE_IP, int(self.forward_port), protocol)
+                        await self.moat_forward_packet(packet_data, KING_OVERLAY_IP, int(self.forward_port), protocol)
                 else:
                     logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
 
 
-    async def sniff_packets_stream(self, source_ip, iface='eth0', stop_event=None):
+    async def sniff_packets_stream(self, destination_ip, iface, stop_event=None):
         """
         Sniffs packets and adds them to the buffer.
         
@@ -464,7 +459,7 @@ class Miner(BaseMinerNeuron):
             stop_event (asyncio.Event, optional): An event to signal stopping the sniffing loop. 
                 If provided, the function will exit when stop_event is set. Defaults to None.
         """
-        logger.info(f"Sniffing packets coming from {source_ip} on interface {iface}")
+        logger.info(f"Sniffing packets going to {destination_ip} on interface {iface}")
 
         raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
         raw_socket.bind((iface, 0))
@@ -477,7 +472,7 @@ class Miner(BaseMinerNeuron):
             ready, _, _ = select.select([raw_socket], [], [], 1)  # 1s timeout
             if ready:
                 packet_data = raw_socket.recv(65535)
-                await self.process_packet_stream(packet_data, source_ip)
+                await self.process_packet_stream(packet_data, destination_ip)
 
             await asyncio.sleep(0)  # Yield control back to the event loop to run other tasks (like batch_processing_loop)
 
