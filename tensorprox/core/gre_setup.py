@@ -15,7 +15,7 @@ import re
 import multiprocessing
 import math
 from pydantic import BaseModel, ConfigDict
-
+import shutil
 
 XDP_PROGRAM_DIR = "/opt/af_xdp_tools"
 XDP_LOG_DIR = "/var/log/tunnel"
@@ -1276,6 +1276,12 @@ class GRESetup(BaseModel):
     async def configure_node(self, moat_ip):
         """Configure a node (Benign, Attacker, or King) with enhanced acceleration"""
 
+            
+        # Check if ethtool exists, otherwise install it
+        if not shutil.which("ethtool"):
+            log("[INFO] ethtool not found, installing it...", level=1)
+            await self.install_ethtool()  # Install pkill if it's not found     
+
         if self.node_type not in ["benign", "attacker", "king"]:
             log("[ERROR] Invalid machine name. Choose from 'benign', 'attacker', or 'king'", level=0)
             return False
@@ -1363,3 +1369,17 @@ class GRESetup(BaseModel):
         log(f"[INFO] To add additional IPs, use: sudo ip addr add 10.200.77.X/32 dev ipip-{self.node_type}")
         
         return True
+
+    async def install_ethtool(self):
+        # Check if the system is Ubuntu/Debian-based
+        try:
+            # Update package list and install ethtool
+
+            await run_cmd_async(self.conn, ["sudo", "-n", "apt", "update"])
+            await run_cmd_async(self.conn, ["sudo", "-n", "apt", "install", "-y", "ethtool"])
+            
+            log("Successfully installed ethtool.", level=1)
+        
+        except subprocess.CalledProcessError as e:
+            log(f"Error occurred while trying to install ethtool: {e}", level=1)
+            sys.exit(1)

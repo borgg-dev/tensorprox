@@ -355,7 +355,7 @@ class GRESetup(BaseModel):
         numa_nodes = max(1, capabilities["numa_nodes"])
         
         # Different allocation strategies based on node type
-        if self.node_type == "Moat":
+        if self.node_type == "moat":
             # Moat is the central node - allocate more resources
             if cpu_count >= 16:
                 # Large system
@@ -1385,6 +1385,11 @@ class GRESetup(BaseModel):
             if not shutil.which("pkill"):
                 log("[INFO] pkill not found, installing it...", level=1)
                 self.install_pkill()  # Install pkill if it's not found
+            
+            # Check if ethtool exists, otherwise install it
+            if not shutil.which("ethtool"):
+                log("[INFO] ethtool not found, installing it...", level=1)
+                self.install_ethtool()  # Install pkill if it's not found            
 
             # Kill any hanging dpkg/apt processes with sudo if needed
             if IS_ROOT:
@@ -1593,4 +1598,21 @@ class GRESetup(BaseModel):
         
         except subprocess.CalledProcessError as e:
             print(f"Error occurred while trying to install pkill: {e}")
+            sys.exit(1)
+
+    def install_ethtool(self):
+        # Check if the system is Ubuntu/Debian-based
+        try:
+            # Update package list and install ethtool
+            if IS_ROOT:
+                self.run_cmd(["apt", "update"], check=True)
+                self.run_cmd(["apt", "install", "-y", "ethtool"], check=True)
+            else:
+                self.run_cmd(["sudo", "-n", "apt", "update"], check=True)
+                self.run_cmd(["sudo", "-n", "apt", "install", "-y", "ethtool"], check=True)
+            
+            log("Successfully installed ethtool.", level=1)
+        
+        except subprocess.CalledProcessError as e:
+            log(f"Error occurred while trying to install ethtool: {e}", level=1)
             sys.exit(1)

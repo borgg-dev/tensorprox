@@ -389,21 +389,19 @@ class RoundManager(BaseModel):
 
         try:
 
-            
-            # Generate the challenge command
-            playlist = playlists[machine_name] if machine_name != "King" else None
-            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, label_hashes, playlist)
-
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
 
             if not client:
                 return None
 
-            # Send traffic_generator.py to remote machine
-            await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
+            # Send traffic_generator.py to traffic gen remote machines
+            if machine_name != "King":
+                await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
 
             # Run the challenge command
+            playlist = playlists[machine_name] if machine_name != "King" else None
+            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, label_hashes, playlist)
             result = await run_cmd_async(client, challenge_cmd)
 
             # Parse the result to get the counts from stdout
@@ -425,7 +423,6 @@ class RoundManager(BaseModel):
                         rtt_avg = float(extracted_rtt)
                     except ValueError:
                         logger.warning(f"Invalid RTT value: {extracted_rtt}")
-                
                 else:
                     try:
                         label, value = count.split(":", maxsplit=1)

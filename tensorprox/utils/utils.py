@@ -301,6 +301,8 @@ async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path,
     scp_command = [
         'scp',
         '-i', remote_key_path,  # Specify the SSH private key
+        '-o', 'StrictHostKeyChecking=no',  # Disable host key verification
+        '-o', 'UserKnownHostsFile=/dev/null',  # Don't store the host key
         local_file,  # Local file to transfer
         f'{remote_user}@{remote_ip}:{remote_path}'  # Remote destination
     ]

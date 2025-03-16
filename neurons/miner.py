@@ -624,18 +624,30 @@ class Miner(BaseMinerNeuron):
         return
 
 
-if __name__ == "__main__":
+def run_gre_setup():
 
-    logger.info("Miner Instance started. Running GRE Setup...")
-
+    logger.info("Running GRE Setup...")
+    
     try:
         # Performing GRE Setup before starting
-        gre = GRESetup(node_type="Moat")
-        gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
+        gre = GRESetup(node_type="moat")
+        success = gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
+        if success :
+            logger.info("GRE setup successfully done.")
+        else :
+            logger.info("GRE setup failed.")
+            sys.exit(1)
 
     except Exception as e:
         logger.error(f"Error during GRE Setup: {e}")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+
+    logger.info("Miner Instance started.")
+
+    run_gre_setup()
 
     with Miner() as miner:
         while not miner.should_exit:
