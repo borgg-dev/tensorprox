@@ -167,6 +167,7 @@ class ChallengeRewardModel(BaseModel):
 
             attack_counts, benign_counts, king_counts = packet_data[uid]
 
+
             # Total packets sent from the Attacker machine
             total_attacks_from_attacker = sum(attack_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
             total_benign_from_attacker = attack_counts.get("BENIGN", 0)

@@ -16,3 +16,5 @@ aiohttp==3.11.13
 asyncssh==2.19.0
 joblib==1.4.2
 scikit-learn==1.6.0
+ansible==10.7.0
+ansible-vault==2.1.0

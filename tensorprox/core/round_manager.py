@@ -72,6 +72,7 @@ Version: 0.1.0
 #!/usr/bin/env python3
 import asyncio
 import os
+import json
 import random
 from tensorprox import *
 import tensorprox
@@ -210,7 +211,7 @@ class RoundManager(BaseModel):
             available = random.sample(available, min(len(available), k))
         return available
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid: int, backup_suffix: str) -> bool:
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid: int, ssh_dir:str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -226,50 +227,21 @@ class RoundManager(BaseModel):
         Returns:
             bool: True if the setup was successful, False if an error occurred.
         """
-
-        # logger.info(f"⚙️ Single-pass session setup for {machine_name} with {ip} as '{ssh_user}' start...")
-
-        # A) CONNECT WITH ORIGINAL KEY + PREPARE
-        # logger.info(f"🌐 Step A: Generating session key + connecting with original SSH key on {ip}...")
+        
+        # Generate the session key pair
         session_key_path = os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
         session_priv, session_pub = await generate_local_session_keypair(session_key_path)
 
         try:
-            # Step A: Connect to the remote machine
-            async with asyncssh.connect(ip, username=ssh_user, client_keys=[key_path], known_hosts=None) as conn:
-                # logger.info(f"✅ Connected to {ip} with original key.")
-
-                # Install necessary packages
-                needed = ["net-tools", "iptables-persistent", "psmisc"]
-                await install_packages_if_missing(conn, needed)
-
-                # Set up sudoers file for no TTY
-                no_tty_cmd = f"echo 'Defaults:{ssh_user} !requiretty' > /etc/sudoers.d/98_{ssh_user}_no_tty"
-                await run_cmd_async(conn, no_tty_cmd)
-
-                # logger.info(f"🔐 Step B: Inserting session key into authorized_keys and refreshing backup.")
-                ssh_dir = get_authorized_keys_dir(ssh_user)
-                authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
-                insert_key_cmd = get_insert_key_cmd(ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak)
-                await run_cmd_async(conn, insert_key_cmd)
-                # logger.info(f"✅ Session key inserted. Backup stored at {authorized_keys_bak}.")
-
-            # logger.info(f"🔒 Original SSH connection closed for {ip} (user={ssh_user}).")
-
-            # C) TEST SESSION KEY
-            # logger.info(f"🔑 Step C: Testing session SSH key on {ip} to confirm new session.")
-            async with asyncssh.connect(ip, username=ssh_user, client_keys=[session_key_path], known_hosts=None) as ep_conn:
-                # logger.info("✨ Session key success for {ip}. 🧩 Setting up passwordless sudo.")
-                sudo_setup_cmd = get_sudo_setup_cmd(ssh_user)
-                await run_cmd_async(ep_conn, sudo_setup_cmd)
-
-                # logger.info(f"✅ Done single-pass session setup for {ip}.")
-
+            #Connect to the remote machine with the original key
+            async with asyncssh.connect(ip, username=ssh_user, client_keys=[key_path], known_hosts=None) as conn:                
+                # Run the setup script
+                cmd = f'bash /tmp/initial_setup.sh {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
+                await run_cmd_async(conn, cmd)
             return True
-
+        
         except Exception as e:
-            logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
+            #logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
             return False
     
     async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, ssh_dir: str, authorized_keys_path: str) -> bool:
@@ -299,9 +271,11 @@ class RoundManager(BaseModel):
                 # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
                 return False
 
-            # Run lockdown command
-            lockdown_cmd = get_lockdown_cmd(ssh_user, ssh_dir, self.validator_ip, authorized_keys_path)
 
+            # Run lockdown command
+            lockdown_bash_path = "/home/borgg/tensorprox/tensorprox/bash/lockdown.sh"
+            await send_file_via_scp(lockdown_bash_path, "/tmp/lockdown.sh", ip, key_path, ssh_user)
+            lockdown_cmd = f"bash /tmp/lockdown.sh {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
             await run_cmd_async(client, lockdown_cmd)
         
             return True
@@ -330,8 +304,6 @@ class RoundManager(BaseModel):
 
         try:
 
-            revert_cmd = get_revert_script_cmd(ip, authorized_keys_bak, authorized_keys_path, revert_log)
-
             # Use create_and_test_connection for SSH connection
             client = await create_and_test_connection(ip, key_path, ssh_user)
 
@@ -340,6 +312,9 @@ class RoundManager(BaseModel):
                 return False
 
             # Run revert command
+            revert_bash_path = "/home/borgg/tensorprox/tensorprox/bash/revert.sh"
+            await send_file_via_scp(revert_bash_path, "/tmp/revert.sh", ip, key_path, ssh_user)
+            revert_cmd = f"bash /tmp/revert.sh {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
             await run_cmd_async(client, revert_cmd)
 
             return True
@@ -400,8 +375,8 @@ class RoundManager(BaseModel):
                 await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
 
             # Run the challenge command
-            playlist = playlists[machine_name] if machine_name != "King" else None
-            challenge_cmd = get_challenge_cmd(machine_name.lower(), challenge_duration, label_hashes, playlist)
+            playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
+            challenge_cmd = f"bash /tmp/challenge.sh {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP}"
             result = await run_cmd_async(client, challenge_cmd)
 
             # Parse the result to get the counts from stdout
@@ -477,7 +452,7 @@ class RoundManager(BaseModel):
         # Extract SSH key pair safely
         ssh_pub, ssh_priv = synapse.machine_availabilities.key_pair
         original_key_path = f"/var/tmp/original_key_{uid}.pem"
-        save_private_key(ssh_priv, original_key_path)
+        save_file_with_permissions(ssh_priv, original_key_path)
 
         all_machines_available = True
 
@@ -673,7 +648,7 @@ class RoundManager(BaseModel):
 
                 # Map task function to a version with specific arguments
                 if task == "setup":
-                    task_function = partial(task_function, uid=uid, backup_suffix=backup_suffix)
+                    task_function = partial(task_function, uid=uid, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak)
                 elif task == "lockdown":
                     # Example for lockdown task - you can define the required arguments for each task
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
@@ -777,6 +752,5 @@ class RoundManager(BaseModel):
                 }
 
         return [{"uid": uid, **status} for uid, status in task_status.items()]
-
 
 

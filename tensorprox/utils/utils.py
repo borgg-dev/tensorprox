@@ -121,7 +121,7 @@ def create_session_key_dir(path = tensorprox.session_key_dir) :
             #log_message("ERROR", f"Unexpected error while creating {tensorprox.session_key_dir}: {e}")
             raise
 
-def save_private_key(priv_key_str: str, path: str):
+def save_file_with_permissions(priv_key_str: str, path: str):
     """
     Saves a private SSH key to a specified file with secure permissions.
 
@@ -389,6 +389,7 @@ async def run_cmd_async(
             'exit_status': e.exit_status,
             'returncode': e.exit_status,
         })()
+
 
 async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
     """
