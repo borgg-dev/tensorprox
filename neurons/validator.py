@@ -447,7 +447,6 @@ class Validator(BaseValidatorNeuron):
             uids=subset_miners,
         )
 
-
         logger.debug(f"🎯 Scoring round and adding it to reward event ..")
 
         # Scoring manager will score the round

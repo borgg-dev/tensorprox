@@ -110,6 +110,20 @@ def get_authorized_keys_dir(ssh_user: str) -> str:
 
     return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
 
+def get_default_dir(ssh_user: str) -> str:
+    """
+    Retrieves the correct default directory path based on the SSH user.
+
+    Args:
+        ssh_user (str): The username of the SSH user.
+
+    Returns:
+        str: The absolute path to the default directory.
+    """
+
+    return "/root" if ssh_user == "root" else f"/home/{ssh_user}"
+
+
 def create_session_key_dir(path = tensorprox.session_key_dir) :
 
     if not os.path.exists(path):
@@ -422,16 +436,6 @@ async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd
     except asyncssh.Error as e:
         # logger.error(f"SSH connection failed for {ip}: {str(e)}")
         return False
-
-# Debug level (0=minimal, 1=normal, 2=verbose)
-DEBUG_LEVEL = 2
-
-def log(message, level=1):
-    """Log message if debug level is sufficient"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    if DEBUG_LEVEL >= level:
-        print("[{0}] {1}".format(timestamp, message))
-
 
 def get_remaining_time(duration):
     current_time = time.time()

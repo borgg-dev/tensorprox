@@ -147,7 +147,7 @@ class RoundManager(BaseModel):
     """
 
     miners: Dict[int, 'PingSynapse'] = {}
-    validator_ip: str = "192.168.122.1"
+    validator_ip: str = get_public_ip()
     king_ips: Dict[int, str] = {}
     moat_private_ips: Dict[int, str] = {}
 
@@ -228,17 +228,13 @@ class RoundManager(BaseModel):
         try:
 
             # Run the setup script
-            setup_bash_path = "/home/borgg/tensorprox/tensorprox/bash/initial_setup.sh"
-            await send_file_via_scp(setup_bash_path, "/tmp/initial_setup.sh", ip, key_path, ssh_user)
-            setup_cmd = f'bash /tmp/initial_setup.sh {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
-            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/initial_setup.sh")
+            default_dir = get_default_dir(ssh_user=ssh_user)
+            setup_cmd = f'bash {default_dir}/tensorprox/tensorprox/bash/initial_setup.sh {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
             await ssh_connect_execute(ip, key_path, ssh_user, setup_cmd)
 
             #Run passwordless sudo command
-            sudo_bash_path = "/home/borgg/tensorprox/tensorprox/bash/pwdless_sudo.sh"
-            await send_file_via_scp(sudo_bash_path, "/tmp/pwdless_sudo.sh", ip, session_key_path, ssh_user)
-            sudo_cmd = f'bash /tmp/pwdless_sudo.sh {ssh_user}'
-            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/pwdless_sudo.sh")
+            default_dir = get_default_dir(ssh_user=ssh_user)
+            sudo_cmd = f'bash {default_dir}/tensorprox/tensorprox/bash/pwdless_sudo.sh {ssh_user}'
             await ssh_connect_execute(ip, session_key_path, ssh_user, sudo_cmd)
 
             return True
@@ -266,10 +262,8 @@ class RoundManager(BaseModel):
         try:
 
             # Run lockdown command
-            lockdown_bash_path = "/home/borgg/tensorprox/tensorprox/bash/lockdown.sh"
-            await send_file_via_scp(lockdown_bash_path, "/tmp/lockdown.sh", ip, key_path, ssh_user)
-            lockdown_cmd = f"bash /tmp/lockdown.sh {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
-            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/lockdown.sh")
+            default_dir = get_default_dir(ssh_user=ssh_user)
+            lockdown_cmd = f"bash {default_dir}/tensorprox/tensorprox/bash/lockdown.sh {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
             await ssh_connect_execute(ip, key_path, ssh_user, lockdown_cmd)
         
             return True
@@ -299,10 +293,8 @@ class RoundManager(BaseModel):
         try:
 
             # Run revert command
-            revert_bash_path = "/home/borgg/tensorprox/tensorprox/bash/revert.sh"
-            await send_file_via_scp(revert_bash_path, "/tmp/revert.sh", ip, key_path, ssh_user)
-            revert_cmd = f"bash /tmp/revert.sh {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
-            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/revert.sh")
+            default_dir = get_default_dir(ssh_user=ssh_user)
+            revert_cmd = f"bash {default_dir}/tensorprox/tensorprox/bash/revert.sh {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
             await ssh_connect_execute(ip, key_path, ssh_user, revert_cmd)
 
             return True
@@ -316,9 +308,8 @@ class RoundManager(BaseModel):
         try:
 
             # Run revert command
-            gre_script_path = "/home/borgg/tensorprox/tensorprox/core/gre_setup.py"
-            await send_file_via_scp(gre_script_path, "/tmp/gre_setup.py", ip, key_path, ssh_user)
-            gre_cmd = f"python3 /tmp/gre_setup.py {machine_name.lower()} {moat_ip}"
+            default_dir = get_default_dir(ssh_user=ssh_user)
+            gre_cmd = f"python3 {default_dir}/tensorprox/tensorprox/core/gre_setup.py {machine_name.lower()} {moat_ip}"
             await ssh_connect_execute(ip, key_path, ssh_user, gre_cmd)
 
             return True
@@ -327,7 +318,7 @@ class RoundManager(BaseModel):
             logger.error(f"🚨 Failed to run GRE command on {machine_name} for miner: {e}")
             return False
 
-        
+
     async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
@@ -355,11 +346,9 @@ class RoundManager(BaseModel):
                 await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
 
             # Run the challenge command
-            challenge_bash_path = "/home/borgg/tensorprox/tensorprox/bash/challenge.sh"
-            await send_file_via_scp(challenge_bash_path, "/tmp/challenge.sh", ip, key_path, ssh_user)
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
-            challenge_cmd = f"bash /tmp/challenge.sh {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP}"
-            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/challenge.sh")
+            default_dir = get_default_dir(ssh_user=ssh_user)
+            challenge_cmd = f"bash {default_dir}/tensorprox/tensorprox/bash/challenge.sh {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP}"
             result = await ssh_connect_execute(ip, key_path, ssh_user, challenge_cmd)
 
             # Parse the result to get the counts from stdout
