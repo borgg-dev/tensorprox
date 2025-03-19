@@ -10,12 +10,13 @@ import asyncio
 import random
 import time
 import asyncssh
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, Union
 from loguru import logger
 import string
 import hashlib
 import psutil
 import ipaddress
+
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -325,7 +326,7 @@ async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path,
 
 async def run_cmd_async(
     conn: asyncssh.SSHClientConnection,
-    cmd: str | list,
+    cmd: Union[str, list],
     ignore_errors: bool = True,
     logging_output: bool = False,
     use_sudo: bool = True,
@@ -335,7 +336,7 @@ async def run_cmd_async(
 
     Args:
         conn (asyncssh.SSHClientConnection): An active SSH connection.
-        cmd (str | list): The command to execute as a string or list.
+        cmd (Union[str, list]): The command to execute as a string or list.
         ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
         logging_output (bool, optional): Whether to log the command output. Defaults to False.
         use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
@@ -391,25 +392,36 @@ async def run_cmd_async(
         })()
 
 
-async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
+async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd: Union[str, list] = None) -> Union[bool, object]:
     """
-    Establishes and tests an SSH connection using asyncssh.
+    Establishes an SSH connection, optionally executes a command, and closes the connection.
 
     Args:
         ip (str): The target machine's IP address.
         private_key_path (str): The path to the private key used for authentication.
         username (str): The SSH user to authenticate as.
+        cmd (Union[str, list], optional): The command to execute.
 
     Returns:
-        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
+        Union[bool, object]: 
+            - If no command is provided, returns True if the connection is successful, False otherwise.
+            - If a command is provided, returns the result of run_cmd_async.
     """
 
     try:
-        client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
-        return client
+        async with asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None) as client:
+            if cmd:
+                try:
+                    return await run_cmd_async(client, cmd)
+                except Exception as e:
+                    # logger.error(f"Command execution failed on {ip}: {str(e)}")
+                    return False  # Command execution failed
+
+        return True  # Connection (and command execution, if any) was successful
+
     except asyncssh.Error as e:
-        logger.error(f"SSH connection failed for {ip}: {str(e)}")
-        return None
+        # logger.error(f"SSH connection failed for {ip}: {str(e)}")
+        return False
 
 # Debug level (0=minimal, 1=normal, 2=verbose)
 DEBUG_LEVEL = 2

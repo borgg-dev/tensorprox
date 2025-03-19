@@ -89,13 +89,6 @@ import logging
 from functools import partial
 import asyncssh
 import traceback
-from tensorprox.core.session_commands import (
-    get_insert_key_cmd,
-    get_sudo_setup_cmd,
-    get_revert_script_cmd,
-    get_lockdown_cmd,
-    get_challenge_cmd
-)
 
 
 ######################################################################
@@ -154,7 +147,7 @@ class RoundManager(BaseModel):
     """
 
     miners: Dict[int, 'PingSynapse'] = {}
-    validator_ip: str = get_public_ip()
+    validator_ip: str = "192.168.122.1"
     king_ips: Dict[int, str] = {}
     moat_private_ips: Dict[int, str] = {}
 
@@ -233,15 +226,25 @@ class RoundManager(BaseModel):
         session_priv, session_pub = await generate_local_session_keypair(session_key_path)
 
         try:
-            #Connect to the remote machine with the original key
-            async with asyncssh.connect(ip, username=ssh_user, client_keys=[key_path], known_hosts=None) as conn:                
-                # Run the setup script
-                cmd = f'bash /tmp/initial_setup.sh {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
-                await run_cmd_async(conn, cmd)
+
+            # Run the setup script
+            setup_bash_path = "/home/borgg/tensorprox/tensorprox/bash/initial_setup.sh"
+            await send_file_via_scp(setup_bash_path, "/tmp/initial_setup.sh", ip, key_path, ssh_user)
+            setup_cmd = f'bash /tmp/initial_setup.sh {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
+            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/initial_setup.sh")
+            await ssh_connect_execute(ip, key_path, ssh_user, setup_cmd)
+
+            #Run passwordless sudo command
+            sudo_bash_path = "/home/borgg/tensorprox/tensorprox/bash/pwdless_sudo.sh"
+            await send_file_via_scp(sudo_bash_path, "/tmp/pwdless_sudo.sh", ip, session_key_path, ssh_user)
+            sudo_cmd = f'bash /tmp/pwdless_sudo.sh {ssh_user}'
+            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/pwdless_sudo.sh")
+            await ssh_connect_execute(ip, session_key_path, ssh_user, sudo_cmd)
+
             return True
         
         except Exception as e:
-            #logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
+            logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
             return False
     
     async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, ssh_dir: str, authorized_keys_path: str) -> bool:
@@ -260,28 +263,19 @@ class RoundManager(BaseModel):
             bool: True if the lockdown was successfully executed, False if an error occurred.
         """
 
-        # logger.info(f"🔒 Lockdown for {ip} as '{ssh_user}' start...")
-
         try:
-
-            # Use create_and_test_connection for SSH connection
-            client = await create_and_test_connection(ip, key_path, ssh_user)
-
-            if not client:
-                # logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                return False
-
 
             # Run lockdown command
             lockdown_bash_path = "/home/borgg/tensorprox/tensorprox/bash/lockdown.sh"
             await send_file_via_scp(lockdown_bash_path, "/tmp/lockdown.sh", ip, key_path, ssh_user)
             lockdown_cmd = f"bash /tmp/lockdown.sh {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
-            await run_cmd_async(client, lockdown_cmd)
+            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/lockdown.sh")
+            await ssh_connect_execute(ip, key_path, ssh_user, lockdown_cmd)
         
             return True
 
         except Exception as e:
-            logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
+            logger.error(f"🚨 Failed to lockdown machine {machine_name} for miner: {e}")
             return False
 
 
@@ -304,18 +298,12 @@ class RoundManager(BaseModel):
 
         try:
 
-            # Use create_and_test_connection for SSH connection
-            client = await create_and_test_connection(ip, key_path, ssh_user)
-
-            if not client:
-                logger.error(f"🚨 SSH connection failed for {machine_name} ({ip})")
-                return False
-
             # Run revert command
             revert_bash_path = "/home/borgg/tensorprox/tensorprox/bash/revert.sh"
             await send_file_via_scp(revert_bash_path, "/tmp/revert.sh", ip, key_path, ssh_user)
             revert_cmd = f"bash /tmp/revert.sh {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
-            await run_cmd_async(client, revert_cmd)
+            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/revert.sh")
+            await ssh_connect_execute(ip, key_path, ssh_user, revert_cmd)
 
             return True
 
@@ -326,21 +314,19 @@ class RoundManager(BaseModel):
 
     async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, moat_ip: str) -> bool:
         try:
-            # Establish SSH connection
-            client = await create_and_test_connection(ip, key_path, ssh_user)
-            if not client:
-                return False
 
-            gre = GRESetup(node_type=machine_name.lower(), conn=client)
+            # Run revert command
+            gre_script_path = "/home/borgg/tensorprox/tensorprox/core/gre_setup.py"
+            await send_file_via_scp(gre_script_path, "/tmp/gre_setup.py", ip, key_path, ssh_user)
+            gre_cmd = f"python3 /tmp/gre_setup.py {machine_name.lower()} {moat_ip}"
+            await ssh_connect_execute(ip, key_path, ssh_user, gre_cmd)
 
-            # Run configure_node in a separate thread since it's synchronous
-            success = await gre.configure_node(moat_ip)
-
-            return success
+            return True
 
         except Exception as e:
-            logger.error(f"Error occurred: {e}")
+            logger.error(f"🚨 Failed to run GRE command on {machine_name} for miner: {e}")
             return False
+
         
     async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
@@ -364,20 +350,17 @@ class RoundManager(BaseModel):
 
         try:
 
-            # Use create_and_test_connection for SSH connection
-            client = await create_and_test_connection(ip, key_path, ssh_user)
-
-            if not client:
-                return None
-
             # Send traffic_generator.py to traffic gen remote machines
             if machine_name != "King":
                 await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
 
             # Run the challenge command
+            challenge_bash_path = "/home/borgg/tensorprox/tensorprox/bash/challenge.sh"
+            await send_file_via_scp(challenge_bash_path, "/tmp/challenge.sh", ip, key_path, ssh_user)
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
             challenge_cmd = f"bash /tmp/challenge.sh {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP}"
-            result = await run_cmd_async(client, challenge_cmd)
+            await ssh_connect_execute(ip, key_path, ssh_user, "chmod +x /tmp/challenge.sh")
+            result = await ssh_connect_execute(ip, key_path, ssh_user, challenge_cmd)
 
             # Parse the result to get the counts from stdout
             counts_and_rtt = result.stdout.strip().split(", ")
@@ -471,7 +454,8 @@ class RoundManager(BaseModel):
                 break
 
             # Test SSH Connection with asyncssh
-            client = await create_and_test_connection(ip, original_key_path, ssh_user)
+            client = await ssh_connect_execute(ip, original_key_path, ssh_user)
+
             if not client:
                 all_machines_available = False
                 uid_status_availability["ping_status_message"] = "SSH connection failed."
@@ -650,7 +634,6 @@ class RoundManager(BaseModel):
                 if task == "setup":
                     task_function = partial(task_function, uid=uid, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak)
                 elif task == "lockdown":
-                    # Example for lockdown task - you can define the required arguments for each task
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)

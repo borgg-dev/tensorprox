@@ -366,52 +366,52 @@ class Validator(BaseValidatorNeuron):
 
         logger.debug(f"Initial setup phase completed in {setup_timer.elapsed_time:.2f} seconds")
 
-        # Step 3: Lockdown
-        with Timer() as lockdown_timer:
-            logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
-            try:
-                lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown)
-            except Exception as e:
-                logger.error(f"Error during lockdown phase: {e}")
-                lockdown_results = []
-                return False
-            
-        logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
-
-        locked_miners = [
-            (uid, synapse) for uid, synapse in setup_completed_miners
-            if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-        ]
-
-        if not locked_miners:
-            logger.warning("No miners are available for challenge phase.")
-            return False
-
-        # locked_miners = setup_completed_miners
-        # locked_uids = [uid for uid, _ in locked_miners]
-
-        # # Step 4: GRE Setup
-        # with Timer() as gre_timer:
-        #     logger.info(f"⚙️ Starting GRE configuration phase for miners: {locked_uids}")
+        # # Step 3: Lockdown
+        # with Timer() as lockdown_timer:
+        #     logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
         #     try:
-        #         gre_results = await round_manager.execute_task(task="gre", miners=locked_miners, subset_miners=subset_miners, task_function=round_manager.async_gre_setup)
+        #         lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown)
         #     except Exception as e:
-        #         logger.error(f"Error during GRE configuration phase: {e}")
-        #         gre_results = []
+        #         logger.error(f"Error during lockdown phase: {e}")
+        #         lockdown_results = []
+        #         return False
+            
+        # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
 
-        # logger.debug(f"GRE configuration completed in {gre_timer.elapsed_time:.2f} seconds")
-        
-        # ready_miners = [
-        #     (uid, synapse) for uid, synapse in locked_miners
-        #     if any(entry["uid"] == uid and entry["gre_status_code"] == 200 for entry in gre_results)
+        # locked_miners = [
+        #     (uid, synapse) for uid, synapse in setup_completed_miners
+        #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
         # ]
 
-        # if not ready_miners:
+        # if not locked_miners:
         #     logger.warning("No miners are available for challenge phase.")
         #     return False
+
+        locked_miners = setup_completed_miners
+        locked_uids = [uid for uid, _ in locked_miners]
+
+        # Step 4: GRE Setup
+        with Timer() as gre_timer:
+            logger.info(f"⚙️ Starting GRE configuration phase for miners: {locked_uids}")
+            try:
+                gre_results = await round_manager.execute_task(task="gre", miners=locked_miners, subset_miners=subset_miners, task_function=round_manager.async_gre_setup)
+            except Exception as e:
+                logger.error(f"Error during GRE configuration phase: {e}")
+                gre_results = []
+
+        logger.debug(f"GRE configuration completed in {gre_timer.elapsed_time:.2f} seconds")
         
-        ready_miners = locked_miners
-        ready_uids = [uid for uid, _ in locked_miners]
+        ready_miners = [
+            (uid, synapse) for uid, synapse in locked_miners
+            if any(entry["uid"] == uid and entry["gre_status_code"] == 200 for entry in gre_results)
+        ]
+
+        if not ready_miners:
+            logger.warning("No miners are available for challenge phase.")
+            return False
+        
+        # ready_miners = locked_miners
+        ready_uids = [uid for uid, _ in ready_miners]
 
         # Step 5: Challenge
         with Timer() as challenge_timer:
@@ -440,12 +440,13 @@ class Validator(BaseValidatorNeuron):
             synapses=synapses,
             all_miners_availability=all_miners_availability,
             setup_status=setup_results,
-            lockdown_status=lockdown_results,
-            # gre_status=gre_results,
+            # lockdown_status=lockdown_results,
+            gre_status=gre_results,
             challenge_status=challenge_results,
             revert_status=revert_results,
             uids=subset_miners,
         )
+
 
         logger.debug(f"🎯 Scoring round and adding it to reward event ..")
 

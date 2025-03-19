@@ -28,31 +28,31 @@ for s in $(systemctl list-units --type=service --state=running --no-pager --no-l
         :
     else
         echo "Stopping+masking $s"
-        systemctl stop "$s" || true
-        systemctl disable "$s" || true
-        systemctl mask "$s" || true
+        systemctl stop "$s" || echo "Failed to stop $s"
+        systemctl disable "$s" || echo "Failed to disable $s"
+        systemctl mask "$s" || echo "Failed to mask $s"
     fi
 done
 
 ############################################################
 # 2) Disable console TTY if /etc/securetty
 ############################################################
-if [ -f /etc/securetty ]; then
-    sed -i '/^tty[0-9]/d' /etc/securetty || true
-    sed -i '/^ttyS/d' /etc/securetty || true
+if [ -f "/etc/securetty" ]; then
+    sed -i '/^tty[0-9]/d' "/etc/securetty" || echo "Failed to modify /etc/securetty"
+    sed -i '/^ttyS/d' "/etc/securetty" || echo "Failed to modify /etc/securetty"
 fi
-systemctl stop console-getty.service || true
-systemctl disable console-getty.service || true
-systemctl mask console-getty.service || true
-systemctl stop serial-getty@ttyS0.service || true
-systemctl disable serial-getty@ttyS0.service || true
-systemctl mask serial-getty@ttyS0.service || true
+systemctl stop console-getty.service || echo "Failed to stop console-getty"
+systemctl disable console-getty.service || echo "Failed to disable console-getty"
+systemctl mask console-getty.service || echo "Failed to mask console-getty"
+systemctl stop serial-getty@ttyS0.service || echo "Failed to stop serial-getty@ttyS0"
+systemctl disable serial-getty@ttyS0.service || echo "Failed to disable serial-getty@ttyS0"
+systemctl mask serial-getty@ttyS0.service || echo "Failed to mask serial-getty@ttyS0"
 
 ############################################################
 # 3) Lock root account
 ############################################################
 echo "Locking the root account."
-passwd -l root || true
+passwd -l root || echo "Failed to lock root account"
 
 ############################################################
 # 4) Configure Firewall => only allow $validator_ip
@@ -60,10 +60,13 @@ passwd -l root || true
 NIC=$(ip route | grep default | awk '{print $5}' | head -1)
 iptables -F
 iptables -X
-iptables -A INPUT -i $NIC -p tcp -s "$validator_ip" -j ACCEPT
-iptables -A OUTPUT -o $NIC -p tcp -d "$validator_ip" -j ACCEPT
-iptables -A INPUT -i $NIC -j DROP
-iptables -A OUTPUT -o $NIC -j DROP
+iptables -A INPUT -i "$NIC" -p tcp -s "$validator_ip" -j ACCEPT
+iptables -A OUTPUT -o "$NIC" -p tcp -d "$validator_ip" -j ACCEPT
+iptables -A INPUT -i "$NIC" -j DROP
+iptables -A OUTPUT -o "$NIC" -j DROP
+
+# Ensure rules persist across reboots if using iptables
+# This might require additional setup depending on your system.
 
 ############################################################
 # 5) Kill non-essential processes
@@ -84,7 +87,7 @@ ps -ef \
 | grep -v paramiko \
 | awk '{print $2}' \
 | while read pid; do
-    kill -9 "$pid" 2>/dev/null || true
+    kill "$pid" 2>/dev/null || echo "Failed to kill $pid"
 done
 
 ############################################################
@@ -93,13 +96,13 @@ done
 echo "Cleaning up authorized_keys file to keep only session keys."
 if [ -f "$authorized_keys_path" ]; then
     TMPDIR=$(mktemp -d)
-    chown "$ssh_user":"$ssh_user" "$TMPDIR"
+    trap 'rm -rf "$TMPDIR"' EXIT
+    chown "$ssh_user:$ssh_user" "$TMPDIR"
     awk '/# START SESSION KEY/,/# END SESSION KEY/' "$authorized_keys_path" > "$TMPDIR/session_only"
-    chown "$ssh_user":"$ssh_user" "$TMPDIR/session_only"
+    chown "$ssh_user:$ssh_user" "$TMPDIR/session_only"
     chmod 600 "$TMPDIR/session_only"
     mv "$TMPDIR/session_only" "$authorized_keys_path"
-    rm -rf "$TMPDIR"
-    chown -R "$ssh_user":"$ssh_user" "$ssh_dir"
+    chown -R "$ssh_user:$ssh_user" "$ssh_dir"
     chmod 700 "$ssh_dir"
     chmod 600 "$authorized_keys_path"
 fi
