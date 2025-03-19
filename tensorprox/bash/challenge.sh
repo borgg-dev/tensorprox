@@ -10,7 +10,7 @@ challenge_duration="$2"
 label_hashes="$3"
 playlist_json=$(echo "$4" | jq '.' 2>/dev/null)
 king_ip="$5"
-
+traffic_gen_path="$6"
 
 # Build grep patterns for counting occurrences of each label
 benign_pattern=$(echo "$label_hashes" | jq -r '.BENIGN | join("\\|")')
@@ -44,7 +44,7 @@ if [[ "$machine_name" == "attacker" || "$machine_name" == "benign" ]]; then
     echo "$playlist_json" > /tmp/playlist.json
 
     # Start traffic generator with the playlist
-    nohup python3 /tmp/traffic_generator.py --playlist /tmp/playlist.json --receiver-ips $king_ip --interface ipip-$machine_name > /tmp/traffic_generator.log 2>&1 &
+    nohup python3 $traffic_gen_path --playlist /tmp/playlist.json --receiver-ips $king_ip --interface ipip-$machine_name > /tmp/traffic_generator.log 2>&1 &
 
 fi
 

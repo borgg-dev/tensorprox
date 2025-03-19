@@ -341,14 +341,12 @@ class RoundManager(BaseModel):
 
         try:
 
-            # Send traffic_generator.py to traffic gen remote machines
-            if machine_name != "King":
-                await send_file_via_scp(TRAFFIC_GEN_PATH, REMOTE_TRAFFIC_GEN_PATH, ip, key_path, ssh_user)
-
             # Run the challenge command
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
             default_dir = get_default_dir(ssh_user=ssh_user)
-            challenge_cmd = f"bash {default_dir}/tensorprox/tensorprox/bash/challenge.sh {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP}"
+            challenge_bash_path = f"{default_dir}/tensorprox/tensorprox/bash/challenge.sh"
+            traffic_gen_path = f"{default_dir}/tensorprox/tensorprox/core/traffic_generator.py"
+            challenge_cmd = f"bash {challenge_bash_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {traffic_gen_path}"
             result = await ssh_connect_execute(ip, key_path, ssh_user, challenge_cmd)
 
             # Parse the result to get the counts from stdout
