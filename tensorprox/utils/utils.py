@@ -137,6 +137,20 @@ def create_session_key_dir(path = SESSION_KEY_DIR) :
             #log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
             raise
 
+# Define a helper function to generate file paths
+def generate_path(relative_path: str) -> str:
+    """
+    Generates an absolute path by joining the base directory with the given relative path.
+
+    Args:
+        relative_path (str): The relative path to the file or directory.
+
+    Returns:
+        str: The absolute path.
+    """
+    return os.path.join(BASE_DIR, "tensorprox", relative_path)
+
+
 def save_file_with_permissions(priv_key_str: str, path: str):
     """
     Saves a private SSH key to a specified file with secure permissions.

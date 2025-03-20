@@ -391,8 +391,7 @@ class RoundManager(BaseModel):
             remote_script_path = f"{prefix_path}/bash/challenge.sh"
             remote_signature_path = f"{prefix_path}/bash/challenge.sh.sig"
             traffic_gen_path = f"{prefix_path}/core/traffic_generator.py"
-            cmd = f"bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {traffic_gen_path}"
-            
+            cmd = f"bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {traffic_gen_path}"           
 
             task_files_paths = list(signatures.keys())
             
