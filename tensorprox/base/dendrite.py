@@ -54,8 +54,8 @@ class DendriteResponseEvent(BaseModel):
                 uid = setup.get("uid")
                 if uid is not None:
                     self.setup_status_by_uid[uid] = {
-                        "setup_status_message": setup.get("setup_status_message", f"UID {uid} not set up."),
-                        "setup_status_code": setup.get("setup_status_code", 400),
+                        "initial_setup_status_message": setup.get("initial_setup_status_message", f"UID {uid} not set up."),
+                        "initial_setup_status_code": setup.get("initial_setup_status_code", 400),
                     }
 
         # Lockdown Step
@@ -74,8 +74,8 @@ class DendriteResponseEvent(BaseModel):
                 uid = gre.get("uid")
                 if uid is not None:
                     self.gre_status_by_uid[uid] = {
-                        "gre_status_message": gre.get("gre_status_message", f"UID {uid} not set up."),
-                        "gre_status_code": gre.get("challenge_status_code", 400),
+                        "gre_setup_status_message": gre.get("gre_setup_status_message", f"UID {uid} not set up."),
+                        "gre_setup_status_code": gre.get("gre_setup_status_code", 400),
                     }
 
         # Challenge Step

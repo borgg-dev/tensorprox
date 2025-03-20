@@ -1040,59 +1040,53 @@ class TCPTraffic(BenignTraffic):
 ##################
 ## UDP - Benign ##
 ##################
-
-
+    
 class UDPTraffic(BenignTraffic):
     """Class to simulate benign UDP traffic."""
     
     protocol_type = ProtocolType.UDP
     
-    class UDPTraffic(BenignTraffic):
-        """Class to simulate benign UDP traffic."""
+    def run(self) -> None:
+        """Run the UDP traffic simulation."""
+        logger.info("Starting UDP Benign Traffic Simulation")
+        total_duration = self.duration
+        # Update: Use 50% of available CPU cores per target IP
+        num_processes_per_ip = max(1, (multiprocessing.cpu_count() // 2) // len(self.target_ips))
+        processes = []
         
-        protocol_type = ProtocolType.UDP
+        # Create and start processes for each target IP
+        for target_ip in self.target_ips:
+            for _ in range(num_processes_per_ip):
+                p = multiprocessing.Process(
+                    target=self.run_process,
+                    args=(total_duration, self.pause_event, target_ip)
+                )
+                p.start()
+                processes.append(p)
         
-        def run(self) -> None:
-            """Run the UDP traffic simulation."""
-            logger.info("Starting UDP Benign Traffic Simulation")
-            total_duration = self.duration
-            # Update: Use 50% of available CPU cores per target IP
-            num_processes_per_ip = max(1, (multiprocessing.cpu_count() // 2) // len(self.target_ips))
-            processes = []
-            
-            # Create and start processes for each target IP
-            for target_ip in self.target_ips:
-                for _ in range(num_processes_per_ip):
-                    p = multiprocessing.Process(
-                        target=self.run_process,
-                        args=(total_duration, self.pause_event, target_ip)
-                    )
-                    p.start()
-                    processes.append(p)
-            
-            for p in processes:
-                p.join()
-            logger.info("All UDP traffic simulation processes have completed.")
-        
-        def run_process(self, total_duration: int, pause_event: Event, target_ip: str) -> None:
-            asyncio.run(self.simulate_realistic_conditions(target_ip, total_duration, pause_event))
-        
-        async def simulate_realistic_conditions(self, target_ip: str, total_duration: int, 
-                                                pause_event: Event) -> None:
-            """Simulate both standard load phases and random bursts over an extended period."""
-            regions = ['NA', 'EU', 'ASIA', 'SA', 'AF', 'OCEANIA']
-            while time.time() - self.start_time < total_duration:
-                region = random.choice(regions)
-                if random.random() < 0.05:
-                    await self.burst_traffic(target_ip, region, pause_event)
-                else:
-                    remaining_time = self.start_time + total_duration - time.time()
-                    phase_duration = min(random.randint(1800, 3600), remaining_time)
-                    await self.manage_load_phases(target_ip, phase_duration, pause_event)
-
+        for p in processes:
+            p.join()
+        logger.info("All UDP traffic simulation processes have completed.")
     
+    def run_process(self, total_duration: int, pause_event: Event, target_ip: str) -> None:
+        asyncio.run(self.simulate_realistic_conditions(target_ip, total_duration, pause_event))
+    
+    async def simulate_realistic_conditions(self, target_ip: str, total_duration: int, 
+                                            pause_event: Event) -> None:
+        """Simulate both standard load phases and random bursts over an extended period."""
+        regions = ['NA', 'EU', 'ASIA', 'SA', 'AF', 'OCEANIA']
+        while time.time() - self.start_time < total_duration:
+            region = random.choice(regions)
+            if random.random() < 0.05:
+                await self.burst_traffic(target_ip, region, pause_event)
+            else:
+                remaining_time = self.start_time + total_duration - time.time()
+                phase_duration = min(random.randint(1800, 3600), remaining_time)
+                await self.manage_load_phases(target_ip, phase_duration, pause_event)
+
+
     async def manage_load_phases(self, target_ip: str, total_duration: int, 
-                                 pause_event: Event) -> None:
+                                    pause_event: Event) -> None:
         regions = ['NA', 'EU', 'ASIA', 'SA', 'AF', 'OCEANIA']
         traffic_types = ['DNS', 'NTP', 'SSDP', 'RANDOM']
         
@@ -1105,14 +1099,14 @@ class UDPTraffic(BenignTraffic):
             await self.simulate_phase_for_target(
                 target_ip, rate, phase_duration, region, traffic_type, pause_event
             )
-    
+
     async def burst_traffic(self, target_ip: str, region: str, pause_event: Event) -> None:
         burst_duration = min(random.randint(300, 600), self.duration)
         burst_rate = random.randint(7000, 15000)
         await self.simulate_phase_for_target(
             target_ip, burst_rate, burst_duration, region, "BURST", pause_event
         )
-    
+
     async def simulate_phase_for_target(self, target_ip: str, rate: int, duration: int, 
                                         region: str, traffic_type: str, 
                                         pause_event: Event) -> None:
@@ -1143,10 +1137,10 @@ class UDPTraffic(BenignTraffic):
                 burst_mode = False
                 rate = random.randint(500, 1000)
             await asyncio.sleep(max(0.0001, random.uniform(0.001 / rate, 0.05 / rate)))
-    
+
     async def simulate_real_world_load(self, src_ip: str, dport: int, ttl: int, 
-                                       payload: str, duration: int, pause_event: Event, 
-                                       target_ip: str) -> None:
+                                        payload: str, duration: int, pause_event: Event, 
+                                        target_ip: str) -> None:
         start_time = time.time()
         while time.time() - start_time < duration:
             if pause_event.is_set():
@@ -1154,8 +1148,8 @@ class UDPTraffic(BenignTraffic):
                 continue
             
             packet = IP(src=src_ip, dst=target_ip, ttl=ttl) / \
-                     UDP(sport=random.randint(1024, 65535), dport=dport) / \
-                     Raw(load=payload)
+                        UDP(sport=random.randint(1024, 65535), dport=dport) / \
+                        Raw(load=payload)
             
             try:
                 send(packet, verbose=0, iface=self.interface)

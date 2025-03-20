@@ -14,18 +14,15 @@ __spec_version__ = _version_to_int(__version__)
 labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 node_types = ["Attacker", "Benign", "King", "Moat"]
 
-ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
+ROUND_TIMEOUT: int = 300 #150 blocks / 30 minutes
 CHALLENGE_DURATION: int = 60 #15 minutes
-EPSILON: int = 30
+EPSILON: int = 5
 
 # Store the base path dynamically, assuming `tensorprox` is the base directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Store the path to the traffic generator script
-TRAFFIC_GEN_PATH = os.path.join(BASE_DIR, "tensorprox", "core", "traffic_generator.py")
-
 #Temporary paths
-session_key_dir = "/var/tmp/session_keys"
+SESSION_KEY_DIR = "/var/tmp/session_keys"
 REMOTE_TRAFFIC_GEN_PATH: str = '/tmp/traffic_generator.py'
 
 

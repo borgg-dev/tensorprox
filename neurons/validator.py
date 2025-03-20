@@ -40,7 +40,7 @@ sys.path.append(os.path.expanduser("~/tensorprox"))
 from aiohttp import web
 import asyncio
 from tensorprox import *
-import tensorprox
+from tensorprox.utils.utils import *
 from tensorprox import settings
 settings.settings = settings.Settings.load(mode="validator")
 settings = settings.settings
@@ -317,8 +317,6 @@ class Validator(BaseValidatorNeuron):
         with Timer() as timer:
             
             # hardcoded for testing purpose
-            if 7 not in subset_miners:
-                subset_miners += [7]
             if 14 not in subset_miners:
                 subset_miners += [14]
 
@@ -345,9 +343,15 @@ class Validator(BaseValidatorNeuron):
 
         # Step 2: Initial Session Key Setup
         with Timer() as setup_timer:
+
             logger.info(f"⚙️ Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
             try:
-                setup_results = await round_manager.execute_task(task="setup", miners=available_miners, subset_miners=subset_miners, task_function=round_manager.async_setup, backup_suffix=backup_suffix)
+                task_file_path = os.path.join(BASE_DIR, "tensorprox", "bash", "initial_setup.sh")      
+                task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", "initial_setup.sh.sig")  
+                signature_path, public_key_file = generate_signature_from_file(file_path=task_file_path, signature_path=task_signature_path, public_key_file='/tmp/public_key_setup.asc')
+                signatures = {task_file_path: (signature_path, public_key_file)}
+
+                setup_results = await round_manager.execute_task(task="initial_setup", miners=available_miners, subset_miners=subset_miners, task_function=round_manager.async_setup, signatures=signatures, backup_suffix=backup_suffix)
             except Exception as e:
                 logger.error(f"Error during setup phase: {e}")
                 setup_results = []
@@ -355,7 +359,7 @@ class Validator(BaseValidatorNeuron):
 
         setup_completed_miners = [
             (uid, synapse) for uid, synapse in available_miners
-            if any(entry["uid"] == uid and entry["setup_status_code"] == 200 for entry in setup_results)
+            if any(entry["uid"] == uid and entry["initial_setup_status_code"] == 200 for entry in setup_results)
         ]
 
         if not setup_completed_miners:
@@ -370,7 +374,11 @@ class Validator(BaseValidatorNeuron):
         # with Timer() as lockdown_timer:
         #     logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
         #     try:
-        #         lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown)
+        #         task_file_path = os.path.join(BASE_DIR, "tensorprox", "bash", "lockdown.sh")      
+        #         task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", "lockdown.sh.sig")  
+        #         signature_path, public_key_file = generate_signature_from_file(file_path=task_file_path, signature_path=task_signature_path, public_key_file='/tmp/public_key_lockdown.asc')
+        #         signatures = {task_file_path: (signature_path, public_key_file)}
+        #         lockdown_results = await round_manager.execute_task(task="lockdown", miners=setup_completed_miners, subset_miners=subset_miners, task_function = round_manager.async_lockdown, signatures=signatures)
         #     except Exception as e:
         #         logger.error(f"Error during lockdown phase: {e}")
         #         lockdown_results = []
@@ -394,7 +402,12 @@ class Validator(BaseValidatorNeuron):
         with Timer() as gre_timer:
             logger.info(f"⚙️ Starting GRE configuration phase for miners: {locked_uids}")
             try:
-                gre_results = await round_manager.execute_task(task="gre", miners=locked_miners, subset_miners=subset_miners, task_function=round_manager.async_gre_setup)
+                task_file_path = os.path.join(BASE_DIR, "tensorprox", "core", "gre_setup.py")      
+                task_signature_path = os.path.join(BASE_DIR, "tensorprox", "core", "gre_setup.py.sig")  
+                signature_path, public_key_file = generate_signature_from_file(file_path=task_file_path, signature_path=task_signature_path, public_key_file='/tmp/public_key_gre.asc')
+                signatures = {task_file_path: (signature_path, public_key_file)}
+
+                gre_results = await round_manager.execute_task(task="gre_setup", miners=locked_miners, subset_miners=subset_miners, task_function=round_manager.async_gre_setup, signatures=signatures)
             except Exception as e:
                 logger.error(f"Error during GRE configuration phase: {e}")
                 gre_results = []
@@ -403,7 +416,7 @@ class Validator(BaseValidatorNeuron):
         
         ready_miners = [
             (uid, synapse) for uid, synapse in locked_miners
-            if any(entry["uid"] == uid and entry["gre_status_code"] == 200 for entry in gre_results)
+            if any(entry["uid"] == uid and entry["gre_setup_status_code"] == 200 for entry in gre_results)
         ]
 
         if not ready_miners:
@@ -417,7 +430,17 @@ class Validator(BaseValidatorNeuron):
         with Timer() as challenge_timer:
             logger.info(f"🚀 Starting challenge phase for miners: {ready_uids} | Duration: {CHALLENGE_DURATION} seconds")
             try:
-                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, label_hashes=label_hashes, playlists=playlists)
+                task_file_path = os.path.join(BASE_DIR, "tensorprox", "bash", "challenge.sh")      
+                task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", "challenge.sh.sig")  
+                traffic_gen_file_path = os.path.join(BASE_DIR, "tensorprox", "core", "traffic_generator.py")  
+                traffic_gen_signature_path = os.path.join(BASE_DIR, "tensorprox", "core", "traffic_generator.py.sig") 
+
+                signature_path, public_key_file = generate_signature_from_file(file_path=task_file_path, signature_path=task_signature_path, public_key_file='/tmp/public_key_challenge.asc')
+                traffic_gen_signature_path, traffic_gen_public_key_file = generate_signature_from_file(file_path=task_file_path, signature_path=task_signature_path, public_key_file='/tmp/public_key_traffic_gen.asc')
+                
+                signatures = {task_file_path: (signature_path, public_key_file), traffic_gen_file_path: (traffic_gen_signature_path, traffic_gen_public_key_file)}
+
+                challenge_results = await round_manager.execute_task(task="challenge", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_challenge, signatures=signatures, label_hashes=label_hashes, playlists=playlists)
             except Exception as e:
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
@@ -428,7 +451,12 @@ class Validator(BaseValidatorNeuron):
         with Timer() as revert_timer:    
             logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
             try:
-                revert_results = await round_manager.execute_task(task="revert", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_revert, backup_suffix=backup_suffix)
+
+                task_file_path = os.path.join(BASE_DIR, "tensorprox", "bash", "revert.sh")      
+                task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", "revert.sh.sig")  
+                signature_path, public_key_file = generate_signature_from_file(file_path=task_file_path, signature_path=task_signature_path, public_key_file='/tmp/public_key_revert.asc')
+                signatures = {task_file_path: (signature_path, public_key_file)}
+                revert_results = await round_manager.execute_task(task="revert", miners=ready_miners, subset_miners=subset_miners, task_function=round_manager.async_revert, signatures=signatures, backup_suffix=backup_suffix)
             except Exception as e:
                 logger.error(f"Error during revert phase: {e}")
                 revert_results = []

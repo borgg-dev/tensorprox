@@ -1,4 +1,5 @@
 from requests import get
+from tensorprox import *
 import tensorprox
 import sys
 from datetime import datetime
@@ -124,16 +125,16 @@ def get_default_dir(ssh_user: str) -> str:
     return "/root" if ssh_user == "root" else f"/home/{ssh_user}"
 
 
-def create_session_key_dir(path = tensorprox.session_key_dir) :
+def create_session_key_dir(path = SESSION_KEY_DIR) :
 
     if not os.path.exists(path):
         try:
             os.makedirs(path, mode=0o700, exist_ok=True)
         except PermissionError as e:
-            #log_message("ERROR", f"Permission denied while creating {tensorprox.session_key_dir}: {e}")
+            #log_message("ERROR", f"Permission denied while creating {SESSION_KEY_DIR}: {e}")
             raise
         except Exception as e:
-            #log_message("ERROR", f"Unexpected error while creating {tensorprox.session_key_dir}: {e}")
+            #log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
             raise
 
 def save_file_with_permissions(priv_key_str: str, path: str):
@@ -275,6 +276,114 @@ def generate_random_hashes(n=10):
     
     return label_hashes
 
+async def verify_remote_file(ip: str, key_path: str, ssh_user: str, remote_script_path: str, signature_path: str, remote_signature_path: str, public_key_file: str) -> bool:
+        
+    #Add gpg public key to the remote machine
+    await add_gpg_public_key_to_remote(ip, key_path, ssh_user, public_key_file, public_key_file)
+
+    #Send signature to the remote machine
+    await send_file_via_scp(signature_path, remote_signature_path, ip, key_path, ssh_user)
+
+    #Get local and remote signatures
+    remote_signature, local_signature = await get_signatures(ip, key_path, ssh_user, signature_path, remote_signature_path)
+    
+    # Compare the remote signature with the locally generated signature
+    if remote_signature == local_signature :
+
+        # Verify the signature
+        verification_result = await verify_remote_signature(ip, key_path, ssh_user, remote_signature_path, remote_script_path)
+
+        if "Good signature" in verification_result.stderr:
+            # logger.info(f"Signature is valid!")
+            return True
+        else:
+            # logger.info("Error: Signature verification failed! The file may have been tampered with.")
+            return False
+    else:
+        # logger.info("Warning: The signature file appears to have been tampered with.")
+        return False
+    
+
+async def add_gpg_public_key_to_remote(ip: str, key_path: str, ssh_user: str, public_key_file: str, remote_public_key_path: str = "/tmp/remote_public_key.asc"):
+
+    # Upload the public key to the remote machine
+    await send_file_via_scp(public_key_file, remote_public_key_path, ip, key_path, ssh_user)
+
+    # Import the GPG public key on the remote machine
+    import_gpg_key_cmd = f"gpg --import {remote_public_key_path}"
+    await ssh_connect_execute(ip, key_path, ssh_user, import_gpg_key_cmd)
+
+
+async def get_signatures(ip: str, key_path: str, ssh_user :str, signature_path: str, remote_signature_path: str):
+
+    # Save the locally generated signature for later comparison
+    with open(signature_path, 'r') as f:
+        local_signature = f.read()
+        local_signature = local_signature.strip().replace("\r\n", "\n")
+
+    #Get remote signature
+    remote_signature = await get_remote_file_contents(ip, key_path, ssh_user, remote_signature_path)
+    remote_signature = remote_signature.strip().replace("\r\n", "\n")
+
+    return remote_signature, local_signature
+
+def generate_signature_from_file(file_path: str, signature_path: str, public_key_file: str):
+    # Verify if GPG key exists, and if not, generate one
+    gpg_key_check_command = "gpg --list-secret-keys"
+    result = subprocess.run(gpg_key_check_command, shell=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if result.returncode != 0:  # No secret key available
+        # logger.error("❌ No GPG secret key found. Generating RSA key...")
+
+        # Generate the RSA key
+        gpg_key_generate_command = """
+        gpg --batch --gen-key <<EOF
+        %no-protection
+        %commit
+        Key-Type: RSA
+        Key-Length: 2048
+        Name-Real: Your Name
+        Name-Comment: key for signing
+        Name-Email: your.email@example.com
+        Expire-Date: 0
+        EOF
+        """
+
+        # Execute the command
+        subprocess.run(gpg_key_generate_command, shell=True, check=True)
+        # logger.info("GPG RSA key generated successfully.")
+
+    # Sign the setup script and save the signature to sig_setup_path
+    sign_command = f'gpg --batch --yes --armor --detach-sign --output {signature_path} {file_path}'
+    subprocess.run(sign_command, shell=True, check=True)
+
+    # Retrieve the public key (for the associated email used during key generation)
+    public_key_command = "gpg --armor --export your.email@example.com"
+    result = subprocess.run(public_key_command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    # Check if we successfully retrieved the public key
+    if result.returncode == 0:
+        public_key = result.stdout.decode('utf-8')
+        # logger.info("Public key retrieved successfully.")
+    else:
+        # logger.error("❌ Failed to retrieve the GPG public key.")
+        public_key = None
+
+    # Save the public key to a file
+    if public_key:
+        with open(public_key_file, 'w') as f:
+            f.write(public_key)
+        # logger.info(f"Public key saved to {public_key_file}")
+
+    return signature_path, public_key_file
+    
+async def get_remote_file_contents(ip: str, key_path: str, ssh_user: str, remote_file_path: str) -> str:
+    """Retrieve the contents of a file from the remote machine via SSH."""
+    command = f"cat {remote_file_path}"
+    result = await ssh_connect_execute(ip, key_path, ssh_user, command)
+    # Ensure that the result is being treated as the stdout from the Result object
+    return result.stdout.strip()  # Access stdout and then apply strip
+
 async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     """
     Asynchronously generates an ED25519 SSH key pair and stores it securely.
@@ -311,6 +420,17 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
+async def make_file_immutable(ip, key_path, ssh_user, remote_file_path, state=True):
+    immutable_flag = "+i" if state == True else "-i"
+    immutable_cmd = f"sudo chattr {immutable_flag} {remote_file_path}"
+    await ssh_connect_execute(ip, key_path, ssh_user, immutable_cmd)
+
+# Function to verify the remote file's signature
+async def verify_remote_signature(ip, key_path, ssh_user, remote_signature_path, remote_file_path):
+    verify_cmd = f"gpg --verify --trust-model always {remote_signature_path} {remote_file_path}"
+    result = await ssh_connect_execute(ip, key_path, ssh_user, verify_cmd)
+    return result
+    
 async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path, remote_user):
     # Construct the SCP command
     scp_command = [

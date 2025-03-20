@@ -204,7 +204,8 @@ class RoundManager(BaseModel):
             available = random.sample(available, min(len(available), k))
         return available
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, uid: int, ssh_dir:str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
+
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -222,28 +223,34 @@ class RoundManager(BaseModel):
         """
         
         # Generate the session key pair
-        session_key_path = os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
-        session_priv, session_pub = await generate_local_session_keypair(session_key_path)
+        session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+        _, session_pub = await generate_local_session_keypair(session_key_path)
+
+        remote_signature_path = f"{prefix_path}/bash/initial_setup.sh.sig"
+        remote_script_path = f"{prefix_path}/bash/initial_setup.sh"
+        cmd = f'bash {remote_script_path} {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
 
         try:
 
-            # Run the setup script
-            default_dir = get_default_dir(ssh_user=ssh_user)
-            setup_cmd = f'bash {default_dir}/tensorprox/tensorprox/bash/initial_setup.sh {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
-            await ssh_connect_execute(ip, key_path, ssh_user, setup_cmd)
-
-            #Run passwordless sudo command
-            default_dir = get_default_dir(ssh_user=ssh_user)
-            sudo_cmd = f'bash {default_dir}/tensorprox/tensorprox/bash/pwdless_sudo.sh {ssh_user}'
-            await ssh_connect_execute(ip, session_key_path, ssh_user, sudo_cmd)
+            task_files_paths = list(signatures.keys())
+            
+            for file_path in task_files_paths :
+                signature_path, public_key_file = signatures[file_path]
+                
+                #Exit if Gpg verification fails
+                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
+                    return False
+            
+            # Run the script securely (it’s immutable and verified)
+            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
         
         except Exception as e:
-            logger.error(f"❌ Failed to complete session setup for {ip}: {e}")
+            logger.error(f"🚨 Failed to setup session on {machine_name} for miner: {e}")
             return False
     
-    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, ssh_dir: str, authorized_keys_path: str) -> bool:
+    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, ssh_dir: str, authorized_keys_path: str) -> bool:
         """
         Initiates a lockdown procedure on a remote miner by executing a lockdown command over SSH.
 
@@ -259,21 +266,33 @@ class RoundManager(BaseModel):
             bool: True if the lockdown was successfully executed, False if an error occurred.
         """
 
+        remote_signature_path = f"{prefix_path}/bash/lockdown.sh.sig"
+        remote_script_path = f"{prefix_path}/bash/lockdown.sh"
+
+        cmd = f"bash {remote_script_path} {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
+
         try:
+            
+            task_files_paths = list(signatures.keys())
+            
+            for file_path in task_files_paths :
+                signature_path, public_key_file = signatures[file_path]
+                
+                #Exit if Gpg verification fails
+                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
+                    return False
+                
+            # Run the script securely (it’s immutable and verified)
+            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
-            # Run lockdown command
-            default_dir = get_default_dir(ssh_user=ssh_user)
-            lockdown_cmd = f"bash {default_dir}/tensorprox/tensorprox/bash/lockdown.sh {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
-            await ssh_connect_execute(ip, key_path, ssh_user, lockdown_cmd)
-        
             return True
-
+        
         except Exception as e:
             logger.error(f"🚨 Failed to lockdown machine {machine_name} for miner: {e}")
             return False
 
 
-    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
+    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
         """
         Reverts the SSH configuration changes on a remote miner by restoring the backup of authorized keys.
 
@@ -290,36 +309,62 @@ class RoundManager(BaseModel):
             bool: True if the revert was successful, False if an error occurred.
         """ 
 
-        try:
+        remote_signature_path = f"{prefix_path}/bash/revert.sh.sig"
+        remote_script_path = f"{prefix_path}/bash/revert.sh"
 
-            # Run revert command
-            default_dir = get_default_dir(ssh_user=ssh_user)
-            revert_cmd = f"bash {default_dir}/tensorprox/tensorprox/bash/revert.sh {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
-            await ssh_connect_execute(ip, key_path, ssh_user, revert_cmd)
+        cmd = f"bash {remote_script_path} {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
+
+        try:
+            
+            task_files_paths = list(signatures.keys())
+            
+            for file_path in task_files_paths :
+                signature_path, public_key_file = signatures[file_path]
+                
+                #Exit if Gpg verification fails
+                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
+                    return False
+            
+            # Run the script securely (it’s immutable and verified)
+            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
-
+        
         except Exception as e:
             logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
             return False
+        
 
 
-    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, moat_ip: str) -> bool:
+    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, moat_ip: str) -> bool:
+        
+        remote_signature_path = f"{prefix_path}/bash/gre_setup.py.sig"
+        remote_script_path = f"{prefix_path}/core/gre_setup.py"
+
+        cmd = f"python3 {remote_script_path} {machine_name.lower()} {moat_ip}"
+
         try:
+            
+            task_files_paths = list(signatures.keys())
 
-            # Run revert command
-            default_dir = get_default_dir(ssh_user=ssh_user)
-            gre_cmd = f"python3 {default_dir}/tensorprox/tensorprox/core/gre_setup.py {machine_name.lower()} {moat_ip}"
-            await ssh_connect_execute(ip, key_path, ssh_user, gre_cmd)
+            for file_path in task_files_paths :
+                signature_path, public_key_file = signatures[file_path]
+                
+                #Exit if Gpg verification fails
+                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
+                    return False
+            
+            # Run the script securely (it’s immutable and verified)
+            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
-
+            
         except Exception as e:
             logger.error(f"🚨 Failed to run GRE command on {machine_name} for miner: {e}")
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -343,12 +388,24 @@ class RoundManager(BaseModel):
 
             # Run the challenge command
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
-            default_dir = get_default_dir(ssh_user=ssh_user)
-            challenge_bash_path = f"{default_dir}/tensorprox/tensorprox/bash/challenge.sh"
-            traffic_gen_path = f"{default_dir}/tensorprox/tensorprox/core/traffic_generator.py"
-            challenge_cmd = f"bash {challenge_bash_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {traffic_gen_path}"
-            result = await ssh_connect_execute(ip, key_path, ssh_user, challenge_cmd)
+            remote_script_path = f"{prefix_path}/bash/challenge.sh"
+            remote_signature_path = f"{prefix_path}/bash/challenge.sh.sig"
+            traffic_gen_path = f"{prefix_path}/core/traffic_generator.py"
+            cmd = f"bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {traffic_gen_path}"
+            
 
+            task_files_paths = list(signatures.keys())
+            
+            for file_path in task_files_paths :
+                signature_path, public_key_file = signatures[file_path]
+                
+                #Exit if Gpg verification fails
+                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
+                    return False
+            
+            # Run the script securely (it’s immutable and verified)
+            result = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+        
             # Parse the result to get the counts from stdout
             counts_and_rtt = result.stdout.strip().split(", ")
 
@@ -537,6 +594,7 @@ class RoundManager(BaseModel):
         miners: List[Tuple[int, 'PingSynapse']],
         subset_miners: list[int],
         task_function: Callable[..., bool],
+        signatures: dict,
         backup_suffix: str = "", 
         label_hashes: dict = None,
         playlists: dict = {},
@@ -611,20 +669,23 @@ class RoundManager(BaseModel):
                 ssh_user = machine_details.username
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
-                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "setup" else os.path.join(tensorprox.session_key_dir, f"session_key_{uid}_{ip}")
+                key_path = f"/var/tmp/original_key_{uid}.pem" if task == "initial_setup" else os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"
                 revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"
-                king_ip = self.king_ips[uid]
+                #king_ip = self.king_ips[uid]
                 moat_private_ip = self.moat_private_ips[uid]
+                default_dir = get_default_dir(ssh_user=ssh_user)
+                prefix_path = f"{default_dir}/tensorprox/tensorprox"
 
                 # Map task function to a version with specific arguments
-                if task == "setup":
+                if task == "initial_setup":
+                    
                     task_function = partial(task_function, uid=uid, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak)
                 elif task == "lockdown":
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
-                elif task=="gre":
+                elif task=="gre_setup":
                     task_function = partial(task_function, moat_ip=moat_private_ip)
                 elif task=="challenge":
                     task_function = partial(task_function, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
@@ -632,7 +693,15 @@ class RoundManager(BaseModel):
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
 
-                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name)
+                if task == "gre_setup" :
+                    task_file_path = os.path.join(BASE_DIR, "tensorprox", "core", f"{task}.py")      
+                    task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", f"{task}.py.sig")          
+                else :
+                    task_file_path = os.path.join(BASE_DIR, "tensorprox", "bash", f"{task}.sh")
+                    task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", f"{task}.sh.sig")
+
+
+                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name, prefix_path=prefix_path, signatures=signatures)
 
                 return success
             
@@ -684,7 +753,7 @@ class RoundManager(BaseModel):
                 await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
 
                 state = (
-                    "GET_READY" if task == "gre" 
+                    "GET_READY" if task == "gre_setup" 
                     else "END_ROUND" if task == "challenge" 
                     else None
                 )
