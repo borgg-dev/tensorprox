@@ -41,7 +41,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 class TrafficType(Enum):
     """Enumeration of traffic types supported by the framework."""
     ATTACK = auto()
