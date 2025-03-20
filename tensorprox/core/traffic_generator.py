@@ -1042,11 +1042,7 @@ class TCPTraffic(BenignTraffic):
 ##################
 
 
-class UDPTraffic(BenignTraffic):
-    """Class to simulate benign UDP traffic."""
-    
-    protocol_type = ProtocolType.UDP
-    
+  
     class UDPTraffic(BenignTraffic):
         """Class to simulate benign UDP traffic."""
         
