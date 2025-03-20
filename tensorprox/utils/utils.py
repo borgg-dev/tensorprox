@@ -199,24 +199,27 @@ def get_attack_classes() -> Dict[str, list]:
 def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
     """
     Create a random playlist totaling a specified duration, either for an 'attacker' or 'benign' role.
-    Generates a playlist consisting of random activities ('pause' or a class type) with durations summing up to the specified total duration.
-
+    For role "Benign", any selection of the benign label results in a grouped unit containing both
+    'tcp_traffic' and 'udp_traffic' class_vectors with the same duration.
+    
     Args:
         total_seconds (int): The total duration of the playlist in seconds.
         label_hashes (dict): Dictionary of labels and corresponding lists of random hashes.
-        role (str, optional): The role for the playlist ('attacker' or 'benign'). Defaults to None.
+        role (str, optional): The role for the playlist ('Attacker' or 'Benign'). Defaults to None.
         seed (int, optional): The seed for the random number generator. If None, the seed is not set.
-
+    
     Returns:
-        list: A list of dictionaries, each containing 'name', 'class_vector', 'label_identifier', and 'duration'.
+        list: A list of dictionaries. For a benign unit, the dictionary contains a 'name' key and a 'classes'
+              key with a list of two entries (one for tcp_traffic and one for udp_traffic). Otherwise, each dictionary
+              contains 'name', 'class_vector', 'label_identifier', and 'duration'.
     """
-
     if seed is not None:
         random.seed(seed)
-
     type_class_map = get_attack_classes()
     playlist = []
     current_total = 0
+
+    # Setup labels: attack_labels remain unchanged, benign_labels list contains only "BENIGN"
     attack_labels = [key for key in type_class_map.keys() if key != "BENIGN"]
     benign_labels = ["BENIGN"]
 
@@ -225,28 +228,48 @@ def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
         "Attacker": (0.8, 0.2),
         "Benign": (0.2, 0.8)
     }.get(role, (0.5, 0.5))  # Default to (0.5, 0.5) if role is neither 'Attacker' nor 'Benign'
-
     attack_weight, benign_weight = weights
 
     # Calculate individual weights
     attack_weight_per_label = attack_weight / len(attack_labels)
-    weights = [attack_weight_per_label] * len(attack_labels) + [benign_weight]
+    combined_labels = attack_labels + benign_labels
+    weights_list = [attack_weight_per_label] * len(attack_labels) + [benign_weight]
 
     while current_total < total_seconds:
-        # Select label based on role-specific weight distribution
-        name = random.choices(attack_labels + benign_labels, weights, k=1)[0]
-        class_vector = random.choice(type_class_map[name]) if name != "pause" else None
-        label_identifier = random.choice(label_hashes[name]) if name != "pause" else None
+        # Randomly select a label based on the defined weights
+        name = random.choices(combined_labels, weights_list, k=1)[0]
+        # Determine the duration for this step (ensuring we don't exceed total_seconds)
         duration = min(random.randint(60, 180), total_seconds - current_total)
-
-        # Add activity to the playlist
-        playlist.append({
-            "name": name, 
-            "class_vector": class_vector,
-            "label_identifier": label_identifier, 
-            "duration": duration
-        })
-
+        
+        # If role is "Benign" and label "BENIGN" is chosen, output a grouped unit with two class_vectors.
+        if role == "Benign" and name == "BENIGN":
+            benign_unit = {
+                "name": "BENIGN",
+                "classes": [
+                    {
+                        "class_vector": "tcp_traffic",
+                        "label_identifier": random.choice(label_hashes["BENIGN"]),
+                        "duration": duration
+                    },
+                    {
+                        "class_vector": "udp_traffic",
+                        "label_identifier": random.choice(label_hashes["BENIGN"]),
+                        "duration": duration
+                    }
+                ]
+            }
+            playlist.append(benign_unit)
+        else:
+            # For all other cases, use the existing logic
+            # Note: For non-"pause" labels, select the class_vector and label_identifier
+            class_vector = random.choice(type_class_map[name]) if name != "pause" else None
+            label_identifier = random.choice(label_hashes[name]) if name != "pause" else None
+            playlist.append({
+                "name": name,
+                "class_vector": class_vector,
+                "label_identifier": label_identifier,
+                "duration": duration
+            })
         current_total += duration
 
     return playlist
