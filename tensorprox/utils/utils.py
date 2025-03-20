@@ -289,114 +289,70 @@ def generate_random_hashes(n=10):
             label_hashes[label].append(generate_hash(random_string))
     
     return label_hashes
+    
 
-async def verify_remote_file(ip: str, key_path: str, ssh_user: str, remote_script_path: str, signature_path: str, remote_signature_path: str, public_key_file: str) -> bool:
+async def get_remote_sha256_hash(ip: str, key_path: str, ssh_user: str, remote_file_path: str) -> str:
+    """
+    Calculates the SHA-256 hash of a remote file using SSH.
+    
+    Args:
+        ip (str): The IP address of the remote machine.
+        key_path (str): Path to the private SSH key.
+        ssh_user (str): The SSH user on the remote machine.
+        remote_file_path (str): The path to the file on the remote machine.
         
-    #Add gpg public key to the remote machine
-    await add_gpg_public_key_to_remote(ip, key_path, ssh_user, public_key_file, public_key_file)
+    Returns:
+        str: The SHA-256 hash of the remote file.
+    """
+    # SSH command to calculate SHA-256 of the remote file
+    cmd = f"sha256sum {remote_file_path} | awk '{{print $1}}'"
+    remote_hash = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+    return remote_hash.stdout.strip()
 
-    #Send signature to the remote machine
-    await send_file_via_scp(signature_path, remote_signature_path, ip, key_path, ssh_user)
 
-    #Get local and remote signatures
-    remote_signature, local_signature = await get_signatures(ip, key_path, ssh_user, signature_path, remote_signature_path)
+def get_local_sha256_hash(file_path: str) -> str:
+    """
+    Calculates the SHA-256 hash of a local file.
     
-    # Compare the remote signature with the locally generated signature
-    if remote_signature == local_signature :
-
-        # Verify the signature
-        verification_result = await verify_remote_signature(ip, key_path, ssh_user, remote_signature_path, remote_script_path)
-
-        if "Good signature" in verification_result.stderr:
-            # logger.info(f"Signature is valid!")
-            return True
-        else:
-            # logger.info("Error: Signature verification failed! The file may have been tampered with.")
-            return False
-    else:
-        # logger.info("Warning: The signature file appears to have been tampered with.")
-        return False
+    Args:
+        file_path (str): Path to the local file.
+        
+    Returns:
+        str: The SHA-256 hash of the local file.
+    """
+    sha256_hash = hashlib.sha256()
     
-
-async def add_gpg_public_key_to_remote(ip: str, key_path: str, ssh_user: str, public_key_file: str, remote_public_key_path: str = "/tmp/remote_public_key.asc"):
-
-    # Upload the public key to the remote machine
-    await send_file_via_scp(public_key_file, remote_public_key_path, ip, key_path, ssh_user)
-
-    # Import the GPG public key on the remote machine
-    import_gpg_key_cmd = f"gpg --import {remote_public_key_path}"
-    await ssh_connect_execute(ip, key_path, ssh_user, import_gpg_key_cmd)
-
-
-async def get_signatures(ip: str, key_path: str, ssh_user :str, signature_path: str, remote_signature_path: str):
-
-    # Save the locally generated signature for later comparison
-    with open(signature_path, 'r') as f:
-        local_signature = f.read()
-        local_signature = local_signature.strip().replace("\r\n", "\n")
-
-    #Get remote signature
-    remote_signature = await get_remote_file_contents(ip, key_path, ssh_user, remote_signature_path)
-    remote_signature = remote_signature.strip().replace("\r\n", "\n")
-
-    return remote_signature, local_signature
-
-def generate_signature_from_file(file_path: str, signature_path: str, public_key_file: str):
-    # Verify if GPG key exists, and if not, generate one
-    gpg_key_check_command = "gpg --list-secret-keys"
-    result = subprocess.run(gpg_key_check_command, shell=True, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    if result.returncode != 0:  # No secret key available
-        # logger.error("❌ No GPG secret key found. Generating RSA key...")
-
-        # Generate the RSA key
-        gpg_key_generate_command = """
-        gpg --batch --gen-key <<EOF
-        %no-protection
-        %commit
-        Key-Type: RSA
-        Key-Length: 2048
-        Name-Real: Your Name
-        Name-Comment: key for signing
-        Name-Email: your.email@example.com
-        Expire-Date: 0
-        EOF
-        """
-
-        # Execute the command
-        subprocess.run(gpg_key_generate_command, shell=True, check=True)
-        # logger.info("GPG RSA key generated successfully.")
-
-    # Sign the setup script and save the signature to sig_setup_path
-    sign_command = f'gpg --batch --yes --armor --detach-sign --output {signature_path} {file_path}'
-    subprocess.run(sign_command, shell=True, check=True)
-
-    # Retrieve the public key (for the associated email used during key generation)
-    public_key_command = "gpg --armor --export your.email@example.com"
-    result = subprocess.run(public_key_command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    # Check if we successfully retrieved the public key
-    if result.returncode == 0:
-        public_key = result.stdout.decode('utf-8')
-        # logger.info("Public key retrieved successfully.")
-    else:
-        # logger.error("❌ Failed to retrieve the GPG public key.")
-        public_key = None
-
-    # Save the public key to a file
-    if public_key:
-        with open(public_key_file, 'w') as f:
-            f.write(public_key)
-        # logger.info(f"Public key saved to {public_key_file}")
-
-    return signature_path, public_key_file
+    with open(file_path, "rb") as f:
+        # Read the file in chunks
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
     
-async def get_remote_file_contents(ip: str, key_path: str, ssh_user: str, remote_file_path: str) -> str:
-    """Retrieve the contents of a file from the remote machine via SSH."""
-    command = f"cat {remote_file_path}"
-    result = await ssh_connect_execute(ip, key_path, ssh_user, command)
-    # Ensure that the result is being treated as the stdout from the Result object
-    return result.stdout.strip()  # Access stdout and then apply strip
+    return sha256_hash.hexdigest()
+
+
+async def compare_file_hashes(ip: str, key_path: str, ssh_user: str, local_file_path: str, remote_file_path: str) -> bool:
+    """
+    Compares the SHA-256 hashes of a local file and a remote file.
+    
+    Args:
+        ip (str): The IP address of the remote machine.
+        key_path (str): Path to the private SSH key.
+        ssh_user (str): The SSH user on the remote machine.
+        local_file_path (str): Path to the local file.
+        remote_file_path (str): Path to the remote file.
+        
+    Returns:
+        bool: True if the hashes match, False otherwise.
+    """
+    # Calculate the SHA-256 hash of the local file
+    local_hash = get_local_sha256_hash(local_file_path)
+
+    # Calculate the SHA-256 hash of the remote file
+    remote_hash = await get_remote_sha256_hash(ip, key_path, ssh_user, remote_file_path)
+
+    # Compare the two hashes
+    return local_hash == remote_hash
+
 
 async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     """

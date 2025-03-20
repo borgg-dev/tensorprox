@@ -205,7 +205,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -226,22 +226,17 @@ class RoundManager(BaseModel):
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
-        remote_signature_path = f"{prefix_path}/bash/initial_setup.sh.sig"
+        local_script_path = generate_path("bash/initial_setup.sh")
         remote_script_path = f"{prefix_path}/bash/initial_setup.sh"
         cmd = f'bash {remote_script_path} {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
 
         try:
-
-            task_files_paths = list(signatures.keys())
             
-            for file_path in task_files_paths :
-                signature_path, public_key_file = signatures[file_path]
-                
-                #Exit if Gpg verification fails
-                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
-                    return False
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
+                return False
             
-            # Run the script securely (it’s immutable and verified)
+            # Run the script securely
             await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
@@ -250,7 +245,7 @@ class RoundManager(BaseModel):
             logger.error(f"🚨 Failed to setup session on {machine_name} for miner: {e}")
             return False
     
-    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, ssh_dir: str, authorized_keys_path: str) -> bool:
+    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, ssh_dir: str, authorized_keys_path: str) -> bool:
         """
         Initiates a lockdown procedure on a remote miner by executing a lockdown command over SSH.
 
@@ -266,23 +261,18 @@ class RoundManager(BaseModel):
             bool: True if the lockdown was successfully executed, False if an error occurred.
         """
 
-        remote_signature_path = f"{prefix_path}/bash/lockdown.sh.sig"
+        local_script_path = generate_path("bash/lockdown.sh")
         remote_script_path = f"{prefix_path}/bash/lockdown.sh"
 
         cmd = f"bash {remote_script_path} {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
 
         try:
             
-            task_files_paths = list(signatures.keys())
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
+                return False
             
-            for file_path in task_files_paths :
-                signature_path, public_key_file = signatures[file_path]
-                
-                #Exit if Gpg verification fails
-                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
-                    return False
-                
-            # Run the script securely (it’s immutable and verified)
+            # Run the script securely
             await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
@@ -292,7 +282,7 @@ class RoundManager(BaseModel):
             return False
 
 
-    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
+    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
         """
         Reverts the SSH configuration changes on a remote miner by restoring the backup of authorized keys.
 
@@ -309,23 +299,18 @@ class RoundManager(BaseModel):
             bool: True if the revert was successful, False if an error occurred.
         """ 
 
-        remote_signature_path = f"{prefix_path}/bash/revert.sh.sig"
+        local_script_path = generate_path("bash/revert.sh")
         remote_script_path = f"{prefix_path}/bash/revert.sh"
 
         cmd = f"bash {remote_script_path} {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
 
         try:
             
-            task_files_paths = list(signatures.keys())
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
+                return False
             
-            for file_path in task_files_paths :
-                signature_path, public_key_file = signatures[file_path]
-                
-                #Exit if Gpg verification fails
-                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
-                    return False
-            
-            # Run the script securely (it’s immutable and verified)
+            # Run the script securely
             await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
@@ -336,25 +321,20 @@ class RoundManager(BaseModel):
         
 
 
-    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, moat_ip: str) -> bool:
+    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, moat_ip: str) -> bool:
         
-        remote_signature_path = f"{prefix_path}/bash/gre_setup.py.sig"
+        local_script_path = generate_path("core/gre_setup.py")
         remote_script_path = f"{prefix_path}/core/gre_setup.py"
 
         cmd = f"python3 {remote_script_path} {machine_name.lower()} {moat_ip}"
 
         try:
             
-            task_files_paths = list(signatures.keys())
-
-            for file_path in task_files_paths :
-                signature_path, public_key_file = signatures[file_path]
-                
-                #Exit if Gpg verification fails
-                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
-                    return False
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
+                return False
             
-            # Run the script securely (it’s immutable and verified)
+            # Run the script securely
             await ssh_connect_execute(ip, key_path, ssh_user, cmd)
 
             return True
@@ -364,7 +344,7 @@ class RoundManager(BaseModel):
             return False
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, signatures: dict, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -388,21 +368,18 @@ class RoundManager(BaseModel):
 
             # Run the challenge command
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
+            local_script_path = generate_path("bash/challenge.sh")
             remote_script_path = f"{prefix_path}/bash/challenge.sh"
-            remote_signature_path = f"{prefix_path}/bash/challenge.sh.sig"
-            traffic_gen_path = f"{prefix_path}/core/traffic_generator.py"
-            cmd = f"bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {traffic_gen_path}"           
-
-            task_files_paths = list(signatures.keys())
+            local_traffic_gen = generate_path("core/traffic_generator.py")
+            remote_traffic_gen = f"{prefix_path}/core/traffic_generator.py"
+            cmd = f"bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"           
             
-            for file_path in task_files_paths :
-                signature_path, public_key_file = signatures[file_path]
-                
-                #Exit if Gpg verification fails
-                if not await verify_remote_file(ip, key_path, ssh_user, remote_script_path, signature_path, remote_signature_path, public_key_file):
+            # Compare hashes
+            for local_file, remote_file in [(local_script_path, remote_script_path), (local_traffic_gen, remote_traffic_gen)]:
+                if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
                     return False
-            
-            # Run the script securely (it’s immutable and verified)
+                
+            # Run the script securely
             result = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
         
             # Parse the result to get the counts from stdout
@@ -593,7 +570,6 @@ class RoundManager(BaseModel):
         miners: List[Tuple[int, 'PingSynapse']],
         subset_miners: list[int],
         task_function: Callable[..., bool],
-        signatures: dict,
         backup_suffix: str = "", 
         label_hashes: dict = None,
         playlists: dict = {},
@@ -692,15 +668,7 @@ class RoundManager(BaseModel):
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
 
-                if task == "gre_setup" :
-                    task_file_path = os.path.join(BASE_DIR, "tensorprox", "core", f"{task}.py")      
-                    task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", f"{task}.py.sig")          
-                else :
-                    task_file_path = os.path.join(BASE_DIR, "tensorprox", "bash", f"{task}.sh")
-                    task_signature_path = os.path.join(BASE_DIR, "tensorprox", "bash", f"{task}.sh.sig")
-
-
-                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name, prefix_path=prefix_path, signatures=signatures)
+                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name, prefix_path=prefix_path)
 
                 return success
             
