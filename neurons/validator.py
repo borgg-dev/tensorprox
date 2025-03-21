@@ -344,7 +344,7 @@ class Validator(BaseValidatorNeuron):
         # Step 2: Initial Session Key Setup
         with Timer() as setup_timer:
 
-            logger.info(f"⚙️ Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
+            logger.info(f"🛠 Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
 
             try:
 

@@ -228,22 +228,13 @@ class RoundManager(BaseModel):
 
         local_script_path = generate_path("bash/initial_setup.sh")
         remote_script_path = f"{prefix_path}/bash/initial_setup.sh"
+        pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f'bash {remote_script_path} {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
 
-        try:
-            
-            # Compare hashes
-            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
-                return False
-            
-            # Run the script securely
-            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+        # Verify the scripts with sha256sum before execution to prevent tampering
+        result = await check_files_and_execute(ip, key_path, ssh_user, pair_files_list, cmd)
 
-            return True
-        
-        except Exception as e:
-            logger.error(f"🚨 Failed to setup session on {machine_name} for miner: {e}")
-            return False
+        return result
     
     async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, ssh_dir: str, authorized_keys_path: str) -> bool:
         """
@@ -263,23 +254,13 @@ class RoundManager(BaseModel):
 
         local_script_path = generate_path("bash/lockdown.sh")
         remote_script_path = f"{prefix_path}/bash/lockdown.sh"
-
+        pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f"bash {remote_script_path} {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
-
-        try:
-            
-            # Compare hashes
-            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
-                return False
-            
-            # Run the script securely
-            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
-
-            return True
         
-        except Exception as e:
-            logger.error(f"🚨 Failed to lockdown machine {machine_name} for miner: {e}")
-            return False
+        # Verify the scripts with sha256sum before execution to prevent tampering
+        result = await check_files_and_execute(ip, key_path, ssh_user, pair_files_list, cmd)
+
+        return result
 
 
     async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
@@ -301,23 +282,13 @@ class RoundManager(BaseModel):
 
         local_script_path = generate_path("bash/revert.sh")
         remote_script_path = f"{prefix_path}/bash/revert.sh"
-
+        pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f"bash {remote_script_path} {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
-
-        try:
-            
-            # Compare hashes
-            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
-                return False
-            
-            # Run the script securely
-            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
-
-            return True
         
-        except Exception as e:
-            logger.error(f"🚨 Failed to revert machine {machine_name} for miner: {e}")
-            return False
+        # Verify the scripts with sha256sum before execution to prevent tampering
+        result = await check_files_and_execute(ip, key_path, ssh_user, pair_files_list, cmd)
+
+        return result
         
 
 
@@ -325,23 +296,13 @@ class RoundManager(BaseModel):
         
         local_script_path = generate_path("core/gre_setup.py")
         remote_script_path = f"{prefix_path}/core/gre_setup.py"
-
+        pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f"python3 {remote_script_path} {machine_name.lower()} {moat_ip}"
 
-        try:
-            
-            # Compare hashes
-            if not await compare_file_hashes(ip, key_path, ssh_user, local_script_path, remote_script_path):
-                return False
-            
-            # Run the script securely
-            await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+        # Verify the scripts with sha256sum before execution to prevent tampering
+        result = await check_files_and_execute(ip, key_path, ssh_user, pair_files_list, cmd)
 
-            return True
-            
-        except Exception as e:
-            logger.error(f"🚨 Failed to run GRE command on {machine_name} for miner: {e}")
-            return False
+        return result
 
 
     async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, prefix_path: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
@@ -366,21 +327,16 @@ class RoundManager(BaseModel):
 
         try:
 
-            # Run the challenge command
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
             local_script_path = generate_path("bash/challenge.sh")
             remote_script_path = f"{prefix_path}/bash/challenge.sh"
             local_traffic_gen = generate_path("core/traffic_generator.py")
             remote_traffic_gen = f"{prefix_path}/core/traffic_generator.py"
+            pair_files_list = [(local_script_path, remote_script_path), (local_traffic_gen, remote_traffic_gen)]
             cmd = f"bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"           
             
-            # Compare hashes
-            for local_file, remote_file in [(local_script_path, remote_script_path), (local_traffic_gen, remote_traffic_gen)]:
-                if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
-                    return False
-                
-            # Run the script securely
-            result = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+            # Verify the scripts with sha256sum before execution to prevent tampering
+            result = await check_files_and_execute(ip, key_path, ssh_user, pair_files_list, cmd)
         
             # Parse the result to get the counts from stdout
             counts_and_rtt = result.stdout.strip().split(", ")

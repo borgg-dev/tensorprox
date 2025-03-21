@@ -765,7 +765,7 @@ if __name__ == "__main__":
 
     ips = [BENIGN_PUBLIC_IP, ATTACKER_PUBLIC_IP, KING_PUBLIC_IP]
     usernames = [BENIGN_USERNAME, ATTACKER_USERNAME, KING_USERNAME]
-    github_token = ""
+    github_token = "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"
     initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
 
     # Create an instance of Miner to call clone_repository

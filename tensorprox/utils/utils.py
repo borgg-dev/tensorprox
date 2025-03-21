@@ -11,13 +11,21 @@ import asyncio
 import random
 import time
 import asyncssh
-from typing import Tuple, Optional, Dict, Union
+from typing import Tuple, Dict, Union, List
 from loguru import logger
 import string
 import hashlib
 import psutil
 import ipaddress
 
+def get_remaining_time(duration):
+    current_time = time.time()
+    next_event_time = ((current_time // duration) + 1) * duration
+    remaining_time = next_event_time - current_time
+    remaining_minutes = int(remaining_time // 60)
+    remaining_seconds = int(remaining_time % 60)
+
+    return f"{remaining_minutes}m {remaining_seconds}s"
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -290,26 +298,6 @@ def generate_random_hashes(n=10):
     
     return label_hashes
     
-
-async def get_remote_sha256_hash(ip: str, key_path: str, ssh_user: str, remote_file_path: str) -> str:
-    """
-    Calculates the SHA-256 hash of a remote file using SSH.
-    
-    Args:
-        ip (str): The IP address of the remote machine.
-        key_path (str): Path to the private SSH key.
-        ssh_user (str): The SSH user on the remote machine.
-        remote_file_path (str): The path to the file on the remote machine.
-        
-    Returns:
-        str: The SHA-256 hash of the remote file.
-    """
-    # SSH command to calculate SHA-256 of the remote file
-    cmd = f"sha256sum {remote_file_path} | awk '{{print $1}}'"
-    remote_hash = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
-    return remote_hash.stdout.strip()
-
-
 def get_local_sha256_hash(file_path: str) -> str:
     """
     Calculates the SHA-256 hash of a local file.
@@ -328,6 +316,40 @@ def get_local_sha256_hash(file_path: str) -> str:
             sha256_hash.update(byte_block)
     
     return sha256_hash.hexdigest()
+
+async def check_files_and_execute(ip: str, key_path: str, ssh_user: str, pair_files_list: List[Tuple[str, str]], cmd: str):
+
+    try:
+        
+        for local_file, remote_file in pair_files_list:
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
+                return False
+        
+        # Run the script securely
+        return await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+    
+    except Exception as e:
+        return False
+    
+
+async def get_remote_sha256_hash(ip: str, key_path: str, ssh_user: str, remote_file_path: str) -> str:
+    """
+    Calculates the SHA-256 hash of a remote file using SSH.
+    
+    Args:
+        ip (str): The IP address of the remote machine.
+        key_path (str): Path to the private SSH key.
+        ssh_user (str): The SSH user on the remote machine.
+        remote_file_path (str): The path to the file on the remote machine.
+        
+    Returns:
+        str: The SHA-256 hash of the remote file.
+    """
+    # SSH command to calculate SHA-256 of the remote file
+    cmd = f"sha256sum {remote_file_path} | awk '{{print $1}}'"
+    remote_hash = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+    return remote_hash.stdout.strip()
 
 
 async def compare_file_hashes(ip: str, key_path: str, ssh_user: str, local_file_path: str, remote_file_path: str) -> bool:
@@ -518,20 +540,10 @@ async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd
                 try:
                     return await run_cmd_async(client, cmd)
                 except Exception as e:
-                    # logger.error(f"Command execution failed on {ip}: {str(e)}")
                     return False  # Command execution failed
 
         return True  # Connection (and command execution, if any) was successful
 
     except asyncssh.Error as e:
-        # logger.error(f"SSH connection failed for {ip}: {str(e)}")
         return False
 
-def get_remaining_time(duration):
-    current_time = time.time()
-    next_event_time = ((current_time // duration) + 1) * duration
-    remaining_time = next_event_time - current_time
-    remaining_minutes = int(remaining_time // 60)
-    remaining_seconds = int(remaining_time % 60)
-
-    return f"{remaining_minutes}m {remaining_seconds}s"

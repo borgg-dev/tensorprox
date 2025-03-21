@@ -16,7 +16,7 @@ node_types = ["Attacker", "Benign", "King", "Moat"]
 
 ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
 CHALLENGE_DURATION: int = 60 #15 minutes
-EPSILON: int = 5
+EPSILON: int = 30
 
 # Store the base path dynamically, assuming `tensorprox` is the base directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -24,7 +24,6 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #Temporary paths
 SESSION_KEY_DIR = "/var/tmp/session_keys"
 REMOTE_TRAFFIC_GEN_PATH: str = '/tmp/traffic_generator.py'
-
 
 # ===== GRE CONFIGURATION =====
 # Fixed overlay network IPs
