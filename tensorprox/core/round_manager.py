@@ -80,7 +80,6 @@ from typing import List, Dict, Tuple, Union, Callable
 from loguru import logger
 from pydantic import BaseModel
 from tensorprox.base.protocol import PingSynapse, ChallengeSynapse
-from tensorprox.bash.gre_setup import GRESetup
 from tensorprox.utils.utils import *
 from tensorprox.settings import settings
 from tensorprox.base.protocol import MachineConfig

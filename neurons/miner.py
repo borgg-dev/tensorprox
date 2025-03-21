@@ -55,7 +55,7 @@ from tensorprox.base.miner import BaseMinerNeuron
 from tensorprox.utils.logging import ErrorLoggingEvent, log_event
 from tensorprox.base.protocol import PingSynapse, ChallengeSynapse, MachineDetails
 from tensorprox.utils.utils import *
-from tensorprox.bash.gre_setup import GRESetup
+from tensorprox.core.immutable.gre_setup import GRESetup
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from threading import Thread, Event
