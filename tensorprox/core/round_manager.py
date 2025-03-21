@@ -175,7 +175,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, default_dir: str, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -197,7 +197,7 @@ class RoundManager(BaseModel):
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
         local_script_path = get_immutable_path(BASE_DIR, "initial_setup.sh") # script local path
-        remote_script_path = get_immutable_path(default_dir, "initial_setup.sh") # script remote path
+        remote_script_path = get_immutable_path(remote_base_directory, "initial_setup.sh") # script remote path
         pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f'bash {remote_script_path} {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
 
@@ -206,7 +206,7 @@ class RoundManager(BaseModel):
 
         return result
     
-    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, default_dir: str, ssh_dir: str, authorized_keys_path: str) -> bool:
+    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, ssh_dir: str, authorized_keys_path: str) -> bool:
         """
         Initiates a lockdown procedure on a remote miner by executing a lockdown command over SSH.
 
@@ -223,7 +223,7 @@ class RoundManager(BaseModel):
         """
 
         local_script_path = get_immutable_path(BASE_DIR, "lockdown.sh") # script local path
-        remote_script_path = get_immutable_path(default_dir, "lockdown.sh") # script remote path
+        remote_script_path = get_immutable_path(remote_base_directory, "lockdown.sh") # script remote path
         pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f"bash {remote_script_path} {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
         
@@ -233,7 +233,7 @@ class RoundManager(BaseModel):
         return result
 
 
-    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, default_dir: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
+    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
         """
         Reverts the SSH configuration changes on a remote miner by restoring the backup of authorized keys.
 
@@ -251,7 +251,7 @@ class RoundManager(BaseModel):
         """ 
 
         local_script_path = get_immutable_path(BASE_DIR, "revert.sh") # script local path
-        remote_script_path = get_immutable_path(default_dir, "revert.sh") # script remote path
+        remote_script_path = get_immutable_path(remote_base_directory, "revert.sh") # script remote path
         pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f"bash {remote_script_path} {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
         
@@ -262,10 +262,10 @@ class RoundManager(BaseModel):
         
 
 
-    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, default_dir: str, moat_ip: str) -> bool:
+    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, moat_ip: str) -> bool:
         
         local_script_path = get_immutable_path(BASE_DIR, "gre_setup.py") # script local path
-        remote_script_path = get_immutable_path(default_dir, "gre_setup.py") # script remote path
+        remote_script_path = get_immutable_path(remote_base_directory, "gre_setup.py") # script remote path
         pair_files_list = [(local_script_path, remote_script_path)]
         cmd = f"python3 {remote_script_path} {machine_name.lower()} {moat_ip}"
 
@@ -275,7 +275,7 @@ class RoundManager(BaseModel):
         return result
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, default_dir: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -304,8 +304,8 @@ class RoundManager(BaseModel):
             local_traffic_gen = get_immutable_path(BASE_DIR, "traffic_generator.py")
 
             #Retrieve remove scripts full paths
-            remote_script_path = get_immutable_path(default_dir, "challenge.sh")
-            remote_traffic_gen = get_immutable_path(default_dir, "traffic_generator.py")
+            remote_script_path = get_immutable_path(remote_base_directory, "challenge.sh")
+            remote_traffic_gen = get_immutable_path(remote_base_directory, "traffic_generator.py")
 
             pair_files_list = [(local_script_path, remote_script_path), (local_traffic_gen, remote_traffic_gen)]
 
@@ -582,6 +582,7 @@ class RoundManager(BaseModel):
                 #king_ip = self.king_ips[uid]
                 moat_private_ip = self.moat_private_ips[uid]
                 default_dir = get_default_dir(ssh_user=ssh_user)
+                remote_base_directory = os.path.join(default_dir, "tensorprox")
 
                 # Map task function to a version with specific arguments
                 if task == "initial_setup":
@@ -599,7 +600,7 @@ class RoundManager(BaseModel):
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
 
-                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name, default_dir=default_dir)
+                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name, remote_base_directory=remote_base_directory)
 
                 return success
             

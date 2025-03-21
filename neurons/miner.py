@@ -761,7 +761,7 @@ if __name__ == "__main__":
 
     logger.info("Miner Instance started.")
 
-    run_gre_setup()
+    # run_gre_setup()
 
     ips = [BENIGN_PUBLIC_IP, ATTACKER_PUBLIC_IP, KING_PUBLIC_IP]
     usernames = [BENIGN_USERNAME, ATTACKER_USERNAME, KING_USERNAME]
