@@ -95,9 +95,9 @@ import traceback
 
 dotenv.load_dotenv()
 
-# Disable all asyncssh logging by setting its level to CRITICAL
-asyncssh_logger = logging.getLogger('asyncssh')
-asyncssh_logger.setLevel(logging.CRITICAL)
+# # Disable all asyncssh logging by setting its level to CRITICAL
+# asyncssh_logger = logging.getLogger('asyncssh')
+# asyncssh_logger.setLevel(logging.CRITICAL)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 

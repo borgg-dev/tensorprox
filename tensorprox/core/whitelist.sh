@@ -111,18 +111,17 @@ normalize_path() {
 is_command_allowed() {
     local full_cmd="$1"
     
-    # Check for exact match first
-    if grep -qx "$full_cmd" "$ALLOWLIST"; then
-        return 0
-    fi
+    # Normalize the full command to its absolute path
+    local full_cmd_path=$(normalize_path "$full_cmd")
     
-    # Check for base command match (for commands without specific arguments)
-    local base_cmd=$(echo "$full_cmd" | awk '{print $1}')
-    if grep -qx "$base_cmd" "$ALLOWLIST" && [[ "$full_cmd" == "$base_cmd" ]]; then
-        return 0
-    fi
+    # Iterate over each line in the allowlist and check if the full command path starts with any of the allowed paths
+    while IFS= read -r allowed_cmd; do
+        if [[ "$full_cmd_path" == "$allowed_cmd"* ]]; then
+            return 0  # If the command path starts with an allowed path, it's allowed
+        fi
+    done < "$ALLOWLIST"
     
-    return 1
+    return 1  # Command is not allowed
 }
 
 # Execute the command safely

@@ -473,22 +473,22 @@ async def run_cmd_async(
         object: A response object with stdout, stderr, exit_status, and returncode.
     """
 
-    # Convert list to properly formatted command string
-    cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
+    # # Convert list to properly formatted command string
+    # cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
 
-    # Set environment variables for apt operations
-    env = os.environ.copy()
-    if any(x in cmd for x in ['apt-get', 'apt', 'dpkg']):
-        env['DEBIAN_FRONTEND'] = 'noninteractive'
+    # # Set environment variables for apt operations
+    # env = os.environ.copy()
+    # if any(x in cmd for x in ['apt-get', 'apt', 'dpkg']):
+    #     env['DEBIAN_FRONTEND'] = 'noninteractive'
 
-    # Escape single quotes
-    escaped = cmd.replace("'", "'\\''")
+    # # Escape single quotes
+    # escaped = cmd.replace("'", "'\\''")
 
-    # Construct final command with sudo if needed
-    final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
+    # # Construct final command with sudo if needed
+    # final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
 
     try:
-        result = await conn.run(final_cmd, check=True)
+        result = await conn.run(cmd, check=True)
 
         out = result.stdout.strip()
         err = result.stderr.strip()
