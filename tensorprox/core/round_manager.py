@@ -90,7 +90,6 @@ from functools import partial
 import asyncssh
 import traceback
 
-
 ######################################################################
 # LOGGING and ENVIRONMENT SETUP
 ######################################################################
@@ -104,34 +103,6 @@ asyncssh_logger.setLevel(logging.CRITICAL)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 create_session_key_dir()
-
-  
-######################################################################
-# ASYNCHRONOUS SUPPORTING UTILITIES
-######################################################################
-
-async def install_packages_if_missing(client: asyncssh.SSHClientConnection, packages: List[str]):
-    """
-    Checks for missing system packages and installs them if necessary.
-
-    Args:
-        client (asyncssh.SSHClientConnection): An active SSH client connection.
-        packages (List[str]): A list of package names to verify and install if missing.
-
-    """
-
-    for pkg in packages:
-        check_cmd = f"dpkg -s {pkg} >/dev/null 2>&1"
-        result = await client.run(check_cmd, check=False)
-
-        if result.exit_status != 0:
-            #log_message("INFO", f"📦 Package '{pkg}' missing => installing now...")
-            await client.run("DEBIAN_FRONTEND=noninteractive apt-get update -qq || true", check=False)
-            await client.run(f"DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg}", check=False)
-            await asyncio.sleep(1)
-
-
-
 
 ######################################################################
 # CLASS ROUND MANAGER
