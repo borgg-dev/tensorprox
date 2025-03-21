@@ -146,17 +146,18 @@ def create_session_key_dir(path = SESSION_KEY_DIR) :
             raise
 
 # Define a helper function to generate file paths
-def generate_path(relative_path: str) -> str:
+def get_immutable_path(base_directory: str, filename: str) -> str:
     """
     Generates an absolute path by joining the base directory with the given relative path.
 
     Args:
-        relative_path (str): The relative path to the file or directory.
+        base_directory (str): The path of the the base directory.
+        filename (str): The name of the file.
 
     Returns:
         str: The absolute path.
     """
-    return os.path.join(BASE_DIR, "tensorprox", relative_path)
+    return os.path.join(base_directory, "tensorprox", "core", "immutable", filename)
 
 
 def save_file_with_permissions(priv_key_str: str, path: str):
