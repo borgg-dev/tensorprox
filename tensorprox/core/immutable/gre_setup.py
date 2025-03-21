@@ -7,7 +7,6 @@ DOES NOT modify primary interface routing
 Enhanced for virtualized environments with automatic resource scaling
 """
 
-from tensorprox import *
 import os
 import time
 import re
@@ -27,7 +26,6 @@ DEBUG_LEVEL = 2
 BENIGN_OVERLAY_IP = "10.200.77.102"
 ATTACKER_OVERLAY_IP = "10.200.77.103"
 KING_OVERLAY_IP = "10.200.77.1"
-
 
 # Fixed GRE tunnel keys
 BENIGN_MOAT_KEY = "77"
