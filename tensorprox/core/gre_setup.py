@@ -22,6 +22,36 @@ import sys
 # Debug level (0=minimal, 1=normal, 2=verbose)
 DEBUG_LEVEL = 2
 
+# ===== GRE CONFIGURATION =====
+# Fixed overlay network IPs
+BENIGN_OVERLAY_IP = "10.200.77.102"
+ATTACKER_OVERLAY_IP = "10.200.77.103"
+KING_OVERLAY_IP = "10.200.77.1"
+
+
+# Fixed GRE tunnel keys
+BENIGN_MOAT_KEY = "77"
+ATTACKER_MOAT_KEY = "79"
+MOAT_KING_KEY = "88"
+
+# MTU Sizing 
+GRE_MTU = 1465  # Standard MTU 1500 - 25 GRE - 10 random Buffer
+IPIP_MTU = 1445  # GRE_MTU - 20 for IPIP overhead
+
+# Determine if running as root once at startup
+IS_ROOT = os.geteuid() == 0
+
+# Use user-specific paths for non-root users
+if IS_ROOT:
+    # Root user can use system paths
+    XDP_PROGRAM_DIR = "/opt/af_xdp_tools"
+    XDP_LOG_DIR = "/var/log/tunnel"
+else:
+    # Non-root user gets paths in home directory
+    HOME_DIR = os.path.expanduser("~")
+    XDP_PROGRAM_DIR = os.path.join(HOME_DIR, ".tensorprox", "af_xdp_tools")
+    XDP_LOG_DIR = os.path.join(HOME_DIR, ".tensorprox", "logs", "tunnel")
+
 class GRESetup:
 
     node_type: str 
