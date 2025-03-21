@@ -49,7 +49,7 @@ from tensorprox.base.validator import BaseValidatorNeuron
 from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from tensorprox.core.round_manager import RoundManager
-from tensorprox.core.sync_active_validators import fetch_active_validators
+from tensorprox.utils.sync_active_validators import fetch_active_validators
 from tensorprox.utils.utils import create_random_playlist, get_remaining_time, generate_random_hashes
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
@@ -344,7 +344,7 @@ class Validator(BaseValidatorNeuron):
         # Step 2: Initial Session Key Setup
         with Timer() as setup_timer:
 
-            logger.info(f"🛠 Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
+            logger.info(f"🛠{' '}Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
 
             try:
 
@@ -408,7 +408,7 @@ class Validator(BaseValidatorNeuron):
         # Step 4: GRE Setup
         with Timer() as gre_timer:
 
-            logger.info(f"⚙️ Starting GRE configuration phase for miners: {locked_uids}")
+            logger.info(f"⚙️{' '}Starting GRE configuration phase for miners: {locked_uids}")
 
             try:
 

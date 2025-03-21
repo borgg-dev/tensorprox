@@ -140,9 +140,9 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username=ATTACKER_USERNAME, private_ip=ATTACKER_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username=BENIGN_USERNAME, private_ip=BENIGN_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username=KING_USERNAME, private_ip=KING_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username="valiops", private_ip=ATTACKER_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username="valiops", private_ip=BENIGN_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username="valiops", private_ip=KING_PRIVATE_IP)
             synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
             # Use the initial private key for initial connection
@@ -154,7 +154,7 @@ class Miner(BaseMinerNeuron):
                     machine_ip=machine_details.ip,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
-                    username=machine_details.username
+                    username="borgg-vm"
                 )
                 for machine_name, machine_details in synapse.machine_availabilities.machine_config.items()
                 if machine_name != "Moat"  # Skip Moat machine
@@ -542,6 +542,7 @@ class Miner(BaseMinerNeuron):
     github_token: str,
     initial_private_key_path: str,
     username: str,
+    repo_path: str = "/home/valiops/tensorprox",
     repo_url: str = "github.com/borgg-dev/tensorprox.git",
     branch: str = "tensorproxV3",
     timeout: int = 5,
@@ -562,8 +563,6 @@ class Miner(BaseMinerNeuron):
             retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
         """
 
-        prefix_path = f"/root" if username == "root" else f"/home/{username}"
-        repo_path = f"{prefix_path}/tensorprox"
 
         for attempt in range(retries):
             try:
@@ -580,13 +579,10 @@ class Miner(BaseMinerNeuron):
                 async with asyncssh.connect(**connection_params) as conn:
                     logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
-                    # Ensure the ~/ directory exists
-                    await conn.run(f"mkdir -p {prefix_path}")
 
                     # Check if Git is installed
-                    git_check_command = "git --version"
                     try:
-                        await conn.run(git_check_command, check=True)
+                        await conn.run("git --version", check=True)
                         logger.info(f"Git is already installed on {machine_ip}.")
                     except asyncssh.ProcessError:
                         logger.warning(f"Git is not installed on {machine_ip}. Installing Git...")
@@ -595,18 +591,17 @@ class Miner(BaseMinerNeuron):
                         logger.info(f"Git installation successful on {machine_ip}.")
 
                     # Check if the repository already exists
-                    check_repo_command = f"test -d {repo_path}/.git"
-                    result = await conn.run(check_repo_command, check=False)
+                    result = await conn.run(f"sudo test -d {repo_path}/.git", check=False)
                     repo_exists = result.returncode == 0
 
                     if repo_exists:
                         # Pull the latest changes from the branch
                         logger.info(f"Repository already exists at {repo_path} on {machine_ip}. Pulling latest changes...")
                         pull_command = (
-                            f"cd {repo_path} && "
+                            f"sudo bash -c 'cd {repo_path} && "
                             f"git fetch origin {branch} && "
                             f"git checkout {branch} && "
-                            f"git pull origin {branch}"
+                            f"git pull origin {branch}'"
                         )
                         result = await conn.run(pull_command, check=True)
                         logger.info(f"Repository updated successfully on {machine_ip}: {result.stdout}")
@@ -614,7 +609,7 @@ class Miner(BaseMinerNeuron):
                         # Clone the repository
                         logger.info(f"Cloning the repository from {repo_url} to {repo_path} on {machine_ip}...")
                         clone_command = (
-                            f"git clone --branch {branch} https://{github_token}@{repo_url} {repo_path}"
+                            f"sudo git clone --branch {branch} https://{github_token}@{repo_url} {repo_path}"
                         )
                         result = await conn.run(clone_command, check=True)
                         logger.info(f"Repository cloned successfully on {machine_ip}: {result.stdout}")
@@ -633,24 +628,25 @@ class Miner(BaseMinerNeuron):
         machine_ip: str,
         ssh_public_key: str,
         initial_private_key_path: str,
-        username: str,
+        username: str,  # This is the user you connect as (e.g., 'borgg-vm' or 'root')
+        target_user: str = "valiops",
         timeout: int = 5,
         retries: int = 3,
     ):
         """
         Asynchronously connects to a remote machine via SSH using asyncssh,
-        appends the given SSH public key to the authorized_keys file, and updates sudoers.
+        generates an SSH key pair for the `valiops` user, adds the given SSH public key to the
+        authorized_keys file, and updates sudoers for passwordless sudo access.
 
         Args:
             machine_ip (str): The public IP of the machine.
             ssh_public_key (str): The SSH public key to add to the remote machine.
             initial_private_key_path (str): Path to the initial private key used for SSH authentication.
-            username (str): The username for the SSH connection.
+            username (str): The username for the SSH connection (e.g., 'borgg-vm' or 'root').
             timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
             retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
         """
-
-        prefix_path = f"/root" if username == "root" else f"/home/{username}"
+        
 
         for attempt in range(retries):
             try:
@@ -664,46 +660,47 @@ class Miner(BaseMinerNeuron):
                     "connect_timeout": timeout,
                 }
 
-
-                # Add password or private key based on what's provided
-                connection_params["client_keys"] = [initial_private_key_path]
-
+                # Connect to the remote machine
                 async with asyncssh.connect(**connection_params) as conn:
-
                     logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
-                    # Ensure .ssh directory exists
+                    # Ensure .ssh directory exists and set proper permissions for `valiops`
                     commands = [
-                        f"mkdir -p {prefix_path}/.ssh",
-                        f"chmod 700 {prefix_path}/.ssh",
-                        f"touch {prefix_path}/.ssh/authorized_keys",
-                        f"chmod 600 {prefix_path}/.ssh/authorized_keys",
-                        f"chown -R {username}:{username} {prefix_path}/.ssh"
+                        f"sudo mkdir -p /home/{target_user}/.ssh",
+                        f"sudo chmod 700 /home/{target_user}/.ssh",
+                        f"sudo touch /home/{target_user}/.ssh/authorized_keys",
+                        f"sudo chmod 600 /home/{target_user}/.ssh/authorized_keys",
+                        f"sudo chown -R {target_user}:{target_user} /home/{target_user}/.ssh"
                     ]
                     for cmd in commands:
                         await conn.run(cmd)
 
-                    # Check if the public key already exists
-                    result = await conn.run(f"cat {prefix_path}/.ssh/authorized_keys", check=False)
+                    # Generate an SSH key pair for `valiops` user
+                    logger.info(f"Generating SSH key pair for user {target_user}...")
+                    generate_key_command = f"sudo -u {target_user} ssh-keygen -t rsa -b 4096 -f /home/{target_user}/.ssh/id_rsa -N '' -y"
+                    await conn.run(generate_key_command, check=True)
+
+                    # Check if the public key already exists in authorized_keys
+                    result = await conn.run(f"sudo cat /home/{target_user}/.ssh/authorized_keys", check=False)
                     authorized_keys = result.stdout.strip()
 
                     if ssh_public_key.strip() in authorized_keys:
                         logger.info(f"SSH key already exists on {machine_ip}.")
                     else:
-                        # Add the new public key
+                        # Add the new public key to authorized_keys
                         logger.info(f"Adding SSH key to {machine_ip}...")
-                        await conn.run(f'echo "{ssh_public_key.strip()}" >> {prefix_path}/.ssh/authorized_keys')
+                        await conn.run(f'sudo -u {target_user} sh -c \'echo "{ssh_public_key.strip()}" >> /home/{target_user}/.ssh/authorized_keys\'')
 
-                        # Ensure correct permissions again
-                        await conn.run(f"chmod 600 {prefix_path}/.ssh/authorized_keys")
+                        # Ensure correct permissions on authorized_keys
+                        await conn.run(f"sudo chmod 600 /home/{target_user}/.ssh/authorized_keys")
 
-                    # Update sudoers file for passwordless sudo
-                    sudoers_entry = f"{username} ALL=(ALL) NOPASSWD: ALL"
-                    logger.info(f"Updating sudoers file for user {username}...")
-                    await conn.run(f'echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo', check=False)
+                    # Update sudoers file for passwordless sudo for `valiops`
+                    sudoers_entry = f"{target_user} ALL=(ALL) NOPASSWD: ALL"
+                    logger.info(f"Updating sudoers file for user {target_user}...")
+                    await conn.run(f'sudo echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo', check=False)
 
-                    logger.info(f"Sudoers file updated on {machine_ip} for user {username}.")
-                    await conn.run('sudo systemctl restart sudo || echo "Skipping sudo restart"', check=False)
+                    logger.info(f"Sudoers file updated on {machine_ip} for user {target_user}.")
+                    await conn.run('sudo systemctl restart sudo || sudo echo "Skipping sudo restart"', check=False)
 
                     return  # Exit function on success
 
@@ -713,6 +710,22 @@ class Miner(BaseMinerNeuron):
                     logger.error(f"Failed to connect to {machine_ip} after {retries} attempts.")
 
         return
+
+    async def clone_repositories(self, ips: list, github_token: str, initial_private_key_path: str, usernames: list):
+        """
+        This function clones or updates the repositories on the remote machines.
+        """
+        tasks = []
+        for machine_ip, username in zip(ips, usernames):
+            tasks.append(self.clone_or_update_repository(
+                machine_ip=machine_ip,
+                github_token=github_token,
+                initial_private_key_path=initial_private_key_path,
+                username=username,
+            ))
+
+        # Run all cloning tasks concurrently and wait for them to complete
+        await asyncio.gather(*tasks)
 
     async def setup_machines_for_cloning(self, ips: list, github_token: str, initial_private_key_path: str, usernames: list):
         """
@@ -729,16 +742,46 @@ class Miner(BaseMinerNeuron):
 
         # Iterate over both ips and usernames simultaneously using zip
         for machine_ip, username in zip(ips, usernames):
-            tasks.append(self.clone_or_update_repository(
-                machine_ip=machine_ip,
-                github_token=github_token,
-                initial_private_key_path=initial_private_key_path,
-                username=username,
-            ))
+            tasks.append(self.run_whitelist_setup(machine_ip, initial_private_key_path, username))
+        
+        # Run all whitelist setup tasks concurrently and wait for them to complete
+        setup_results = await asyncio.gather(*tasks)
+        
+        # If any whitelist setup fails, don't proceed with cloning
+        if all(setup_results):
+            print("Whitelist setup successful on all machines, proceeding with cloning.")
+            await self.clone_repositories(ips, github_token, initial_private_key_path, usernames)
+        else:
+            print("Whitelist setup failed on one or more machines, aborting cloning.")
 
-        # Run all cloning tasks concurrently and wait for them to complete
-        await asyncio.gather(*tasks)
 
+    async def run_whitelist_setup(self, ip: str, private_key_path: str, username: str):
+        """
+        This function will execute the whitelist.sh setup on the remote machine.
+        It will run the whitelist.sh script after setting up SSH keys and sudoers.
+        """
+        whitelist_script_path = "/home/borgg/tensorprox/tensorprox/core/whitelist.sh"
+        
+        try:
+            # Open SSH connection to the remote machine
+            async with asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts = None) as conn:
+                # Read the content of the local script
+                with open(whitelist_script_path, 'r') as script_file:
+                    script_content = script_file.read()
+
+                # Execute the script content remotely
+                result = await conn.run(f"sudo bash -c '{script_content}'", check=True)
+                print(result.stdout)  # Optionally print the output of the script
+                if result :
+                    print(f"✅ Successfully executed the bash script content on {ip}")
+                    return True
+                else :
+                    return False
+                
+        except Exception as e:
+            print(f"Error executing bash script content on {ip}: {e}")
+            return False
+        
 def run_gre_setup():
 
     logger.info("Running GRE Setup...")

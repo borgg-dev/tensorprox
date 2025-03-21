@@ -175,7 +175,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
+    async def async_setup(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -206,7 +206,7 @@ class RoundManager(BaseModel):
 
         return result
     
-    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, ssh_dir: str, authorized_keys_path: str) -> bool:
+    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, ssh_dir: str, authorized_keys_path: str) -> bool:
         """
         Initiates a lockdown procedure on a remote miner by executing a lockdown command over SSH.
 
@@ -233,7 +233,7 @@ class RoundManager(BaseModel):
         return result
 
 
-    async def async_revert(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
+    async def async_revert(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
         """
         Reverts the SSH configuration changes on a remote miner by restoring the backup of authorized keys.
 
@@ -259,11 +259,24 @@ class RoundManager(BaseModel):
         result = await check_files_and_execute(ip, key_path, ssh_user, pair_files_list, cmd)
 
         return result
-        
 
 
-    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, moat_ip: str) -> bool:
-        
+    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, machine_name: str, moat_ip: str) -> bool:
+        """
+        Sets up a GRE tunnel on a remote machine using the gre_setup.py script.
+
+        Args:
+            ip (str): The IP address of the miner where the GRE setup will be applied.
+            ssh_user (str): The SSH user account on the miner.
+            key_path (str): Path to the SSH key used for authentication.
+            machine_name (str): The name of the machine where the GRE setup will be performed.
+            remote_base_directory (str): The remote directory where the script is located.
+            moat_ip (str): The IP address of the moat (used as part of the setup).
+
+        Returns:
+            bool: True if the GRE setup was successful, False if an error occurred.
+        """
+
         local_script_path = get_immutable_path(BASE_DIR, "gre_setup.py") # script local path
         remote_script_path = get_immutable_path(remote_base_directory, "gre_setup.py") # script remote path
         pair_files_list = [(local_script_path, remote_script_path)]
@@ -275,7 +288,7 @@ class RoundManager(BaseModel):
         return result
 
 
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, machine_name: str, remote_base_directory: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, machine_name: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -572,7 +585,6 @@ class RoundManager(BaseModel):
                     return True  # Skip Moat machine setup and consider it successful
 
                 ip = machine_details.ip
-                iface = machine_details.iface
                 ssh_user = machine_details.username
                 ssh_dir = get_authorized_keys_dir(ssh_user)
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"
@@ -586,21 +598,19 @@ class RoundManager(BaseModel):
 
                 # Map task function to a version with specific arguments
                 if task == "initial_setup":
-                    
                     task_function = partial(task_function, uid=uid, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak)
                 elif task == "lockdown":
                     task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
                 elif task == "revert":
                     task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
                 elif task=="gre_setup":
-                    task_function = partial(task_function, moat_ip=moat_private_ip)
+                    task_function = partial(task_function, machine_name=machine_name, moat_ip=moat_private_ip)
                 elif task=="challenge":
-                    task_function = partial(task_function, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
-
+                    task_function = partial(task_function, machine_name=machine_name, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
                 else:
                     raise ValueError(f"Unsupported task: {task}")   
 
-                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, machine_name=machine_name, remote_base_directory=remote_base_directory)
+                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, remote_base_directory=remote_base_directory)
 
                 return success
             
