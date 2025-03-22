@@ -71,9 +71,7 @@ EOF
 echo "Creating audit log directory..."
 sudo mkdir -p /var/log/whitelist-agent
 sudo touch /var/log/whitelist-agent/audit.log
-sudo chown root:root /var/log/whitelist-agent
 sudo chown root:root /var/log/whitelist-agent/audit.log
-sudo chmod 755 /var/log/whitelist-agent
 sudo chmod 644 /var/log/whitelist-agent/audit.log
 
 echo "Setting proper permissions for allowlist..."
@@ -139,11 +137,6 @@ execute_command() {
     return $?
 }
 
-
-fr = "$1"
-echo "Received command: $fr" >> /tmp/whitelist-agent.log
-
-
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     echo "Restricted shell enabled. Type 'exit' to leave."
@@ -188,10 +181,6 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
         fi
     done
 else
-
-    # # Log the received command for debugging purposes
-    # echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
-
     # Extract the base command and check if it exists
     base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
     if [[ -z "$base_cmd" ]]; then
