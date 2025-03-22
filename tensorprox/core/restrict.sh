@@ -71,7 +71,9 @@ EOF
 echo "Creating audit log directory..."
 sudo mkdir -p /var/log/whitelist-agent
 sudo touch /var/log/whitelist-agent/audit.log
+sudo chown root:root /var/log/whitelist-agent
 sudo chown root:root /var/log/whitelist-agent/audit.log
+sudo chmod 755 /var/log/whitelist-agent
 sudo chmod 644 /var/log/whitelist-agent/audit.log
 
 echo "Setting proper permissions for allowlist..."
@@ -92,11 +94,6 @@ log_action() {
     local action="$1"
     local status="$2"
     local command="$3"
-
-    # Ensure the log file and directory are writable
-    sudo touch "$AUDIT_LOG"
-    sudo chown root:root "$AUDIT_LOG"
-    sudo chmod 644 "$AUDIT_LOG"
     
     echo "$timestamp | User: $user | Action: $action | Status: $status | Command: $command" >> "$AUDIT_LOG"
 }
