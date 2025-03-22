@@ -59,6 +59,7 @@ sudo touch /etc/whitelist-agent/allowlist.txt
 echo "Populating allowlist with whitelisted commands..."
 cat << 'EOF' | sudo tee /etc/whitelist-agent/allowlist.txt
 /usr/bin/ssh
+/usr/local/bin/whitelist-agent
 /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/initial_setup.sh
 /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/challenge.sh
 /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/lockdown.sh
@@ -226,13 +227,13 @@ echo "Configuring SSH to use the agent..."
 sudo mkdir -p /etc/ssh/sshd_config.d
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << 'EOF'
 Match User valiops
-    ForceCommand sudo /usr/local/bin/whitelist-agent
+    ForceCommand /usr/local/bin/whitelist-agent
 EOF"
 
 echo "Creating active/inactive mode configurations..."
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
 Match User valiops
-    ForceCommand sudo /usr/local/bin/whitelist-agent
+    ForceCommand /usr/local/bin/whitelist-agent
 EOF"
 
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << 'EOF'

@@ -207,7 +207,6 @@ class RoundManager(BaseModel):
         ]
         cmd = ' '.join(shlex.quote(arg) for arg in args)
 
-        
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
     
