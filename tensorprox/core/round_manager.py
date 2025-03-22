@@ -200,15 +200,19 @@ class RoundManager(BaseModel):
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
         # Construct the command to execute the remote script with its arguments
-        script_arguments = [ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak]
-        quoted_args = ' '.join(shlex.quote(arg) for arg in script_arguments)  # Quote each argument
-        command_to_run = f"/usr/bin/sudo /usr/bin/bash {remote_script_path} {quoted_args}"  # Combine into a single command string
+        args = [
+            '/usr/bin/sudo', '/usr/bin/bash', remote_script_path,
+            ssh_user, ssh_dir, session_pub,
+            authorized_keys_path, authorized_keys_bak
+        ]
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
 
         # Wrap the command with the whitelist agent
-        cmd = f"/usr/local/bin/whitelist-agent '{command_to_run}'"
+        full_cmd = f"/usr/local/bin/whitelist-agent '{cmd}'"
 
         logger.info(f"CMD: {cmd}")
-        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
+        
+        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, full_cmd)
     
     
     async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], ssh_dir: str, authorized_keys_path: str) -> bool:
