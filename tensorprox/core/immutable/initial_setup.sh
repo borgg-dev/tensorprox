@@ -49,11 +49,6 @@ echo "Disabling TTY requirement for $ssh_user..."
 echo "Defaults:$ssh_user !requiretty" > /etc/sudoers.d/98_${ssh_user}_no_tty
 chmod 440 /etc/sudoers.d/98_${ssh_user}_no_tty
 
-# Define temporary directory for SSH setup
-export TMPDIR=$(mktemp -d /tmp/.ssh_setup_XXXXXX)
-chmod 700 $TMPDIR
-chown $ssh_user:$ssh_user $TMPDIR
-
 # Ensure SSH directory exists
 mkdir -p $ssh_dir
 
@@ -81,9 +76,6 @@ fi
 chown -R $ssh_user:$ssh_user $ssh_dir
 chmod 700 $ssh_dir
 chmod 600 $authorized_keys_path
-
-# Clean up temporary directory
-rm -rf $TMPDIR
 
 echo "Script completed."
 exit 0
