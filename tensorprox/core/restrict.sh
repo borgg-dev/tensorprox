@@ -92,6 +92,11 @@ log_action() {
     local action="$1"
     local status="$2"
     local command="$3"
+
+    # Ensure the log file and directory are writable
+    sudo touch "$AUDIT_LOG"
+    sudo chown root:root "$AUDIT_LOG"
+    sudo chmod 644 "$AUDIT_LOG"
     
     echo "$timestamp | User: $user | Action: $action | Status: $status | Command: $command" >> "$AUDIT_LOG"
 }
