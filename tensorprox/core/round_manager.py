@@ -86,7 +86,7 @@ from tensorprox.base.protocol import MachineConfig
 import dotenv
 import logging
 from functools import partial
-import asyncssh
+import shlex
 import traceback
 
 ######################################################################
@@ -196,8 +196,16 @@ class RoundManager(BaseModel):
         # Generate the session key pair
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         _, session_pub = await generate_local_session_keypair(session_key_path)
-        cmd = f'/usr/bin/sudo /usr/bin/bash {remote_script_path} {ssh_user} {ssh_dir} "{session_pub}" {authorized_keys_path} {authorized_keys_bak}'
 
+        #Forming the command to execute
+        args = [
+            '/usr/bin/sudo', '/usr/bin/bash', remote_script_path,
+            ssh_user, ssh_dir, session_pub,
+            authorized_keys_path, authorized_keys_bak
+        ]
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
+
+        logger.info(f"CMD : {cmd}")
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
     

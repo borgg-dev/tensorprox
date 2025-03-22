@@ -750,14 +750,14 @@ class Miner(BaseMinerNeuron):
             print("Whitelist setup failed on one or more machines, aborting cloning.")
 
 
-    async def run_whitelist_setup(self, ip: str, private_key_path: str, username: str, remote_path: str = "/tmp/whitelist.sh"):
+    async def run_whitelist_setup(self, ip: str, private_key_path: str, username: str, remote_path: str = "/tmp/restrict.sh"):
         """
-        This function will execute the whitelist.sh setup on the remote machine.
-        It will run the whitelist.sh script after setting up SSH keys and sudoers.
+        This function will execute the restrict.sh setup on the remote machine.
+        It will run the restrict.sh script after setting up SSH keys and sudoers.
         """
-        whitelist_script_path = os.path.join(BASE_DIR, "tensorprox/core/whitelist.sh")
+        whitelist_script_path = os.path.join(BASE_DIR, "tensorprox/core/restrict.sh")
         
-        await send_file_via_scp(whitelist_script_path, "/tmp/whitelist.sh", ip, private_key_path, username)
+        await send_file_via_scp(whitelist_script_path, "/tmp/restrict.sh", ip, private_key_path, username)
 
         await ssh_connect_execute(ip, private_key_path, username, f"chmod +x {remote_path}")
 

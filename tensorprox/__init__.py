@@ -14,9 +14,9 @@ __spec_version__ = _version_to_int(__version__)
 labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 node_types = ["Attacker", "Benign", "King", "Moat"]
 
-ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
-CHALLENGE_DURATION: int = 60 #15 minutes
-EPSILON: int = 30
+ROUND_TIMEOUT: int = 40 #150 blocks / 30 minutes
+CHALLENGE_DURATION: int = 5 #15 minutes
+EPSILON: int = 15
 
 # Store the base path dynamically, assuming `tensorprox` is the base directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
