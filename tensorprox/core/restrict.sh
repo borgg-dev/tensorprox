@@ -137,6 +137,12 @@ execute_command() {
     return $?
 }
 
+# The command passed from asyncssh
+SSH_ORIGINAL_COMMAND="$1"
+
+# Log the received SSH command for debugging purposes
+echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
+
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     echo "Restricted shell enabled. Type 'exit' to leave."
