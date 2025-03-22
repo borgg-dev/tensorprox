@@ -209,8 +209,6 @@ class RoundManager(BaseModel):
 
         # Wrap the command with the whitelist agent
         full_cmd = f"/usr/local/bin/whitelist-agent '{cmd}'"
-
-        logger.info(f"CMD: {cmd}")
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, full_cmd)
     

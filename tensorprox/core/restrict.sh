@@ -184,7 +184,7 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     done
 else
     cmd = "$1"
-    
+
     # Log the received command for debugging purposes
     echo "Received command: $cmd" >> /tmp/whitelist-agent.log
 
@@ -194,7 +194,7 @@ else
         echo "Command not found: ${cmd%% *}"
         log_action "SSH_COMMAND" "FAILED" "Command not found: ${cmd%% *}"
         exit 1
-    fi
+    fi          
     
     # Normalize the base command path
     base_cmd=$(normalize_path "$base_cmd")
@@ -229,13 +229,13 @@ echo "Configuring SSH to use the agent..."
 sudo mkdir -p /etc/ssh/sshd_config.d
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << 'EOF'
 Match User valiops
-    ForceCommand sudo /usr/local/bin/whitelist-agent
+    ForceCommand /usr/local/bin/whitelist-agent
 EOF"
 
 echo "Creating active/inactive mode configurations..."
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
 Match User valiops
-    ForceCommand sudo /usr/local/bin/whitelist-agent
+    ForceCommand /usr/local/bin/whitelist-agent
 EOF"
 
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << 'EOF'
