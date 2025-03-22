@@ -139,6 +139,11 @@ execute_command() {
     return $?
 }
 
+
+fr = "$1"
+echo "Received command: $fr" >> /tmp/whitelist-agent.log
+
+
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     echo "Restricted shell enabled. Type 'exit' to leave."
@@ -184,8 +189,8 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     done
 else
 
-    # Log the received command for debugging purposes
-    echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
+    # # Log the received command for debugging purposes
+    # echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
 
     # Extract the base command and check if it exists
     base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
