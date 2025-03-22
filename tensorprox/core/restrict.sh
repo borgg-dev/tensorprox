@@ -92,8 +92,8 @@ log_action() {
     local action="$1"
     local status="$2"
     local command="$3"
-    
-    echo "$timestamp | User: $user | Action: $action | Status: $status | Command: command" >> "$AUDIT_LOG"
+
+    echo "$timestamp | User: $user | Action: $action | Status: $status | Command: $command" >> "$AUDIT_LOG"
 }
 
 # Function to normalize path
@@ -110,17 +110,17 @@ normalize_path() {
 # Function to check if a command is allowed
 is_command_allowed() {
     local full_cmd="$1"
-    
+
     # Normalize the full command to its absolute path
     local full_cmd_path=$(normalize_path "$full_cmd")
-    
+
     # Iterate over each line in the allowlist and check if the full command path starts with any of the allowed paths
     while IFS= read -r allowed_cmd; do
         if [[ "$full_cmd_path" == "$allowed_cmd"* ]]; then
             return 0  # If the command path starts with an allowed path, it's allowed
         fi
     done < "$ALLOWLIST"
-    
+
     return 1  # Command is not allowed
 }
 
@@ -128,16 +128,16 @@ is_command_allowed() {
 execute_command() {
     local cmd="$1"
     local cmd_array=()
-    
+
     # Parse command into array to avoid command injection
     read -ra cmd_array <<< "$cmd"
-    
+
     # Execute the command
     "${cmd_array[@]}"
     return $?
 }
 
-# Determine the command source
+# Determine the command source. IMPORTANT: This MUST happen BEFORE the log of the received command.
 if [[ -n "$SSH_ORIGINAL_COMMAND" ]]; then
     cmd="$SSH_ORIGINAL_COMMAND"
 else
