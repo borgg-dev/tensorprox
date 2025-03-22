@@ -207,8 +207,6 @@ class RoundManager(BaseModel):
         ]
         
         cmd = ' '.join(shlex.quote(arg) for arg in args)
-
-        logger.info(f"CMD : {cmd}")
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
@@ -229,7 +227,14 @@ class RoundManager(BaseModel):
             bool: True if the lockdown was successfully executed, False if an error occurred.
         """
 
-        cmd = f"/usr/bin/sudo /usr/bin/bash {remote_script_path} {ssh_user} {ssh_dir} {self.validator_ip} {authorized_keys_path}"
+        # Construct the command to execute the remote script with its arguments
+        args = [
+            'sudo', '/usr/bin/bash', remote_script_path,
+            ssh_user, ssh_dir, self.validator_ip,
+            authorized_keys_path
+        ]
+        
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
 
@@ -251,7 +256,15 @@ class RoundManager(BaseModel):
             bool: True if the revert was successful, False if an error occurred.
         """ 
 
-        cmd = f"/usr/bin/sudo /usr/bin/bash {remote_script_path} {ip} {authorized_keys_bak} {authorized_keys_path} {revert_log}"
+        # Construct the command to execute the remote script with its arguments
+        args = [
+            'sudo', '/usr/bin/bash', remote_script_path,
+            ip, authorized_keys_bak, authorized_keys_path,
+            revert_log
+        ]
+        
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
+
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
 
@@ -272,7 +285,13 @@ class RoundManager(BaseModel):
             bool: True if the GRE setup was successful, False if an error occurred.
         """
 
-        cmd = f"/usr/bin/sudo /usr/bin/python3 {remote_script_path} {machine_name.lower()} {moat_ip}"
+        # Construct the command to execute the remote script with its arguments
+        args = [
+            'sudo', '/usr/bin/python3', remote_script_path,
+            machine_name.lower(), moat_ip
+        ]
+        
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
 
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
 
@@ -300,7 +319,17 @@ class RoundManager(BaseModel):
         try:
 
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
-            cmd = f"/usr/bin/sudo /usr/bin/bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"           
+
+            remote_traffic_gen = "/home/valiops/tensorprox/tensorprox/core/traffic_generator.py"
+
+            # Construct the command to execute the remote script with its arguments
+            args = [
+                'sudo', '/usr/bin/bash', remote_script_path,
+                machine_name.lower(), challenge_duration, label_hashes,
+                playlist, KING_OVERLAY_IP, remote_traffic_gen
+            ]
+
+            cmd = ' '.join(shlex.quote(arg) for arg in args)
             
             # Verify the scripts with sha256sum before execution to prevent tampering
             result = await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
