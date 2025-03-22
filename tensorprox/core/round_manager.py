@@ -201,12 +201,14 @@ class RoundManager(BaseModel):
 
         # Construct the command to execute the remote script with its arguments
         args = [
-            '/usr/bin/sudo', '/usr/bin/bash', remote_script_path,
+            'sudo', '/usr/bin/bash', remote_script_path,
             ssh_user, ssh_dir, session_pub,
             authorized_keys_path, authorized_keys_bak
         ]
-        cmd = ' '.join(shlex.quote(arg) for arg in args)
+        # cmd = ' '.join(shlex.quote(arg) for arg in args)
 
+        cmd = 'sudo /usr/bin/bash -c {}'.format(shlex.quote(' '.join(shlex.quote(arg) for arg in args)))
+        
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
     
