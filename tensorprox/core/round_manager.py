@@ -207,10 +207,8 @@ class RoundManager(BaseModel):
         ]
         cmd = ' '.join(shlex.quote(arg) for arg in args)
 
-        # Wrap the command with the whitelist agent
-        full_cmd = f"/usr/local/bin/whitelist-agent '{cmd}'"
         
-        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, full_cmd)
+        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
     
     async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], ssh_dir: str, authorized_keys_path: str) -> bool:
