@@ -226,13 +226,13 @@ echo "Configuring SSH to use the agent..."
 sudo mkdir -p /etc/ssh/sshd_config.d
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << 'EOF'
 Match User valiops
-    ForceCommand /usr/local/bin/whitelist-agent
+    ForceCommand sudo /usr/local/bin/whitelist-agent
 EOF"
 
 echo "Creating active/inactive mode configurations..."
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
 Match User valiops
-    ForceCommand /usr/local/bin/whitelist-agent
+    ForceCommand sudo /usr/local/bin/whitelist-agent
 EOF"
 
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << 'EOF'
