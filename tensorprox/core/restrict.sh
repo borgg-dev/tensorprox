@@ -181,6 +181,9 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
         fi
     done
 else
+    # Log the received SSH command for debugging purposes
+    echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
+    
     # Handle the SSH command passed via SSH
     base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
     if [[ -z "$base_cmd" ]]; then
@@ -212,7 +215,7 @@ else
         exit 1
     fi
 fi
-
+y
 EOF
 
 echo "Setting proper permissions for the agent script..."
