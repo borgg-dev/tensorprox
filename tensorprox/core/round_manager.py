@@ -205,9 +205,10 @@ class RoundManager(BaseModel):
             ssh_user, ssh_dir, session_pub,
             authorized_keys_path, authorized_keys_bak
         ]
-        # cmd = ' '.join(shlex.quote(arg) for arg in args)
+        
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
 
-        cmd = 'sudo /usr/bin/bash -c {}'.format(shlex.quote(' '.join(shlex.quote(arg) for arg in args)))
+        logger.info(f"CMD : {cmd}")
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
