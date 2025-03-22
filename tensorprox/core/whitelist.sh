@@ -59,8 +59,12 @@ sudo touch /etc/whitelist-agent/allowlist.txt
 echo "Populating allowlist with whitelisted commands..."
 cat << 'EOF' | sudo tee /etc/whitelist-agent/allowlist.txt
 /usr/bin/ssh
-/usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/*.sh
-/usr/bin/sudo /usr/bin/python3 /home/valiops/tensorprox/tensorprox/core/immutable/*.py
+/usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/initial_setup.sh
+/usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/challenge.sh
+/usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/lockdown.sh
+/usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/pwdless_sudo.sh
+/usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/revert.sh 
+/usr/bin/sudo /usr/bin/python3 /home/valiops/tensorprox/tensorprox/core/immutable/gre_setup.py
 EOF
 
 # Create audit log directory
