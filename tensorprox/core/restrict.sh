@@ -199,7 +199,7 @@ else
     base_cmd=$(normalize_path "$base_cmd")
     
     # Replace base command with full path
-    if [[ "$SSH_ORIGINAL_COMMAND" == *" "* ]]; then
+    if [[ "$cmd" == *" "* ]]; then
         full_cmd="$base_cmd ${cmd#* }"
     else
         full_cmd="$base_cmd"
