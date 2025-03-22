@@ -185,27 +185,29 @@ class RoundManager(BaseModel):
             ip (str): The IP address of the miner to set up.
             ssh_user (str): The SSH user account on the miner.
             key_path (str): Path to the original SSH key used for initial access.
-            machine_name (str): Name of the machine being set up.
+            remote_script_path (str): Path to the script to execute on the remote machine.
+            paired_list (List[str]): List of paired items (purpose unclear from the context, needs adaptation).
             uid (int): Unique identifier for the miner.
-            backup_suffix (str): Suffix used for backing up the SSH configuration files.
-
+            ssh_dir (str): SSH directory on the remote machine.
+            authorized_keys_path (str: The path to authorized_keys file
+            authorized_keys_bak (str): The backup path to authorized_keys file.
         Returns:
             bool: True if the setup was successful, False if an error occurred.
         """
-        
+
         # Generate the session key pair
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
-        #Forming the command to execute
-        args = [
-            '/usr/bin/sudo', '/usr/bin/bash', remote_script_path,
-            ssh_user, ssh_dir, session_pub,
-            authorized_keys_path, authorized_keys_bak
-        ]
-        cmd = ' '.join(shlex.quote(arg) for arg in args)
+        # Construct the command to execute the remote script with its arguments
+        script_arguments = [ssh_user, ssh_dir, session_pub, authorized_keys_path, authorized_keys_bak]
+        quoted_args = ' '.join(shlex.quote(arg) for arg in script_arguments)  # Quote each argument
+        command_to_run = f"/usr/bin/sudo /usr/bin/bash {remote_script_path} {quoted_args}"  # Combine into a single command string
 
-        logger.info(f"CMD : {cmd}")
+        # Wrap the command with the whitelist agent
+        cmd = f"/usr/local/bin/whitelist-agent '{command_to_run}'"
+
+        logger.info(f"CMD: {cmd}")
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
     

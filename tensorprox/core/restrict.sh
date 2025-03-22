@@ -137,86 +137,54 @@ execute_command() {
     return $?
 }
 
-# The command passed from asyncssh
-SSH_ORIGINAL_COMMAND="$1"
-
-# Log the received SSH command for debugging purposes
-echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
+# Log the received command for debugging purposes
+echo "Received command: \$SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
 
 # Main logic: handle SSH commands or interactive shell
-if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
-    echo "Restricted shell enabled. Type 'exit' to leave."
-    log_action "SHELL_START" "SUCCESS" "Interactive shell started"
-    
-    while true; do
-        read -p "> " input_cmd
-        
-        # Handle exit command specially
-        if [[ "$input_cmd" == "exit" ]]; then
-            log_action "SHELL_EXIT" "SUCCESS" "Interactive shell exited"
-            exit 0
-        fi
-        
-        # Check if command exists
-        base_cmd=$(command -v ${input_cmd%% *} 2>/dev/null)
-        if [[ -z "$base_cmd" ]]; then
-            echo "Command not found: ${input_cmd%% *}"
-            log_action "COMMAND" "FAILED" "Command not found: ${input_cmd%% *}"
-            continue
-        fi
-        
-        # Normalize the base command path
-        base_cmd=$(normalize_path "$base_cmd")
-        
-        # Replace base command with full path
-        if [[ "$input_cmd" == *" "* ]]; then
-            full_cmd="$base_cmd ${input_cmd#* }"
-        else
-            full_cmd="$base_cmd"
-        fi
-
-        # Check if command is allowed
-        if is_command_allowed "$full_cmd"; then
-            log_action "COMMAND" "ALLOWED" "$full_cmd"
-            execute_command "$full_cmd"
-            exit_code=$?
-            log_action "COMMAND" "COMPLETED" "Exit code: $exit_code for command: $full_cmd"
-        else
-            echo "Command '$full_cmd' not allowed."
-            log_action "COMMAND" "DENIED" "$full_cmd"
-        fi
-    done
+if [[ -n "\$SSH_ORIGINAL_COMMAND" ]]; then
+    # Use SSH_ORIGINAL_COMMAND if it's set (for SSH forced commands)
+    cmd="\$SSH_ORIGINAL_COMMAND"
 else
-    # Extract the base command and check if it exists
-    base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
-    if [[ -z "$base_cmd" ]]; then
-        echo "Command not found: ${SSH_ORIGINAL_COMMAND%% *}"
-        log_action "SSH_COMMAND" "FAILED" "Command not found: ${SSH_ORIGINAL_COMMAND%% *}"
-        exit 1
-    fi
-    
-    # Normalize the base command path
-    base_cmd=$(normalize_path "$base_cmd")
-    
-    # Replace base command with full path
-    if [[ "$SSH_ORIGINAL_COMMAND" == *" "* ]]; then
-        full_cmd="$base_cmd ${SSH_ORIGINAL_COMMAND#* }"
-    else
-        full_cmd="$base_cmd"
-    fi
+    # If SSH_ORIGINAL_COMMAND is not set, assume the command is passed as the first argument
+    cmd="\$1"
+fi
 
-    # Check if command is allowed
-    if is_command_allowed "$full_cmd"; then
-        log_action "SSH_COMMAND" "ALLOWED" "$full_cmd"
-        execute_command "$full_cmd"
-        exit_code=$?
-        log_action "SSH_COMMAND" "COMPLETED" "Exit code: $exit_code for command: $full_cmd"
-        exit $exit_code
-    else
-        echo "Command '$full_cmd' not allowed."
-        log_action "SSH_COMMAND" "DENIED" "$full_cmd"
-        exit 1
-    fi
+# Check if the command is empty
+if [[ -z "\$cmd" ]]; then
+    echo "No command provided."
+    log_action "COMMAND" "FAILED" "No command provided."
+    exit 1
+fi
+
+# Extract the base command and check if it exists
+base_cmd=$(command -v "\${cmd%% *}" 2>/dev/null)
+if [[ -z "\$base_cmd" ]]; then
+    echo "Command not found: \${cmd%% *}"
+    log_action "COMMAND" "FAILED" "Command not found: \${cmd%% *}"
+    exit 1
+fi
+
+# Normalize the base command path
+base_cmd=$(normalize_path "\$base_cmd")
+
+# Replace base command with full path
+if [[ "\$cmd" == *" "* ]]; then
+    full_cmd="\$base_cmd \${cmd#* }"
+else
+    full_cmd="\$base_cmd"
+fi
+
+# Check if command is allowed
+if is_command_allowed "\$full_cmd"; then
+    log_action "COMMAND" "ALLOWED" "\$full_cmd"
+    execute_command "\$full_cmd"
+    exit_code=\$?
+    log_action "COMMAND" "COMPLETED" "Exit code: \$exit_code for command: \$full_cmd"
+    exit \$exit_code
+else
+    echo "Command '\$full_cmd' not allowed."
+    log_action "COMMAND" "DENIED" "\$full_cmd"
+    exit 1
 fi
 EOF
 
@@ -229,9 +197,8 @@ sudo chown root:root /usr/local/bin/whitelist-agent
 
 echo "Creating active/inactive mode configurations..."
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
-# No ForceCommand line, so the user gets a normal shell
+# ForceCommand /usr/local/bin/whitelist-agent
 EOF"
-
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << 'EOF'
 # No ForceCommand line, so the user gets a normal shell
 EOF"
