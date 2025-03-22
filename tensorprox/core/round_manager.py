@@ -320,16 +320,10 @@ class RoundManager(BaseModel):
 
             playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
 
-            remote_traffic_gen = "/home/valiops/tensorprox/tensorprox/core/traffic_generator.py"
+            remote_traffic_gen = "/home/valiops/tensorprox/tensorprox/core/immutable/traffic_generator.py"
 
             # Construct the command to execute the remote script with its arguments
-            args = [
-                'sudo', '/usr/bin/bash', remote_script_path,
-                machine_name.lower(), challenge_duration, label_hashes,
-                playlist, KING_OVERLAY_IP, remote_traffic_gen
-            ]
-
-            cmd = ' '.join(shlex.quote(arg) for arg in args)
+            cmd = f"sudo /usr/bin/bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"
             
             # Verify the scripts with sha256sum before execution to prevent tampering
             result = await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
