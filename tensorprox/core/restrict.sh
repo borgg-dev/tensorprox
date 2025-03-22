@@ -93,7 +93,7 @@ log_action() {
     local status="$2"
     local command="$3"
     
-    echo "$timestamp | User: $user | Action: $action | Status: $status | Command: $command" >> "$AUDIT_LOG"
+    echo "$timestamp | User: $user | Action: $action | Status: $status | Command: command" >> "$AUDIT_LOG"
 }
 
 # Function to normalize path
@@ -137,53 +137,51 @@ execute_command() {
     return $?
 }
 
-# Log the received command for debugging purposes
-echo "Received command: \$SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
-
-# Main logic: handle SSH commands or interactive shell
-if [[ -n "\$SSH_ORIGINAL_COMMAND" ]]; then
-    # Use SSH_ORIGINAL_COMMAND if it's set (for SSH forced commands)
-    cmd="\$SSH_ORIGINAL_COMMAND"
+# Determine the command source
+if [[ -n "$SSH_ORIGINAL_COMMAND" ]]; then
+    cmd="$SSH_ORIGINAL_COMMAND"
 else
-    # If SSH_ORIGINAL_COMMAND is not set, assume the command is passed as the first argument
-    cmd="\$1"
+    cmd="$1"  # Use the first argument as the command for AsyncSSH
 fi
 
+# Log the received command for debugging purposes
+echo "Received command: $cmd" >> /tmp/whitelist-agent.log
+
 # Check if the command is empty
-if [[ -z "\$cmd" ]]; then
+if [[ -z "$cmd" ]]; then
     echo "No command provided."
     log_action "COMMAND" "FAILED" "No command provided."
     exit 1
 fi
 
 # Extract the base command and check if it exists
-base_cmd=$(command -v "\${cmd%% *}" 2>/dev/null)
-if [[ -z "\$base_cmd" ]]; then
-    echo "Command not found: \${cmd%% *}"
-    log_action "COMMAND" "FAILED" "Command not found: \${cmd%% *}"
+base_cmd=$(command -v "${cmd%% *}" 2>/dev/null)
+if [[ -z "$base_cmd" ]]; then
+    echo "Command not found: ${cmd%% *}"
+    log_action "COMMAND" "FAILED" "Command not found: ${cmd%% *}"
     exit 1
 fi
 
 # Normalize the base command path
-base_cmd=$(normalize_path "\$base_cmd")
+base_cmd=$(normalize_path "$base_cmd")
 
 # Replace base command with full path
-if [[ "\$cmd" == *" "* ]]; then
-    full_cmd="\$base_cmd \${cmd#* }"
+if [[ "$cmd" == *" "* ]]; then
+    full_cmd="$base_cmd ${cmd#* }"
 else
-    full_cmd="\$base_cmd"
+    full_cmd="$base_cmd"
 fi
 
 # Check if command is allowed
-if is_command_allowed "\$full_cmd"; then
-    log_action "COMMAND" "ALLOWED" "\$full_cmd"
-    execute_command "\$full_cmd"
-    exit_code=\$?
-    log_action "COMMAND" "COMPLETED" "Exit code: \$exit_code for command: \$full_cmd"
-    exit \$exit_code
+if is_command_allowed "$full_cmd"; then
+    log_action "COMMAND" "ALLOWED" "$full_cmd"
+    execute_command "$full_cmd"
+    exit_code=$?
+    log_action "COMMAND" "COMPLETED" "Exit code: $exit_code for command: $full_cmd"
+    exit $exit_code
 else
-    echo "Command '\$full_cmd' not allowed."
-    log_action "COMMAND" "DENIED" "\$full_cmd"
+    echo "Command '$full_cmd' not allowed."
+    log_action "COMMAND" "DENIED" "$full_cmd"
     exit 1
 fi
 EOF
