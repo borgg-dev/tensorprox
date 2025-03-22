@@ -81,6 +81,7 @@ sudo chmod 755 /etc/whitelist-agent
 echo "Writing the agent script..."
 cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent
 #!/usr/bin/env bash
+
 ALLOWLIST="/etc/whitelist-agent/allowlist.txt"
 AUDIT_LOG="/var/log/whitelist-agent/audit.log"
 
@@ -136,12 +137,8 @@ execute_command() {
     return $?
 }
 
-# Log the received SSH command for debugging purposes
-echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
-
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
-    # This is for an interactive shell
     echo "Restricted shell enabled. Type 'exit' to leave."
     log_action "SHELL_START" "SUCCESS" "Interactive shell started"
     
@@ -184,8 +181,7 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
         fi
     done
 else
-    
-    # Handle the SSH command passed via SSH
+    # Extract the base command and check if it exists
     base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
     if [[ -z "$base_cmd" ]]; then
         echo "Command not found: ${SSH_ORIGINAL_COMMAND%% *}"
@@ -216,24 +212,18 @@ else
         exit 1
     fi
 fi
-y
 EOF
 
 echo "Setting proper permissions for the agent script..."
 sudo chmod 755 /usr/local/bin/whitelist-agent
 sudo chown root:root /usr/local/bin/whitelist-agent
 
-echo "Configuring SSH to use the agent..."
-sudo mkdir -p /etc/ssh/sshd_config.d
-sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << 'EOF'
-Match User valiops
-    ForceCommand sudo /usr/local/bin/whitelist-agent
-EOF"
+# REMOVE the creation of  /etc/ssh/sshd_config.d/whitelist.conf 
+# Since we use authorized_keys now
 
 echo "Creating active/inactive mode configurations..."
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
-Match User valiops
-    ForceCommand sudo /usr/local/bin/whitelist-agent
+# No ForceCommand line, so the user gets a normal shell
 EOF"
 
 sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << 'EOF'
