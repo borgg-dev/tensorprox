@@ -137,8 +137,6 @@ execute_command() {
     return $?
 }
 
-
-
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     echo "Restricted shell enabled. Type 'exit' to leave."
@@ -183,25 +181,20 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
         fi
     done
 else
-    cmd = "$1"
-
-    # Log the received command for debugging purposes
-    echo "Received command: $cmd" >> /tmp/whitelist-agent.log
-
     # Extract the base command and check if it exists
-    base_cmd=$(command -v ${cmd%% *} 2>/dev/null)
+    base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
     if [[ -z "$base_cmd" ]]; then
-        echo "Command not found: ${cmd%% *}"
-        log_action "SSH_COMMAND" "FAILED" "Command not found: ${cmd%% *}"
+        echo "Command not found: ${SSH_ORIGINAL_COMMAND%% *}"
+        log_action "SSH_COMMAND" "FAILED" "Command not found: ${SSH_ORIGINAL_COMMAND%% *}"
         exit 1
-    fi          
+    fi
     
     # Normalize the base command path
     base_cmd=$(normalize_path "$base_cmd")
     
     # Replace base command with full path
-    if [[ "$cmd" == *" "* ]]; then
-        full_cmd="$base_cmd ${cmd#* }"
+    if [[ "$SSH_ORIGINAL_COMMAND" == *" "* ]]; then
+        full_cmd="$base_cmd ${SSH_ORIGINAL_COMMAND#* }"
     else
         full_cmd="$base_cmd"
     fi
