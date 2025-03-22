@@ -25,7 +25,7 @@ else
 fi
 
 
-# Traffic generation for Attacker and Benign
+# Traffic generation for attacker and benign
 if [[ "$machine_name" == "attacker" || "$machine_name" == "benign" ]]; then
 
     # Install Python3 and pip if not installed
@@ -64,7 +64,7 @@ benign_count=$(grep -o -E "$benign_pattern" /tmp/traffic_data.txt | wc -l)
 udp_flood_count=$(grep -o -E "$udp_flood_pattern" /tmp/traffic_data.txt | wc -l)
 tcp_syn_flood_count=$(grep -o -E "$tcp_syn_flood_pattern" /tmp/traffic_data.txt | wc -l)
 
-# Measure RTT if the machine is Attacker or Benign
+# Measure RTT if the machine is attacker or benign
 if [[ "$machine_name" == "attacker" || "$machine_name" == "benign" ]]; then
 
     # Execute RTT measurement command
@@ -76,7 +76,7 @@ if [[ "$machine_name" == "attacker" || "$machine_name" == "benign" ]]; then
     # Output the counts along with the average RTT
     echo "BENIGN:$benign_count, UDP_FLOOD:$udp_flood_count, TCP_SYN_FLOOD:$tcp_syn_flood_count, AVG_RTT:$rtt_avg"
 else
-    # Output just the counts if the machine is neither Attacker nor Benign
+    # Output just the counts if the machine is neither attacker nor benign
     echo "BENIGN:$benign_count, UDP_FLOOD:$udp_flood_count, TCP_SYN_FLOOD:$tcp_syn_flood_count"
 fi
 

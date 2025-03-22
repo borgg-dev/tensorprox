@@ -140,10 +140,10 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["Attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username="valiops", private_ip=ATTACKER_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["Benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username="valiops", private_ip=BENIGN_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["King"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username="valiops", private_ip=KING_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["Moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username="valiops", private_ip=ATTACKER_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username="valiops", private_ip=BENIGN_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["king"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username="valiops", private_ip=KING_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
@@ -157,7 +157,7 @@ class Miner(BaseMinerNeuron):
                     username="borgg-vm"
                 )
                 for machine_name, machine_details in synapse.machine_availabilities.machine_config.items()
-                if machine_name != "Moat"  # Skip Moat machine
+                if machine_name != "moat"  # Skip Moat machine
             ]
 
             await asyncio.gather(*tasks)
@@ -536,93 +536,6 @@ class Miner(BaseMinerNeuron):
 
         return public_key_str, private_key_str
 
-    async def clone_or_update_repository(
-    self,
-    machine_ip: str,
-    github_token: str,
-    initial_private_key_path: str,
-    username: str,
-    repo_path: str = "/home/valiops/tensorprox",
-    repo_url: str = "github.com/borgg-dev/tensorprox.git",
-    branch: str = "tensorproxV3",
-    timeout: int = 5,
-    retries: int = 3,
-    ):
-        """
-        Asynchronously connects to a remote machine via SSH using asyncssh,
-        and either clones a GitHub repository or pulls the latest changes if it already exists.
-
-        Args:
-            machine_ip (str): The public IP of the machine.
-            github_token (str): GitHub personal access token for authentication.
-            repo_url (str): The GitHub repository URL to clone or update.
-            branch (str): The branch to clone or pull.
-            initial_private_key_path (str): Path to the initial private key used for SSH authentication.
-            username (str): The username for the SSH connection.
-            timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
-            retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
-        """
-
-
-        for attempt in range(retries):
-            try:
-                logger.info(f"Attempting SSH connection to {machine_ip} with user {username} (Attempt {attempt + 1}/{retries})...")
-
-                connection_params = {
-                    "host": machine_ip,
-                    "username": username,
-                    "client_keys": [initial_private_key_path],
-                    "known_hosts": None,
-                    "connect_timeout": timeout,
-                }
-
-                async with asyncssh.connect(**connection_params) as conn:
-                    logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
-
-
-                    # Check if Git is installed
-                    try:
-                        await conn.run("git --version", check=True)
-                        logger.info(f"Git is already installed on {machine_ip}.")
-                    except asyncssh.ProcessError:
-                        logger.warning(f"Git is not installed on {machine_ip}. Installing Git...")
-                        install_git_command = "sudo apt-get update && sudo apt-get install -y git"
-                        await conn.run(install_git_command, check=True)
-                        logger.info(f"Git installation successful on {machine_ip}.")
-
-                    # Check if the repository already exists
-                    result = await conn.run(f"sudo test -d {repo_path}/.git", check=False)
-                    repo_exists = result.returncode == 0
-
-                    if repo_exists:
-                        # Pull the latest changes from the branch
-                        logger.info(f"Repository already exists at {repo_path} on {machine_ip}. Pulling latest changes...")
-                        pull_command = (
-                            f"sudo bash -c 'cd {repo_path} && "
-                            f"git fetch origin {branch} && "
-                            f"git checkout {branch} && "
-                            f"git pull origin {branch}'"
-                        )
-                        result = await conn.run(pull_command, check=True)
-                        logger.info(f"Repository updated successfully on {machine_ip}: {result.stdout}")
-                    else:
-                        # Clone the repository
-                        logger.info(f"Cloning the repository from {repo_url} to {repo_path} on {machine_ip}...")
-                        clone_command = (
-                            f"sudo git clone --branch {branch} https://{github_token}@{repo_url} {repo_path}"
-                        )
-                        result = await conn.run(clone_command, check=True)
-                        logger.info(f"Repository cloned successfully on {machine_ip}: {result.stdout}")
-
-                    return  # Exit function on success
-
-            except (asyncssh.Error, OSError) as e:
-                logger.error(f"Error adding/updating tensorprox repository to {machine_ip} on attempt {attempt + 1}/{retries}: {e}")
-                if attempt == retries - 1:
-                    logger.error(f"Failed to add/update tensorprox repository to {machine_ip} after {retries} attempts.")
-
-        return
-
     async def add_ssh_key_to_remote_machine(
         self,
         machine_ip: str,
@@ -705,65 +618,153 @@ class Miner(BaseMinerNeuron):
                     logger.error(f"Failed to connect to {machine_ip} after {retries} attempts.")
 
         return
+    
+async def clone_or_update_repository(
+machine_ip: str,
+github_token: str,
+initial_private_key_path: str,
+username: str,
+repo_path: str = "/home/valiops/tensorprox",
+repo_url: str = "github.com/borgg-dev/tensorprox.git",
+branch: str = "tensorproxV3",
+timeout: int = 5,
+retries: int = 3,
+):
+    """
+    Asynchronously connects to a remote machine via SSH using asyncssh,
+    and either clones a GitHub repository or pulls the latest changes if it already exists.
 
-    async def clone_repositories(self, ips: list, github_token: str, initial_private_key_path: str, usernames: list):
-        """
-        This function clones or updates the repositories on the remote machines.
-        """
-        tasks = []
-        for machine_ip, username in zip(ips, usernames):
-            tasks.append(self.clone_or_update_repository(
-                machine_ip=machine_ip,
-                github_token=github_token,
-                initial_private_key_path=initial_private_key_path,
-                username=username,
-            ))
-
-        # Run all cloning tasks concurrently and wait for them to complete
-        await asyncio.gather(*tasks)
-
-    async def setup_machines_for_cloning(self, ips: list, github_token: str, initial_private_key_path: str, usernames: list):
-        """
-        Set up repository cloning for multiple machines using their corresponding IPs and usernames.
-        
-        Args:
-            ips (list): A list of IP addresses for the machines.
-            github_token (str): GitHub personal access token.
-            initial_private_key_path (str): Path to the private SSH key used for authentication.
-            usernames (list): A list of usernames corresponding to each machine's IP.
-        """
-        
-        tasks = []
-
-        # Iterate over both ips and usernames simultaneously using zip
-        for machine_ip, username in zip(ips, usernames):
-            tasks.append(self.run_whitelist_setup(machine_ip, initial_private_key_path, username))
-        
-        # Run all whitelist setup tasks concurrently and wait for them to complete
-        setup_results = await asyncio.gather(*tasks)
-        
-        # If any whitelist setup fails, don't proceed with cloning
-        if all(setup_results):
-            print("Whitelist setup successful on all machines, proceeding with cloning.")
-            await self.clone_repositories(ips, github_token, initial_private_key_path, usernames)
-        else:
-            print("Whitelist setup failed on one or more machines, aborting cloning.")
+    Args:
+        machine_ip (str): The public IP of the machine.
+        github_token (str): GitHub personal access token for authentication.
+        repo_url (str): The GitHub repository URL to clone or update.
+        branch (str): The branch to clone or pull.
+        initial_private_key_path (str): Path to the initial private key used for SSH authentication.
+        username (str): The username for the SSH connection.
+        timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
+        retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
+    """
 
 
-    async def run_whitelist_setup(self, ip: str, private_key_path: str, username: str, remote_path: str = "/tmp/restrict.sh"):
-        """
-        This function will execute the restrict.sh setup on the remote machine.
-        It will run the restrict.sh script after setting up SSH keys and sudoers.
-        """
-        whitelist_script_path = os.path.join(BASE_DIR, "tensorprox/core/restrict.sh")
-        
-        await send_file_via_scp(whitelist_script_path, "/tmp/restrict.sh", ip, private_key_path, username)
+    for attempt in range(retries):
+        try:
+            logger.info(f"Attempting SSH connection to {machine_ip} with user {username} (Attempt {attempt + 1}/{retries})...")
 
-        await ssh_connect_execute(ip, private_key_path, username, f"chmod +x {remote_path}")
+            connection_params = {
+                "host": machine_ip,
+                "username": username,
+                "client_keys": [initial_private_key_path],
+                "known_hosts": None,
+                "connect_timeout": timeout,
+            }
 
-        result = await ssh_connect_execute(ip, private_key_path, username, f"bash {remote_path}")
+            async with asyncssh.connect(**connection_params) as conn:
+                logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
-        return result
+
+                # Check if Git is installed
+                try:
+                    await conn.run("git --version", check=True)
+                    logger.info(f"Git is already installed on {machine_ip}.")
+                except asyncssh.ProcessError:
+                    logger.warning(f"Git is not installed on {machine_ip}. Installing Git...")
+                    install_git_command = "sudo apt-get update && sudo apt-get install -y git"
+                    await conn.run(install_git_command, check=True)
+                    logger.info(f"Git installation successful on {machine_ip}.")
+
+                # Check if the repository already exists
+                result = await conn.run(f"sudo test -d {repo_path}/.git", check=False)
+                repo_exists = result.returncode == 0
+
+                if repo_exists:
+                    # Pull the latest changes from the branch
+                    logger.info(f"Repository already exists at {repo_path} on {machine_ip}. Pulling latest changes...")
+                    pull_command = (
+                        f"sudo bash -c 'cd {repo_path} && "
+                        f"git fetch origin {branch} && "
+                        f"git checkout {branch} && "
+                        f"git pull origin {branch}'"
+                    )
+                    result = await conn.run(pull_command, check=True)
+                    logger.info(f"Repository updated successfully on {machine_ip}: {result.stdout}")
+                else:
+                    # Clone the repository
+                    logger.info(f"Cloning the repository from {repo_url} to {repo_path} on {machine_ip}...")
+                    clone_command = (
+                        f"sudo git clone --branch {branch} https://{github_token}@{repo_url} {repo_path}"
+                    )
+                    result = await conn.run(clone_command, check=True)
+                    logger.info(f"Repository cloned successfully on {machine_ip}: {result.stdout}")
+
+                return  # Exit function on success
+
+        except (asyncssh.Error, OSError) as e:
+            logger.error(f"Error adding/updating tensorprox repository to {machine_ip} on attempt {attempt + 1}/{retries}: {e}")
+            if attempt == retries - 1:
+                logger.error(f"Failed to add/update tensorprox repository to {machine_ip} after {retries} attempts.")
+
+    return
+
+async def clone_repositories(ips: list, github_token: str, initial_private_key_path: str, usernames: list):
+    """
+    This function clones or updates the repositories on the remote machines.
+    """
+    tasks = []
+    for machine_ip, username in zip(ips, usernames):
+        tasks.append(clone_or_update_repository(
+            machine_ip=machine_ip,
+            github_token=github_token,
+            initial_private_key_path=initial_private_key_path,
+            username=username,
+        ))
+
+    # Run all cloning tasks concurrently and wait for them to complete
+    await asyncio.gather(*tasks)
+
+
+async def run_whitelist_setup(ip: str, private_key_path: str, username: str, remote_path: str = "/tmp/restrict.sh"):
+    """
+    This function will execute the restrict.sh setup on the remote machine.
+    It will run the restrict.sh script after setting up SSH keys and sudoers.
+    """
+    whitelist_script_path = os.path.join(BASE_DIR, "tensorprox/core/restrict.sh")
+    
+    await send_file_via_scp(whitelist_script_path, "/tmp/restrict.sh", ip, private_key_path, username)
+
+    await ssh_connect_execute(ip, private_key_path, username, f"chmod +x {remote_path}")
+
+    result = await ssh_connect_execute(ip, private_key_path, username, f"bash {remote_path}")
+
+    return result
+
+async def setup_machines(ips: list, github_token: str, initial_private_key_path: str, usernames: list):
+    """
+    Set up repository cloning for multiple machines using their corresponding IPs and usernames.
+    
+    Args:
+        ips (list): A list of IP addresses for the machines.
+        github_token (str): GitHub personal access token.
+        initial_private_key_path (str): Path to the private SSH key used for authentication.
+        usernames (list): A list of usernames corresponding to each machine's IP.
+    """
+    
+    logger.info("Setup restricted user valiops ...")
+
+    tasks = []
+
+    for machine_ip, username in zip(ips, usernames):
+        tasks.append(run_whitelist_setup(machine_ip, initial_private_key_path, username))
+    
+    # Run all whitelist setup tasks concurrently and wait for them to complete
+    setup_results = await asyncio.gather(*tasks)
+    
+    # If any whitelist setup fails, don't proceed with cloning
+    if all(setup_results):
+        print("Whitelist setup successful on all machines, proceeding with cloning.")
+        await clone_repositories(ips, github_token, initial_private_key_path, usernames)
+    else:
+        print("Whitelist setup failed on one or more machines, aborting cloning.")
+
 
         
 def run_gre_setup():
@@ -794,16 +795,13 @@ if __name__ == "__main__":
     usernames = [BENIGN_USERNAME, ATTACKER_USERNAME, KING_USERNAME]
     github_token = ""
     initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
-
-    # Create an instance of Miner to call clone_repository
-    miner = Miner()
-
+    
     # Run the repository cloning setup first, wait for it to complete
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(miner.setup_machines_for_cloning(ips, github_token, initial_private_key_path, usernames))
+    loop.run_until_complete(setup_machines(ips, github_token, initial_private_key_path, usernames))
 
-    with Miner() as m:
-        while not m.should_exit:
-            m.log_status()
+    with Miner() as miner:
+        while not miner.should_exit:
+            miner.log_status()
             time.sleep(5)
         logger.warning("Ending miner...")

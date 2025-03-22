@@ -12,7 +12,7 @@ __version__ = "0.1.0"
 __spec_version__ = _version_to_int(__version__)
 
 labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
-node_types = ["Attacker", "Benign", "King", "Moat"]
+node_types = ["attacker", "benign", "king", "moat"]
 
 ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
 CHALLENGE_DURATION: int = 60 #15 minutes

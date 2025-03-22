@@ -196,8 +196,8 @@ class Validator(BaseValidatorNeuron):
                 
                 label_hashes = generate_random_hashes()
 
-                playlist_attacker = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="Attacker", seed=seed)
-                playlist_benign = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="Benign", seed=seed)
+                playlist_attacker = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="attacker", seed=seed)
+                playlist_benign = create_random_playlist(total_seconds=CHALLENGE_DURATION, label_hashes = label_hashes, role="benign", seed=seed)
 
                 # Now reset the random seed to None before shuffling
                 random.seed(None)
@@ -205,8 +205,8 @@ class Validator(BaseValidatorNeuron):
                 random.shuffle(playlist_benign)
 
                 playlists = {
-                    "Attacker" : playlist_attacker,
-                    "Benign" : playlist_benign
+                    "attacker" : playlist_attacker,
+                    "benign" : playlist_benign
                 }
                 
 

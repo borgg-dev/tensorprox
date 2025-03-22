@@ -134,12 +134,12 @@ class ChallengeRewardModel(BaseModel):
 
             default_count = {label:0 for label in label_hashes.keys()}
 
-            attack_counts = next((counts for machine, counts, _ in label_counts_results if machine == "Attacker"), default_count)
-            benign_counts = next((counts for machine, counts, _ in label_counts_results if machine == "Benign"), default_count)
-            king_counts = next((counts for machine, counts, _ in label_counts_results if machine == "King"), default_count)
+            attack_counts = next((counts for machine, counts, _ in label_counts_results if machine == "attacker"), default_count)
+            benign_counts = next((counts for machine, counts, _ in label_counts_results if machine == "benign"), default_count)
+            king_counts = next((counts for machine, counts, _ in label_counts_results if machine == "king"), default_count)
 
-            attack_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "Attacker"), 0)
-            benign_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "Benign"), 0)
+            attack_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "attacker"), 0)
+            benign_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "benign"), 0)
 
             # If all counts are the default (i.e., zero), skip this user
             if all(value == 0 for value in attack_counts.values()) and \
@@ -168,11 +168,11 @@ class ChallengeRewardModel(BaseModel):
             attack_counts, benign_counts, king_counts = packet_data[uid]
 
 
-            # Total packets sent from the Attacker machine
+            # Total packets sent from the attacker machine
             total_attacks_from_attacker = sum(attack_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
             total_benign_from_attacker = attack_counts.get("BENIGN", 0)
 
-            # Total packets sent from the Benign machine
+            # Total packets sent from the benign machine
             total_benign_from_benign = benign_counts.get("BENIGN", 0)
             total_attacks_from_benign = sum(benign_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
         

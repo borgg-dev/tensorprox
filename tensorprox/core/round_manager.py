@@ -133,8 +133,8 @@ class RoundManager(BaseModel):
             bool: True if the machine is available, False otherwise.
         """
 
-        if machine_name == "Moat":
-            return True  #Skip Moat
+        if machine_name == "moat":
+            return True  #Skip moat
         ip_machine = self.miners[uid].machine_availabilities[machine_name]
         return bool(ip_machine)
 
@@ -151,7 +151,7 @@ class RoundManager(BaseModel):
         """
 
         for machine_name in self.miners[uid].machine_availabilities.keys():
-            if machine_name == "Moat":
+            if machine_name == "moat":
                 continue  #Skip Moat
             if not self.check_machine_availability(machine_name=machine_name, uid=uid):
                 return False
@@ -288,7 +288,7 @@ class RoundManager(BaseModel):
         # Construct the command to execute the remote script with its arguments
         args = [
             'sudo', '/usr/bin/python3', remote_script_path,
-            machine_name.lower(), moat_ip
+            machine_name, moat_ip
         ]
         
         cmd = ' '.join(shlex.quote(arg) for arg in args)
@@ -309,7 +309,7 @@ class RoundManager(BaseModel):
             key_path (str): Path to the SSH key used for authentication.
             machine_name (str): Name of the machine to challenge.
             label_hashes (dict): Dictionary containing the encrypted labels for each label type.
-            playlists: (dict): Dictionary containings two playlists for Attacker and Benign.
+            playlists: (dict): Dictionary containings two playlists for attacker and benign.
             challenge_duration (int): Duration for which the challenge should run, in seconds.
 
         Returns:
@@ -318,12 +318,12 @@ class RoundManager(BaseModel):
 
         try:
 
-            playlist = json.dumps(playlists[machine_name]) if machine_name != "King" else "null"
+            playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
 
             remote_traffic_gen = "/home/valiops/tensorprox/tensorprox/core/immutable/traffic_generator.py"
 
             # Construct the command to execute the remote script with its arguments
-            cmd = f"sudo /usr/bin/bash {remote_script_path} {machine_name.lower()} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"
+            cmd = f"sudo /usr/bin/bash {remote_script_path} {machine_name} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"
             
             # Verify the scripts with sha256sum before execution to prevent tampering
             result = await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
@@ -407,7 +407,7 @@ class RoundManager(BaseModel):
 
         for machine_name, machine_details in synapse.machine_availabilities.machine_config.items():
 
-            if machine_name == "Moat":
+            if machine_name == "moat":
                 continue  # Skip the Moat machine
 
             ip = machine_details.ip
@@ -506,8 +506,8 @@ class RoundManager(BaseModel):
         """
         synapse, uid_status_availability = await self.query_availability(uid)  
 
-        self.king_ips[uid] = synapse.machine_availabilities.machine_config["King"].ip
-        self.moat_private_ips[uid] = synapse.machine_availabilities.machine_config["Moat"].private_ip
+        self.king_ips[uid] = synapse.machine_availabilities.machine_config["king"].ip
+        self.moat_private_ips[uid] = synapse.machine_availabilities.machine_config["moat"].private_ip
         return synapse, uid_status_availability
     
     async def execute_task(
@@ -583,7 +583,7 @@ class RoundManager(BaseModel):
                 """
 
                 # If the machine is "Moat", skip the setup and immediately consider the task successful
-                if machine_name == "Moat":
+                if machine_name == "moat":
                     return True  # Skip Moat machine setup and consider it successful
 
                 # Retrieve necessary connection and task details
@@ -630,7 +630,7 @@ class RoundManager(BaseModel):
                 return success  # Return whether the task was successful or not
             
             # Run revert for all machines of the miner
-            tasks = [process_machine(name, details, task_function) for name, details in synapse.machine_availabilities.machine_config.items() if name != "Moat"]
+            tasks = [process_machine(name, details, task_function) for name, details in synapse.machine_availabilities.machine_config.items() if name != "moat"]
             results = await asyncio.gather(*tasks)
 
             if task == "challenge":

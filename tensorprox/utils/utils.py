@@ -17,7 +17,6 @@ import string
 import hashlib
 import psutil
 import ipaddress
-import paramiko
 
 def get_remaining_time(duration):
     current_time = time.time()
@@ -247,9 +246,9 @@ def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
 
     # Role-specific weight calculation using a dictionary
     weights = {
-        "Attacker": (0.8, 0.2),
-        "Benign": (0.2, 0.8)
-    }.get(role, (0.5, 0.5))  # Default to (0.5, 0.5) if role is neither 'Attacker' nor 'Benign'
+        "attacker": (0.8, 0.2),
+        "benign": (0.2, 0.8)
+    }.get(role, (0.5, 0.5))  # Default to (0.5, 0.5) if role is neither 'attacker' nor 'benign'
 
     attack_weight, benign_weight = weights
 
@@ -470,27 +469,6 @@ async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path,
 
     except Exception as e:
         print(f"Error: {e}")
-
-async def run_ssh_command(host, port, username, password, command):
-    # Create a Paramiko SSH client
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    
-    try:
-        # Connect to the remote host
-        client.connect(host, port=port, username=username, password=password)
-        
-        # Run the command
-        stdin, stdout, stderr = client.exec_command(command)
-        
-        # Wait for the command to complete and get the output
-        result = stdout.read().decode()
-        print(f"Command output: {result}")
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        # Close the SSH client
-        client.close()
 
 
 async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd: Union[str, list] = None) -> Union[bool, object]:
