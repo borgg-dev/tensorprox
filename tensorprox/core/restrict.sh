@@ -136,6 +136,9 @@ execute_command() {
     return $?
 }
 
+# Log the received SSH command for debugging purposes
+echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
+
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     # This is for an interactive shell
@@ -181,8 +184,6 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
         fi
     done
 else
-    # Log the received SSH command for debugging purposes
-    echo "Received command: $SSH_ORIGINAL_COMMAND" >> /tmp/whitelist-agent.log
     
     # Handle the SSH command passed via SSH
     base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
