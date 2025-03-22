@@ -138,8 +138,6 @@ execute_command() {
 }
 
 
-# Log the received command for debugging purposes
-echo "Received command: $cmd" >> /tmp/whitelist-agent.log
 
 # Main logic: handle SSH commands or interactive shell
 if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
@@ -186,6 +184,10 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
     done
 else
     cmd = "$1"
+    
+    # Log the received command for debugging purposes
+    echo "Received command: $cmd" >> /tmp/whitelist-agent.log
+
     # Extract the base command and check if it exists
     base_cmd=$(command -v ${cmd%% *} 2>/dev/null)
     if [[ -z "$base_cmd" ]]; then
