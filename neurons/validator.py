@@ -344,7 +344,7 @@ class Validator(BaseValidatorNeuron):
         # Step 2: Initial Session Key Setup
         with Timer() as setup_timer:
 
-            logger.info(f"🛠{' '}Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
+            logger.info(f"🛠 Running initial setup for available miners : {[uid for uid, _ in available_miners]}")
 
             try:
 
@@ -408,7 +408,7 @@ class Validator(BaseValidatorNeuron):
         # Step 4: GRE Setup
         with Timer() as gre_timer:
 
-            logger.info(f"⚙️{' '}Starting GRE configuration phase for miners: {locked_uids}")
+            logger.info(f"⚙️ Starting GRE configuration phase for miners: {locked_uids}")
 
             try:
 

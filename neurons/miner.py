@@ -675,11 +675,6 @@ class Miner(BaseMinerNeuron):
                     for cmd in commands:
                         await conn.run(cmd)
 
-                    # Generate an SSH key pair for `valiops` user
-                    logger.info(f"Generating SSH key pair for user {target_user}...")
-                    generate_key_command = f"sudo ssh-keygen -t rsa -b 4096 -f /home/{target_user}/.ssh/id_rsa -N ''"
-                    await conn.run(generate_key_command, check=True)
-
                     # Check if the public key already exists in authorized_keys
                     result = await conn.run(f"sudo cat /home/{target_user}/.ssh/authorized_keys", check=False)
                     authorized_keys = result.stdout.strip()
@@ -755,26 +750,20 @@ class Miner(BaseMinerNeuron):
             print("Whitelist setup failed on one or more machines, aborting cloning.")
 
 
-    async def run_whitelist_setup(self, ip: str, private_key_path: str, username: str):
+    async def run_whitelist_setup(self, ip: str, private_key_path: str, username: str, remote_path: str = "/tmp/whitelist.sh"):
         """
         This function will execute the whitelist.sh setup on the remote machine.
         It will run the whitelist.sh script after setting up SSH keys and sudoers.
         """
-        whitelist_script_path = "/home/borgg/tensorprox/tensorprox/core/whitelist.sh"
+        whitelist_script_path = os.path.join(BASE_DIR, "tensorprox/core/whitelist.sh")
         
         await send_file_via_scp(whitelist_script_path, "/tmp/whitelist.sh", ip, private_key_path, username)
 
-        await ssh_connect_execute(ip, private_key_path, username, "chmod +x /tmp/whitelist.sh")
+        await ssh_connect_execute(ip, private_key_path, username, f"chmod +x {remote_path}")
 
-        result = await ssh_connect_execute(ip, private_key_path, username, "bash /tmp/whitelist.sh")
+        result = await ssh_connect_execute(ip, private_key_path, username, f"bash {remote_path}")
 
-        if result :
-            print(result.stdout)
-            logger.info(f"Whitelist executed successfully on {ip}!")
-            return True
-        else :
-            return False
-
+        return result
 
         
 def run_gre_setup():

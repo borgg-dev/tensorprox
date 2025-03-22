@@ -157,7 +157,7 @@ def get_immutable_path(base_directory: str, filename: str) -> str:
     Returns:
         str: The absolute path.
     """
-    return os.path.join(base_directory, "tensorprox", "core", "immutable", filename)
+    return os.path.join(base_directory, "tensorprox/core/immutable", filename)
 
 
 def save_file_with_permissions(priv_key_str: str, path: str):
@@ -298,7 +298,27 @@ def generate_random_hashes(n=10):
             label_hashes[label].append(generate_hash(random_string))
     
     return label_hashes
+
+def create_pairs_to_verify(
+    main_file_name: str, 
+    linked_files: List[str], 
+    remote_base_directory: str,
+    base_directory: str = BASE_DIR
+) -> Tuple[str, List[Tuple[str, str]]]:
     
+    remote_script_path = get_immutable_path(remote_base_directory, main_file_name)
+    
+    # Corrected the list concatenation
+    files_to_verify = [main_file_name] + linked_files
+    
+    paired_list = []
+    for file in files_to_verify:
+        local_path = get_immutable_path(base_directory, file)  # Use the passed base_directory
+        remote_path = get_immutable_path(remote_base_directory, file)
+        paired_list.append((local_path, remote_path))
+
+    return remote_script_path, paired_list
+
 def get_local_sha256_hash(file_path: str) -> str:
     """
     Calculates the SHA-256 hash of a local file.
@@ -451,74 +471,6 @@ async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path,
         print(f"Error: {e}")
 
 
-async def run_cmd_async(
-    conn: asyncssh.SSHClientConnection,
-    cmd: Union[str, list],
-    ignore_errors: bool = True,
-    logging_output: bool = False,
-    use_sudo: bool = True,
-) -> object:
-    """
-    Executes a command on a remote machine asynchronously using SSH.
-
-    Args:
-        conn (asyncssh.SSHClientConnection): An active SSH connection.
-        cmd (Union[str, list]): The command to execute as a string or list.
-        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
-        logging_output (bool, optional): Whether to log the command output. Defaults to False.
-        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
-        timeout (int, optional): Timeout in seconds. Defaults to None (no timeout).
-
-    Returns:
-        object: A response object with stdout, stderr, exit_status, and returncode.
-    """
-
-    # # Convert list to properly formatted command string
-    # cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
-
-    # # Set environment variables for apt operations
-    # env = os.environ.copy()
-    # if any(x in cmd for x in ['apt-get', 'apt', 'dpkg']):
-    #     env['DEBIAN_FRONTEND'] = 'noninteractive'
-
-    # # Escape single quotes
-    # escaped = cmd.replace("'", "'\\''")
-
-    # # Construct final command with sudo if needed
-    # final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
-
-    try:
-        result = await conn.run(cmd, check=True)
-
-        out = result.stdout.strip()
-        err = result.stderr.strip()
-
-        if err and not ignore_errors:
-            log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-        elif out and logging_output:
-            log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
-
-        # Return object with both exit_status and returncode
-        return type('Result', (object,), {
-            'stdout': out,
-            'stderr': err,
-            'exit_status': result.exit_status,
-            'returncode': result.exit_status,  # Alias for compatibility
-        })()
-
-    except asyncssh.ProcessError as e:
-        # log_message("ERROR", f"🚨 Command execution failed: {cmd} - {str(e)}")
-        if not ignore_errors:
-            raise
-
-        return type('Result', (object,), {
-            'stdout': '',
-            'stderr': str(e),
-            'exit_status': e.exit_status,
-            'returncode': e.exit_status,
-        })()
-
-
 async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd: Union[str, list] = None) -> Union[bool, object]:
     """
     Establishes an SSH connection, optionally executes a command, and closes the connection.
@@ -532,14 +484,14 @@ async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd
     Returns:
         Union[bool, object]: 
             - If no command is provided, returns True if the connection is successful, False otherwise.
-            - If a command is provided, returns the result of run_cmd_async.
+            - If a command is provided, returns the result.
     """
 
     try:
         async with asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None) as client:
             if cmd:
                 try:
-                    return await run_cmd_async(client, cmd)
+                    return await client.run(cmd, check=True)
                 except Exception as e:
                     return False  # Command execution failed
 
