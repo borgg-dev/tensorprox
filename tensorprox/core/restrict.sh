@@ -181,6 +181,10 @@ if [[ -z "$SSH_ORIGINAL_COMMAND" ]]; then
         fi
     done
 else
+
+    # Log the received command for debugging purposes
+    echo "Received command: $cmd" >> /tmp/whitelist-agent.log
+
     # Extract the base command and check if it exists
     base_cmd=$(command -v ${SSH_ORIGINAL_COMMAND%% *} 2>/dev/null)
     if [[ -z "$base_cmd" ]]; then
