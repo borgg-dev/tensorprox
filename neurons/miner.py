@@ -705,12 +705,12 @@ retries: int = 3,
 
     return
 
-async def clone_repositories(ips: list, github_token: str, initial_private_key_path: str, usernames: list):
+async def clone_repositories(github_token: str, initial_private_key_path: str, machines: List[tuple]):
     """
     This function clones or updates the repositories on the remote machines.
     """
     tasks = []
-    for machine_ip, username in zip(ips, usernames):
+    for machine_ip, username in machines:
         tasks.append(clone_or_update_repository(
             machine_ip=machine_ip,
             github_token=github_token,

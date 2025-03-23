@@ -35,4 +35,4 @@ pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator
 # pm2 start "python3 ~/generate_udp_traffic.py" --name traffic
 
 # Display the logs of pm2 processes
-pm2 logs validator
+pm2 logs miner
