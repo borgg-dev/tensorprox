@@ -1,7 +1,7 @@
 #!/bin/bash
 # Complete setup script for whitelist-agent configuration
 
-restricted_user = "$1"
+restricted_user="$1"
 
 # Exit on any error
 set -e
