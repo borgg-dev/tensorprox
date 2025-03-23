@@ -176,7 +176,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def async_setup(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], uid: int, ssh_dir: str, authorized_keys_path:str, authorized_keys_bak:str) -> bool:
+    async def run(self, ip: str, ssh_user: str, key_path: str, args: list, paired_list: List[str]) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -185,118 +185,18 @@ class RoundManager(BaseModel):
             ip (str): The IP address of the miner to set up.
             ssh_user (str): The SSH user account on the miner.
             key_path (str): Path to the original SSH key used for initial access.
-            remote_script_path (str): Path to the script to execute on the remote machine.
             paired_list (List[str]): List of paired items (purpose unclear from the context, needs adaptation).
-            uid (int): Unique identifier for the miner.
-            ssh_dir (str): SSH directory on the remote machine.
-            authorized_keys_path (str: The path to authorized_keys file
-            authorized_keys_bak (str): The backup path to authorized_keys file.
         Returns:
             bool: True if the setup was successful, False if an error occurred.
         """
 
-        # Generate the session key pair
-        session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
-        _, session_pub = await generate_local_session_keypair(session_key_path)
-
-        # Construct the command to execute the remote script with its arguments
-        args = [
-            'sudo', '/usr/bin/bash', remote_script_path,
-            ssh_user, ssh_dir, session_pub,
-            authorized_keys_path, authorized_keys_bak
-        ]
         
         cmd = ' '.join(shlex.quote(arg) for arg in args)
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
-    
-    async def async_lockdown(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], ssh_dir: str, authorized_keys_path: str) -> bool:
-        """
-        Initiates a lockdown procedure on a remote miner by executing a lockdown command over SSH.
 
-        Args:
-            ip (str): The IP address of the miner to lock down.
-            ssh_user (str): The SSH user account on the miner.
-            key_path (str): Path to the SSH key used for authentication.
-            machine_name (str): Name of the machine being locked down.
-            ssh_dir (str): Path to the directory containing the authorized SSH keys.
-            authorized_keys_path (str): Path to the authorized_keys file on the miner.
-
-        Returns:
-            bool: True if the lockdown was successfully executed, False if an error occurred.
-        """
-
-        # Construct the command to execute the remote script with its arguments
-        args = [
-            'sudo', '/usr/bin/bash', remote_script_path,
-            ssh_user, ssh_dir, self.validator_ip,
-            authorized_keys_path
-        ]
-        
-        cmd = ' '.join(shlex.quote(arg) for arg in args)
-        
-        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
-
-
-    async def async_revert(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], authorized_keys_path: str, authorized_keys_bak: str, revert_log: str) -> bool:
-        """
-        Reverts the SSH configuration changes on a remote miner by restoring the backup of authorized keys.
-
-        Args:
-            ip (str): The IP address of the miner to revert.
-            ssh_user (str): The SSH user account on the miner.
-            key_path (str): Path to the SSH key used for authentication.
-            machine_name (str): Name of the machine being reverted.
-            authorized_keys_path (str): Path to the authorized_keys file on the miner.
-            authorized_keys_bak (str): Path to the backup of the authorized_keys file.
-            revert_log (str): Path to the log file where revert actions are recorded.
-
-        Returns:
-            bool: True if the revert was successful, False if an error occurred.
-        """ 
-
-        # Construct the command to execute the remote script with its arguments
-        args = [
-            'sudo', '/usr/bin/bash', remote_script_path,
-            ip, authorized_keys_bak, authorized_keys_path,
-            revert_log
-        ]
-        
-        cmd = ' '.join(shlex.quote(arg) for arg in args)
-
-        
-        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
-
-
-    async def async_gre_setup(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], machine_name: str, moat_ip: str) -> bool:
-        """
-        Sets up a GRE tunnel on a remote machine using the gre_setup.py script.
-
-        Args:
-            ip (str): The IP address of the miner where the GRE setup will be applied.
-            ssh_user (str): The SSH user account on the miner.
-            key_path (str): Path to the SSH key used for authentication.
-            machine_name (str): The name of the machine where the GRE setup will be performed.
-            remote_base_directory (str): The remote directory where the script is located.
-            moat_ip (str): The IP address of the moat (used as part of the setup).
-
-        Returns:
-            bool: True if the GRE setup was successful, False if an error occurred.
-        """
-
-        # Construct the command to execute the remote script with its arguments
-        args = [
-            'sudo', '/usr/bin/python3', remote_script_path,
-            machine_name, moat_ip
-        ]
-        
-        cmd = ' '.join(shlex.quote(arg) for arg in args)
-
-        return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
-
-
-    async def async_challenge(self, ip: str, ssh_user: str, key_path: str, remote_script_path: str, paired_list: List[str], machine_name: str, label_hashes: dict, playlists: dict, challenge_duration: int) -> tuple:
+    async def extract_metrics(self, result: str, machine_name: str, label_hashes: dict) -> tuple:
         """
         Title: Run Challenge Commands on Miner
 
@@ -304,29 +204,15 @@ class RoundManager(BaseModel):
         running the challenge script, and reporting the outcome.
 
         Args:
-            ip (str): The IP address of the miner where the challenge commands will be run.
-            ssh_user (str): The SSH user account on the miner.
-            key_path (str): Path to the SSH key used for authentication.
+            result (str):
             machine_name (str): Name of the machine to challenge.
             label_hashes (dict): Dictionary containing the encrypted labels for each label type.
-            playlists: (dict): Dictionary containings two playlists for attacker and benign.
-            challenge_duration (int): Duration for which the challenge should run, in seconds.
 
         Returns:
             bool: True if the challenge was successfully executed, False if an error occurred.
         """
 
         try:
-
-            playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
-
-            remote_traffic_gen = "/home/valiops/tensorprox/tensorprox/core/immutable/traffic_generator.py"
-
-            # Construct the command to execute the remote script with its arguments
-            cmd = f"sudo /usr/bin/bash {remote_script_path} {machine_name} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"
-            
-            # Verify the scripts with sha256sum before execution to prevent tampering
-            result = await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
         
             # Parse the result to get the counts from stdout
             counts_and_rtt = result.stdout.strip().split(", ")
@@ -470,6 +356,98 @@ class RoundManager(BaseModel):
             return uid, PingSynapse()
             
 
+    async def process_initial_setup(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, uid: int, ssh_dir: str, authorized_keys_path: str, authorized_keys_bak: str):
+            
+        remote_script_path = get_immutable_path(remote_base_directory, "initial_setup.sh")
+        linked_files = []
+
+        # Generate the session key pair
+        session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
+        _, session_pub = await generate_local_session_keypair(session_key_path)
+
+        args = [
+            'sudo', '/usr/bin/bash', remote_script_path,
+            ssh_user, ssh_dir, session_pub,
+            authorized_keys_path, authorized_keys_bak
+        ]
+
+        files_to_verify = [remote_script_path] + linked_files
+        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
+
+        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+
+    async def process_lockdown(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, ssh_dir: str, authorized_keys_path: str):
+
+        remote_script_path = get_immutable_path(remote_base_directory, "lockdown.sh")
+        linked_files = []
+
+        args = [
+            'sudo', '/usr/bin/bash', remote_script_path,
+            ssh_user, ssh_dir, self.validator_ip,
+            authorized_keys_path
+        ]
+
+        files_to_verify = [remote_script_path] + linked_files
+        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
+
+        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+
+    async def process_revert(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, authorized_keys_bak: str, authorized_keys_path: str, revert_log: str):
+
+        remote_script_path = self.get_immutable_path(remote_base_directory, "revert.sh")
+        linked_files = []
+
+        args = [
+            'sudo', '/usr/bin/bash', remote_script_path,
+            ip, authorized_keys_bak, authorized_keys_path,
+            revert_log
+        ]
+
+        files_to_verify = [remote_script_path] + linked_files
+        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
+
+        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+
+    async def process_gre_setup(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, machine_name: str, moat_private_ip: str):
+
+        remote_script_path = self.get_immutable_path(remote_base_directory, "gre_setup.py")
+        linked_files = []
+
+        args = [
+            'sudo', '/usr/bin/python3', remote_script_path,
+            machine_name, moat_private_ip
+        ]
+
+        files_to_verify = [remote_script_path] + linked_files
+        paired_list = self.create_pairs_to_verify(files_to_verify, remote_base_directory)
+
+        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+
+    async def process_challenge(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, machine_name: str, challenge_duration: int, label_hashes: Dict[str, list], playlists: List[dict]):
+        
+        remote_script_path = self.get_immutable_path(remote_base_directory, "challenge.sh")
+        linked_files = ["traffic_generator.py"]
+        remote_traffic_gen = self.get_immutable_path(remote_base_directory, "traffic_generator.py")
+        playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
+
+        args = [
+            "sudo",
+            "/usr/bin/bash",
+            remote_script_path,
+            machine_name,
+            challenge_duration,
+            f"'{label_hashes}'",  
+            f"'{playlist}'",      
+            self.KING_OVERLAY_IP,
+            remote_traffic_gen,
+        ]
+
+        files_to_verify = [remote_script_path, remote_traffic_gen] + linked_files
+        paired_list = self.create_pairs_to_verify(files_to_verify, remote_base_directory)
+
+        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+
+
     async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:
         """
         Asynchronously checks the availability of a list of miners by their unique IDs.
@@ -515,7 +493,6 @@ class RoundManager(BaseModel):
         task: str,
         miners: List[Tuple[int, 'PingSynapse']],
         subset_miners: list[int],
-        task_function: Callable[..., bool],
         backup_suffix: str = "", 
         label_hashes: dict = None,
         playlists: dict = {},
@@ -537,8 +514,6 @@ class RoundManager(BaseModel):
                                                     and the `PingSynapse` object, which holds machine configuration details.
             assigned_miners (list[int]): List of miner IDs assigned for the task. Used for tracking miners not available 
                                         during the task execution.
-            task_function (Callable[..., bool]): The function that should be used to perform the task on each miner.
-                                                It will be passed additional arguments specific to each task type.
             backup_suffix (str, optional): A suffix for backup operations, typically used for reversion or setup purposes. 
                                             Defaults to an empty string.
             challenge_duration (int, optional): Duration (in seconds) for the challenge task to run. Defaults to 60 seconds.
@@ -556,27 +531,25 @@ class RoundManager(BaseModel):
             
         task_status = {}
 
-        async def process_miner(uid, synapse, task_function):
+        async def process_miner(uid, synapse):
             """
             Process all machines for a given miner and apply the specified task.
 
             Args:
                 uid (int): Miner's unique ID.
                 synapse (PingSynapse): Miner's machine configurations.
-                task_function (Callable[..., bool]): Task function to apply to each machine.
 
             Returns:
                 None: Updates task status for each machine.
             """
 
-            async def process_machine(machine_name, machine_details, task_function):
+            async def process_machine(machine_name, machine_details):
                 """
                 Apply task to a specific machine.
 
                 Args:
                     machine_name (str): Name of the machine (e.g., "Moat").
                     machine_details (object): Machine connection details (contains `ip`, `username`, etc.).
-                    task_function (Callable[..., bool]): Task function to apply (e.g., `initial_setup`, `lockdown`, etc.).
 
                 Returns:
                     bool: True if the task succeeds, False otherwise.
@@ -600,37 +573,29 @@ class RoundManager(BaseModel):
                 default_dir = get_default_dir(ssh_user=ssh_user)  # Get the default directory for the user
                 remote_base_directory = os.path.join(default_dir, "tensorprox")  # Define the remote base directory for tasks
 
-                # Configure task function with specific arguments based on the task type
-                if task == "initial_setup":
-                    task_function = partial(task_function, uid=uid, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak)
-                elif task == "lockdown":
-                    task_function = partial(task_function, ssh_dir=ssh_dir, authorized_keys_path=authorized_keys_path)
-                elif task == "revert":
-                    task_function = partial(task_function, authorized_keys_path=authorized_keys_path, authorized_keys_bak=authorized_keys_bak, revert_log=revert_log)
-                elif task == "gre_setup":
-                    task_function = partial(task_function, machine_name=machine_name, moat_ip=moat_private_ip)
-                elif task == "challenge":
-                    task_function = partial(task_function, machine_name=machine_name, label_hashes=label_hashes, playlists=playlists, challenge_duration=challenge_duration)
-                else:
-                    # Raise an error if the task is not recognized
-                    raise ValueError(f"Unsupported task: {task}")
+                try:
+                    if task == "initial_setup":
+                        result = await self.process_initial_setup(ip, ssh_user, key_path, remote_base_directory, uid, ssh_dir, authorized_keys_path, authorized_keys_bak, key_path)
+                    elif task == "lockdown":
+                        result = await self.process_lockdown(ip, ssh_user, key_path, remote_base_directory, ssh_dir, authorized_keys_path)
+                    elif task == "revert":
+                        result = await self.process_revert(ip, ssh_user, key_path, remote_base_directory, authorized_keys_bak, authorized_keys_path, revert_log)
+                    elif task == "gre_setup":
+                        result = await self.process_gre_setup(ip, ssh_user, key_path, remote_base_directory, machine_name, remote_base_directory, moat_private_ip)
+                    elif task == "challenge":
+                        result = await self.process_challenge(ip, ssh_user, key_path, remote_base_directory, machine_name, challenge_duration, label_hashes, playlists)
+                        result = self.extract_metrics(result, machine_name, label_hashes)
+                    else:
+                        raise ValueError(f"Unsupported task: {task}")
 
-                # Determine script name based on the task type (use `.sh` for shell scripts, `.py` for Python scripts)
-                script_name = f"{task}.sh" if task != "gre_setup" else f"{task}.py"
-                
-                # Define linked files to verify based on the task type (for "challenge" task, we add the traffic generator script for verification)
-                linked_files = ["traffic_generator.py"] if task == "challenge" else []
-                
-                # Create the remote script path and paired file list (for sha256 verification)
-                remote_script_path, paired_list = create_pairs_to_verify(script_name, linked_files, remote_base_directory)
+                    return result
 
-                # Execute the task function asynchronously, passing necessary parameters like IP, SSH user, and file paths
-                success = await task_function(ip=ip, ssh_user=ssh_user, key_path=key_path, remote_script_path=remote_script_path, paired_list=paired_list)
-
-                return success  # Return whether the task was successful or not
+                except Exception as e:
+                    logging.error(f"Error executing task on {machine_name} with ip {ip} for miner {uid}: {e}")
+                    return False
             
             # Run revert for all machines of the miner
-            tasks = [process_machine(name, details, task_function) for name, details in synapse.machine_availabilities.machine_config.items() if name != "moat"]
+            tasks = [process_machine(name, details) for name, details in synapse.machine_availabilities.machine_config.items() if name != "moat"]
             results = await asyncio.gather(*tasks)
 
             if task == "challenge":
@@ -639,9 +604,7 @@ class RoundManager(BaseModel):
                 failed_machines = 0
 
                 for result in results:
-                    if result is None:
-                        failed_machines += 1
-                    elif isinstance(result, tuple):  # Expected result type for successful challenge
+                    if isinstance(result, tuple):
                         label_counts_results.append(result)
                     else:
                         failed_machines += 1
@@ -663,7 +626,7 @@ class RoundManager(BaseModel):
                     f"{task}_status_message": f"All machines processed {task} successfully" if all_success else f"Failure: Some machines failed to process {task}",
                 }
 
-        async def setup_miner_with_timeout(uid, synapse, task_function):
+        async def setup_miner_with_timeout(uid, synapse):
             """
             Setup miner with a timeout.
             
@@ -674,7 +637,7 @@ class RoundManager(BaseModel):
 
             try:
                 # Apply timeout to the entire setup_miner function for each miner
-                await asyncio.wait_for(process_miner(uid, synapse, task_function), timeout=timeout)
+                await asyncio.wait_for(process_miner(uid, synapse), timeout=timeout)
 
                 state = (
                     "GET_READY" if task == "gre_setup" 
@@ -703,7 +666,7 @@ class RoundManager(BaseModel):
             
 
         # Process all miners in parallel
-        await asyncio.gather(*[setup_miner_with_timeout(uid, synapse, task_function) for uid, synapse in miners])
+        await asyncio.gather(*[setup_miner_with_timeout(uid, synapse) for uid, synapse in miners])
 
         # Mark assigned miners that are not in ready_miners as unavailable
         available_miner_ids = {uid for uid, _ in miners}

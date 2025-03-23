@@ -352,7 +352,6 @@ class Validator(BaseValidatorNeuron):
                     task="initial_setup",
                     miners=available_miners,
                     subset_miners=subset_miners,
-                    task_function=round_manager.async_setup,
                     backup_suffix=backup_suffix,
                 )
 
@@ -383,7 +382,6 @@ class Validator(BaseValidatorNeuron):
         #             task="lockdown",
         #             miners=setup_completed_miners,
         #             subset_miners=subset_miners,
-        #             task_function=round_manager.async_lockdown,
         #         )
 
         #     except Exception as e:
@@ -416,7 +414,6 @@ class Validator(BaseValidatorNeuron):
                     task="gre_setup",
                     miners=locked_miners,
                     subset_miners=subset_miners,
-                    task_function=round_manager.async_gre_setup,
                 )
 
             except Exception as e:
@@ -448,7 +445,6 @@ class Validator(BaseValidatorNeuron):
                     task="challenge",
                     miners=ready_miners,
                     subset_miners=subset_miners,
-                    task_function=round_manager.async_challenge,
                     label_hashes=label_hashes,
                     playlists=playlists,
                 )
@@ -470,7 +466,6 @@ class Validator(BaseValidatorNeuron):
                     task="revert",
                     miners=ready_miners,
                     subset_miners=subset_miners,
-                    task_function=round_manager.async_revert,
                     backup_suffix=backup_suffix,
                 )
 

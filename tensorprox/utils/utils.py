@@ -300,16 +300,10 @@ def generate_random_hashes(n=10):
     return label_hashes
 
 def create_pairs_to_verify(
-    main_file_name: str, 
-    linked_files: List[str], 
+    files_to_verify: List[str], 
     remote_base_directory: str,
     base_directory: str = BASE_DIR
 ) -> Tuple[str, List[Tuple[str, str]]]:
-    
-    remote_script_path = get_immutable_path(remote_base_directory, main_file_name)
-    
-    # Corrected the list concatenation
-    files_to_verify = [main_file_name] + linked_files
     
     paired_list = []
     for file in files_to_verify:
@@ -317,7 +311,7 @@ def create_pairs_to_verify(
         remote_path = get_immutable_path(remote_base_directory, file)
         paired_list.append((local_path, remote_path))
 
-    return remote_script_path, paired_list
+    return paired_list
 
 def get_local_sha256_hash(file_path: str) -> str:
     """
