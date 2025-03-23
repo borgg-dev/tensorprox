@@ -744,25 +744,23 @@ async def run_whitelist_setup(
         result (str): The result of executing the restrict.sh script.
     """
     
-    # Upload the whitelist script to the remote machine using SCP
-    await send_file_via_scp(local_script_path, remote_path, ip, private_key_path, username)
+    try:
+        # Upload the whitelist script to the remote machine using SCP
+        await send_file_via_scp(local_script_path, remote_path, ip, private_key_path, username)
+        
+        # Make the script executable and run it with the restricted user
+        result = await ssh_connect_execute(
+            ip, 
+            private_key_path, 
+            username, 
+            f"chmod +x {remote_path} && bash {remote_path} {restricted_user} && rm -rf {remote_path}"
+        )
+        
+        return result
     
-    # Make the script executable and run it with the restricted user
-    result = await ssh_connect_execute(
-        ip, 
-        private_key_path, 
-        username, 
-        f"chmod +x {remote_path} && bash {remote_path} {restricted_user}"
-    )
-
-    # Optionally, check if the script was executed successfully before cleaning up
-    if result.stdout.strip() == "success":
-        await ssh_connect_execute(ip, private_key_path, username, f"rm -rf {remote_path}")
-    else:
-        # Handle failure
-        raise Exception(f"Script execution failed: {result}")
-    
-    return result
+    except Exception as e:
+        # Handle any exceptions and return an error message
+        return f"An error occurred: {str(e)}"
 
 async def setup_machines(ips: list, github_token: str, initial_private_key_path: str, usernames: list):
     """
