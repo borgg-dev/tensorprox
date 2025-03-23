@@ -17,13 +17,13 @@ else
 fi
 
 echo "Creating SSH directory..."
-sudo mkdir -p /home/$restricted_user/.ssh
-sudo chown -R $restricted_user:$restricted_user /home/$restricted_user/.ssh
-sudo chmod 700 /home/$restricted_user/.ssh
+sudo mkdir -p "/home/$restricted_user/.ssh"
+sudo chown -R $restricted_user:$restricted_user "/home/$restricted_user/.ssh"
+sudo chmod 700 "/home/$restricted_user/.ssh"
 
-sudo touch /home/$restricted_user/.ssh/authorized_keys
-sudo chown $restricted_user:$restricted_user /home/$restricted_user/.ssh/authorized_keys
-sudo chmod 600 /home/$restricted_user/.ssh/authorized_keys
+sudo touch "/home/$restricted_user/.ssh/authorized_keys"
+sudo chown $restricted_user:$restricted_user "/home/$restricted_user/.ssh/authorized_keys"
+sudo chmod 600 "/home/$restricted_user/.ssh/authorized_keys"
 
 # echo "Restricting password authentication..."
 # sudo passwd -l $restricted_user || echo "Password already locked or error occurred, continuing..."
