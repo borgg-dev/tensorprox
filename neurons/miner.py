@@ -786,7 +786,7 @@ async def setup_machines(github_token: str, initial_private_key_path: str, machi
     # If any whitelist setup fails, don't proceed with cloning
     if all(setup_results):
         print("Whitelist setup successful on all machines, proceeding with cloning.")
-        await clone_repositories(ips, github_token, initial_private_key_path, usernames)
+        await clone_repositories(github_token, initial_private_key_path, machines)
     else:
         print("Whitelist setup failed on one or more machines, aborting cloning.")
 
