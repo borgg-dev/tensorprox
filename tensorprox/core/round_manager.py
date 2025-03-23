@@ -176,7 +176,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def run(self, ip: str, ssh_user: str, key_path: str, args: list, files_to_verify: list, remote_base_directory: str) -> bool:
+    async def run(self, ip: str, ssh_user: str, key_path: str, cmd: str, files_to_verify: list, remote_base_directory: str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -191,8 +191,6 @@ class RoundManager(BaseModel):
         """
 
         paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
-
-        cmd = ' '.join(shlex.quote(arg) for arg in args)
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
     
@@ -411,12 +409,13 @@ class RoundManager(BaseModel):
             authorized_keys_path, authorized_keys_bak
         ]
 
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
 
         return await self.run(
             ip=ip,
             ssh_user=ssh_user,
             key_path=key_path,
-            args=args,
+            cmd=cmd,
             files_to_verify=files_to_verify,
             remote_base_directory=remote_base_directory
         )
@@ -461,11 +460,13 @@ class RoundManager(BaseModel):
             authorized_keys_path
         ]
 
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
+
         return await self.run(
             ip=ip,
             ssh_user=ssh_user,
             key_path=key_path,
-            args=args,
+            cmd=cmd,
             files_to_verify=files_to_verify,
             remote_base_directory=remote_base_directory
         )
@@ -512,11 +513,13 @@ class RoundManager(BaseModel):
             revert_log
         ]
 
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
+
         return await self.run(
             ip=ip,
             ssh_user=ssh_user,
             key_path=key_path,
-            args=args,
+            cmd=cmd,
             files_to_verify=files_to_verify,
             remote_base_directory=remote_base_directory
         )
@@ -560,12 +563,13 @@ class RoundManager(BaseModel):
             machine_name, moat_private_ip
         ]
 
+        cmd = ' '.join(shlex.quote(arg) for arg in args)
 
         return await self.run(
             ip=ip,
             ssh_user=ssh_user,
             key_path=key_path,
-            args=args,
+            cmd=cmd,
             files_to_verify=files_to_verify,
             remote_base_directory=remote_base_directory
         )
@@ -611,24 +615,15 @@ class RoundManager(BaseModel):
 
         playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
         label_hashes = json.dumps(label_hashes)
-        
-        args = [
-            "sudo",
-            "/usr/bin/bash",
-            remote_script_path,
-            machine_name,
-            str(challenge_duration),
-            f"'{label_hashes}'",  
-            f"'{playlist}'",      
-            KING_OVERLAY_IP,
-            remote_traffic_gen,
-        ]
 
+        # Construct the command to execute the remote script with its arguments
+        cmd = f"sudo /usr/bin/bash {remote_script_path} {machine_name} {challenge_duration} '{label_hashes}' '{playlist}' {KING_OVERLAY_IP} {remote_traffic_gen}"
+        
         return await self.run(
             ip=ip,
             ssh_user=ssh_user,
             key_path=key_path,
-            args=args,
+            cmd=cmd,
             files_to_verify=files_to_verify,
             remote_base_directory=remote_base_directory
         )
