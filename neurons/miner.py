@@ -84,13 +84,9 @@ BENIGN_PRIVATE_IP: str = os.environ.get("BENIGN_PRIVATE_IP")
 KING_PRIVATE_IP: str = os.environ.get("KING_PRIVATE_IP")
 MOAT_PRIVATE_IP: str = os.environ.get("MOAT_PRIVATE_IP")
 FORWARD_PORT: int = os.environ.get("FORWARD_PORT", 8080)
-ATTACKER_IFACE: str = os.environ.get("ATTACKER_IFACE", "eth0")
 ATTACKER_USERNAME: str = os.environ.get("ATTACKER_USERNAME", "root")
-BENIGN_IFACE: str = os.environ.get("BENIGN_IFACE", "eth0")
 BENIGN_USERNAME: str = os.environ.get("BENIGN_USERNAME", "root")
-KING_IFACE: str = os.environ.get("KING_IFACE", "eth0")
 KING_USERNAME: str = os.environ.get("KING_USERNAME", "root")
-MOAT_IFACE: str = os.environ.get("MOAT_IFACE", "eth0")
 
 class Miner(BaseMinerNeuron):
     """
@@ -140,13 +136,20 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username=RESTRICTED_USER, private_ip=ATTACKER_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username=RESTRICTED_USER, private_ip=BENIGN_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["king"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username=RESTRICTED_USER, private_ip=KING_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, username=RESTRICTED_USER, private_ip=ATTACKER_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, username=RESTRICTED_USER, private_ip=BENIGN_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["king"] = MachineDetails(ip=KING_PUBLIC_IP, username=RESTRICTED_USER, private_ip=KING_PRIVATE_IP)
             synapse.machine_availabilities.machine_config["moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
             # Use the initial private key for initial connection
             initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
+
+            #Machine's main user
+            machine_usernames = {
+                "attacker": ATTACKER_USERNAME,
+                "benign": BENIGN_USERNAME,
+                "king": KING_USERNAME
+            }
 
             # Run SSH key addition in parallel
             tasks = [
@@ -154,7 +157,7 @@ class Miner(BaseMinerNeuron):
                     machine_ip=machine_details.ip,
                     ssh_public_key=ssh_public_key,
                     initial_private_key_path=initial_private_key_path,
-                    username="borgg-vm"
+                    username=machine_usernames.get(machine_name)
                 )
                 for machine_name, machine_details in synapse.machine_availabilities.machine_config.items()
                 if machine_name != "moat"  # Skip Moat machine
@@ -823,6 +826,7 @@ if __name__ == "__main__":
         (ATTACKER_PUBLIC_IP, ATTACKER_USERNAME), 
         (KING_PUBLIC_IP, KING_USERNAME)
     ]
+    
     github_token = ""
     initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
     

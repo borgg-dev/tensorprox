@@ -485,11 +485,12 @@ async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd
         async with asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None) as client:
             if cmd:
                 try:
-                    return await client.run(cmd, check=True)
+                    return await client.run(cmd, check=False, stderr=True) # Command execution successful
                 except Exception as e:
-                    return False  # Command execution failed
+                    # logger.info(f"Command execution failed : {e}")
+                    return False  
 
-        return True  # Connection (and command execution, if any) was successful
+        return True  # Connection successful
 
     except asyncssh.Error as e:
         return False

@@ -406,11 +406,15 @@ class RoundManager(BaseModel):
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
         args = [
-            'sudo', '/usr/bin/bash', remote_script_path,
-            ssh_user, ssh_dir, session_pub,
-            authorized_keys_path, authorized_keys_bak
+            'sudo', 
+            '/usr/bin/bash', 
+            remote_script_path,
+            ssh_user, 
+            ssh_dir, 
+            session_pub,
+            authorized_keys_path, 
+            authorized_keys_bak
         ]
-
 
         return await self.run(
             ip=ip,
@@ -456,8 +460,11 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         args = [
-            'sudo', '/usr/bin/bash', remote_script_path,
-            ssh_user, ssh_dir, self.validator_ip,
+            'sudo', 
+            '/usr/bin/bash', 
+            remote_script_path,
+            ssh_user, ssh_dir, 
+            self.validator_ip,
             authorized_keys_path
         ]
 
@@ -507,8 +514,12 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         args = [
-            'sudo', '/usr/bin/bash', remote_script_path,
-            ip, authorized_keys_bak, authorized_keys_path,
+            'sudo', 
+            '/usr/bin/bash', 
+            remote_script_path,
+            ip, 
+            authorized_keys_bak, 
+            authorized_keys_path,
             revert_log
         ]
 
@@ -556,10 +567,12 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         args = [
-            'sudo', '/usr/bin/python3', remote_script_path,
-            machine_name, moat_private_ip
+            'sudo', 
+            '/usr/bin/python3', 
+            remote_script_path,
+            machine_name, 
+            moat_private_ip
         ]
-
 
         return await self.run(
             ip=ip,
