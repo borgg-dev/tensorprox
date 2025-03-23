@@ -36,7 +36,7 @@ if [[ "$machine_name" == "attacker" || "$machine_name" == "benign" ]]; then
     # Install necessary Python packages
     for package in faker scapy pycryptodome; do
         if ! python3 -c "import $package" &>/dev/null; then
-            pip3 install $package > /dev/null 2>&1
+            sudo pip3 install $package > /dev/null 2>&1
         fi
     done
 

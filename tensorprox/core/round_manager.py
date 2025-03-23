@@ -176,7 +176,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def run(self, ip: str, ssh_user: str, key_path: str, args: list, paired_list: List[str]) -> bool:
+    async def run(self, ip: str, ssh_user: str, key_path: str, args: list, files_to_verify: list, remote_base_directory: str) -> bool:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -190,7 +190,8 @@ class RoundManager(BaseModel):
             bool: True if the setup was successful, False if an error occurred.
         """
 
-        
+        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
+
         cmd = ' '.join(shlex.quote(arg) for arg in args)
         
         return await check_files_and_execute(ip, key_path, ssh_user, paired_list, cmd)
@@ -198,18 +199,24 @@ class RoundManager(BaseModel):
 
     async def extract_metrics(self, result: str, machine_name: str, label_hashes: dict) -> tuple:
         """
-        Title: Run Challenge Commands on Miner
+        Extracts label counts and average RTT (Round Trip Time) from the result output.
 
-        Executes challenge-related commands on a remote miner. This involves reading the validator's private key,
-        running the challenge script, and reporting the outcome.
+        This method processes the result string, which contains various metrics, and extracts the label counts
+        and average RTT value. It then returns the parsed data along with the machine name.
 
         Args:
-            result (str):
-            machine_name (str): Name of the machine to challenge.
-            label_hashes (dict): Dictionary containing the encrypted labels for each label type.
+            result (str): The result string that contains the metric values (including label counts and RTT).
+            machine_name (str): The name of the machine from which the metrics were collected.
+            label_hashes (dict): A dictionary containing label hashes, which are used to match the labels in the result.
 
         Returns:
-            bool: True if the challenge was successfully executed, False if an error occurred.
+            tuple: A tuple containing:
+                - `machine_name` (str): The name of the machine from the argument.
+                - `label_counts` (dict): A dictionary with label names as keys and their corresponding counts as values.
+                - `rtt_avg` (float or None): The average RTT value parsed from the result, or None if not found or invalid.
+        
+        If any errors occur during parsing (e.g., invalid result format or failed conversions), the method logs a warning
+        and skips the invalid entries. In case of a general failure, the method logs the error and returns `None`.
         """
 
         try:
@@ -356,10 +363,43 @@ class RoundManager(BaseModel):
             return uid, PingSynapse()
             
 
-    async def process_initial_setup(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, uid: int, ssh_dir: str, authorized_keys_path: str, authorized_keys_bak: str):
-            
-        remote_script_path = get_immutable_path(remote_base_directory, "initial_setup.sh")
-        linked_files = []
+    async def process_initial_setup(
+        self,
+        ip: str,
+        ssh_user: str,
+        key_path: str,
+        remote_base_directory: str,
+        uid: int,
+        ssh_dir: str,
+        authorized_keys_path: str,
+        authorized_keys_bak: str,
+        script_name: str = "initial_setup.sh",
+        linked_files: list = []
+    ) -> bool:
+        """
+        Performs the initial setup process on the remote server.
+
+        This method generates a session key pair, prepares the required arguments for
+        running the setup script, and calls the `run` method to execute it on the remote server.
+
+        Args:
+            ip (str): The IP address of the remote server.
+            ssh_user (str): The SSH username to access the server.
+            key_path (str): The path to the SSH private key for authentication.
+            remote_base_directory (str): The base directory on the remote server.
+            uid (int): The user ID for creating a session key.
+            ssh_dir (str): The directory where SSH keys are stored.
+            authorized_keys_path (str): The path to the authorized keys file on the remote server.
+            authorized_keys_bak (str): The backup path for the authorized keys file.
+            script_name (str, optional): The name of the script to execute (default is "initial_setup.sh").
+            linked_files (list, optional): List of linked files to verify along with the script (default is an empty list).
+
+        Returns:
+            bool: Returns `True` if the setup process was successful, otherwise `False`.
+        """
+
+        remote_script_path = get_immutable_path(remote_base_directory, script_name)
+        files_to_verify = [script_name] + linked_files
 
         # Generate the session key pair
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
@@ -371,15 +411,49 @@ class RoundManager(BaseModel):
             authorized_keys_path, authorized_keys_bak
         ]
 
-        files_to_verify = [remote_script_path] + linked_files
-        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
 
-        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+        return await self.run(
+            ip=ip,
+            ssh_user=ssh_user,
+            key_path=key_path,
+            args=args,
+            files_to_verify=files_to_verify,
+            remote_base_directory=remote_base_directory
+        )
+    
+    async def process_lockdown(
+        self,
+        ip: str,
+        ssh_user: str,
+        key_path: str,
+        remote_base_directory: str,
+        ssh_dir: str,
+        authorized_keys_path: str,
+        script_name: str = "lockdown.sh",
+        linked_files: list = []
+    ) -> bool:
+        """
+        Executes the lockdown script on the remote server.
 
-    async def process_lockdown(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, ssh_dir: str, authorized_keys_path: str):
+        This method prepares the arguments for running the lockdown script and calls the `run` method
+        to execute it on the remote server.
 
-        remote_script_path = get_immutable_path(remote_base_directory, "lockdown.sh")
-        linked_files = []
+        Args:
+            ip (str): The IP address of the remote server.
+            ssh_user (str): The SSH username to access the server.
+            key_path (str): The path to the SSH private key for authentication.
+            remote_base_directory (str): The base directory on the remote server.
+            ssh_dir (str): The directory where SSH keys are stored.
+            authorized_keys_path (str): The path to the authorized keys file on the remote server.
+            script_name (str, optional): The name of the script to execute (default is "lockdown.sh").
+            linked_files (list, optional): List of linked files to verify along with the script (default is an empty list).
+
+        Returns:
+            bool: Returns `True` if the lockdown process was successful, otherwise `False`.
+        """
+
+        remote_script_path = get_immutable_path(remote_base_directory, script_name)
+        files_to_verify = [script_name] + linked_files
 
         args = [
             'sudo', '/usr/bin/bash', remote_script_path,
@@ -387,15 +461,50 @@ class RoundManager(BaseModel):
             authorized_keys_path
         ]
 
-        files_to_verify = [remote_script_path] + linked_files
-        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
+        return await self.run(
+            ip=ip,
+            ssh_user=ssh_user,
+            key_path=key_path,
+            args=args,
+            files_to_verify=files_to_verify,
+            remote_base_directory=remote_base_directory
+        )
+    
+    async def process_revert(
+        self,
+        ip: str,
+        ssh_user: str,
+        key_path: str,
+        remote_base_directory: str,
+        authorized_keys_bak: str,
+        authorized_keys_path: str,
+        revert_log: str,
+        script_name: str = "revert.sh",
+        linked_files: list = []
+    ) -> bool:
+        """
+        Executes the revert script on the remote server.
 
-        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+        This method prepares the arguments for running the revert script and calls the `run` method
+        to execute it on the remote server.
 
-    async def process_revert(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, authorized_keys_bak: str, authorized_keys_path: str, revert_log: str):
+        Args:
+            ip (str): The IP address of the remote server.
+            ssh_user (str): The SSH username to access the server.
+            key_path (str): The path to the SSH private key for authentication.
+            remote_base_directory (str): The base directory on the remote server.
+            authorized_keys_bak (str): The path to the backup authorized keys file.
+            authorized_keys_path (str): The path to the authorized keys file on the remote server.
+            revert_log (str): The path to the revert log.
+            script_name (str, optional): The name of the script to execute (default is "revert.sh").
+            linked_files (list, optional): List of linked files to verify along with the script (default is an empty list).
 
-        remote_script_path = self.get_immutable_path(remote_base_directory, "revert.sh")
-        linked_files = []
+        Returns:
+            bool: Returns `True` if the revert process was successful, otherwise `False`.
+        """
+
+        remote_script_path = get_immutable_path(remote_base_directory, script_name)
+        files_to_verify = [script_name] + linked_files
 
         args = [
             'sudo', '/usr/bin/bash', remote_script_path,
@@ -403,31 +512,103 @@ class RoundManager(BaseModel):
             revert_log
         ]
 
-        files_to_verify = [remote_script_path] + linked_files
-        paired_list = create_pairs_to_verify(files_to_verify, remote_base_directory)
+        return await self.run(
+            ip=ip,
+            ssh_user=ssh_user,
+            key_path=key_path,
+            args=args,
+            files_to_verify=files_to_verify,
+            remote_base_directory=remote_base_directory
+        )
+    
+    async def process_gre_setup(
+        self,
+        ip: str,
+        ssh_user: str,
+        key_path: str,
+        remote_base_directory: str,
+        machine_name: str,
+        moat_private_ip: str,
+        script_name: str = "gre_setup.py",
+        linked_files: list = []
+    ) -> bool:
+        """
+        Sets up the GRE tunnel on the remote server.
 
-        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+        This method prepares the arguments for running the GRE setup script and calls the `run` method
+        to execute it on the remote server.
 
-    async def process_gre_setup(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, machine_name: str, moat_private_ip: str):
+        Args:
+            ip (str): The IP address of the remote server.
+            ssh_user (str): The SSH username to access the server.
+            key_path (str): The path to the SSH private key for authentication.
+            remote_base_directory (str): The base directory on the remote server.
+            machine_name (str): The name of the machine for the GRE setup.
+            moat_private_ip (str): The private IP address of the Moat machine.
+            script_name (str, optional): The name of the script to execute (default is "gre_setup.py").
+            linked_files (list, optional): List of linked files to verify along with the script (default is an empty list).
 
-        remote_script_path = self.get_immutable_path(remote_base_directory, "gre_setup.py")
-        linked_files = []
+        Returns:
+            bool: Returns `True` if the GRE setup process was successful, otherwise `False`.
+        """
+
+        remote_script_path = get_immutable_path(remote_base_directory, script_name)
+        files_to_verify = [script_name] + linked_files
 
         args = [
             'sudo', '/usr/bin/python3', remote_script_path,
             machine_name, moat_private_ip
         ]
 
-        files_to_verify = [remote_script_path] + linked_files
-        paired_list = self.create_pairs_to_verify(files_to_verify, remote_base_directory)
 
-        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+        return await self.run(
+            ip=ip,
+            ssh_user=ssh_user,
+            key_path=key_path,
+            args=args,
+            files_to_verify=files_to_verify,
+            remote_base_directory=remote_base_directory
+        )
+    
+    async def process_challenge(
+        self,
+        ip: str,
+        ssh_user: str,
+        key_path: str,
+        remote_base_directory: str,
+        machine_name: str,
+        challenge_duration: int,
+        label_hashes: Dict[str, list],
+        playlists: List[dict],
+        script_name: str = "challenge.sh",
+        linked_files: list = ["traffic_generator.py"]
+    ) -> tuple:
+        """
+        Runs the challenge script on the remote server.
 
-    async def process_challenge(self, ip: str, ssh_user: str, key_path: str, remote_base_directory: str, machine_name: str, challenge_duration: int, label_hashes: Dict[str, list], playlists: List[dict]):
-        
-        remote_script_path = self.get_immutable_path(remote_base_directory, "challenge.sh")
-        linked_files = ["traffic_generator.py"]
-        remote_traffic_gen = self.get_immutable_path(remote_base_directory, "traffic_generator.py")
+        This method prepares the arguments for running the challenge script and calls the `run` method
+        to execute it on the remote server.
+
+        Args:
+            ip (str): The IP address of the remote server.
+            ssh_user (str): The SSH username to access the server.
+            key_path (str): The path to the SSH private key for authentication.
+            remote_base_directory (str): The base directory on the remote server.
+            machine_name (str): The name of the machine running the challenge.
+            challenge_duration (int): The duration of the challenge in seconds.
+            label_hashes (Dict[str, list]): A dictionary mapping labels to their corresponding hash values.
+            playlists (List[dict]): A list of playlists to be used for the challenge.
+            script_name (str, optional): The name of the script to execute (default is "challenge.sh").
+            linked_files (list, optional): List of linked files to verify along with the script (default includes "traffic_generator.py").
+
+        Returns:
+            tuple: The result of the challenge execution (could be any relevant value depending on the implementation of `run`).
+        """
+
+        remote_script_path = get_immutable_path(remote_base_directory, script_name)
+        remote_traffic_gen = get_immutable_path(remote_base_directory, "traffic_generator.py")
+        files_to_verify = [script_name] + linked_files
+
         playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
 
         args = [
@@ -435,17 +616,21 @@ class RoundManager(BaseModel):
             "/usr/bin/bash",
             remote_script_path,
             machine_name,
-            challenge_duration,
+            str(challenge_duration),
             f"'{label_hashes}'",  
             f"'{playlist}'",      
-            self.KING_OVERLAY_IP,
+            KING_OVERLAY_IP,
             remote_traffic_gen,
         ]
 
-        files_to_verify = [remote_script_path, remote_traffic_gen] + linked_files
-        paired_list = self.create_pairs_to_verify(files_to_verify, remote_base_directory)
-
-        return await self.run(ip=ip, ssh_user=ssh_user, key_path=key_path, args=args, paired_list=paired_list)
+        return await self.run(
+            ip=ip,
+            ssh_user=ssh_user,
+            key_path=key_path,
+            args=args,
+            files_to_verify=files_to_verify,
+            remote_base_directory=remote_base_directory
+        )
 
 
     async def check_machines_availability(self, uids: List[int]) -> Tuple[List[PingSynapse], List[dict]]:
@@ -575,16 +760,56 @@ class RoundManager(BaseModel):
 
                 try:
                     if task == "initial_setup":
-                        result = await self.process_initial_setup(ip, ssh_user, key_path, remote_base_directory, uid, ssh_dir, authorized_keys_path, authorized_keys_bak, key_path)
+                        result = await self.process_initial_setup(
+                            ip,
+                            ssh_user,
+                            key_path,
+                            remote_base_directory,
+                            uid,
+                            ssh_dir,
+                            authorized_keys_path,
+                            authorized_keys_bak
+                        )
                     elif task == "lockdown":
-                        result = await self.process_lockdown(ip, ssh_user, key_path, remote_base_directory, ssh_dir, authorized_keys_path)
+                        result = await self.process_lockdown(
+                            ip,
+                            ssh_user,
+                            key_path,
+                            remote_base_directory,
+                            ssh_dir,
+                            authorized_keys_path
+                        )
                     elif task == "revert":
-                        result = await self.process_revert(ip, ssh_user, key_path, remote_base_directory, authorized_keys_bak, authorized_keys_path, revert_log)
+                        result = await self.process_revert(
+                            ip,
+                            ssh_user,
+                            key_path,
+                            remote_base_directory,
+                            authorized_keys_bak,
+                            authorized_keys_path,
+                            revert_log
+                        )
                     elif task == "gre_setup":
-                        result = await self.process_gre_setup(ip, ssh_user, key_path, remote_base_directory, machine_name, remote_base_directory, moat_private_ip)
+                        result = await self.process_gre_setup(
+                            ip,
+                            ssh_user,
+                            key_path,
+                            remote_base_directory,
+                            machine_name,
+                            moat_private_ip
+                        )
                     elif task == "challenge":
-                        result = await self.process_challenge(ip, ssh_user, key_path, remote_base_directory, machine_name, challenge_duration, label_hashes, playlists)
-                        result = self.extract_metrics(result, machine_name, label_hashes)
+                        result = await self.process_challenge(
+                            ip,
+                            ssh_user,
+                            key_path,
+                            remote_base_directory,
+                            machine_name,
+                            challenge_duration,
+                            label_hashes,
+                            playlists
+                        )
+                        result = await self.extract_metrics(result, machine_name, label_hashes)
                     else:
                         raise ValueError(f"Unsupported task: {task}")
 
