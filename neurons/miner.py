@@ -762,7 +762,7 @@ async def run_whitelist_setup(
         # Handle any exceptions and return an error message
         return f"An error occurred: {str(e)}"
 
-async def setup_machines(ips: list, github_token: str, initial_private_key_path: str, usernames: list):
+async def setup_machines(github_token: str, initial_private_key_path: str, machines: List[tuple]):
     """
     Set up repository cloning for multiple machines using their corresponding IPs and usernames.
     
@@ -777,7 +777,7 @@ async def setup_machines(ips: list, github_token: str, initial_private_key_path:
 
     tasks = []
 
-    for machine_ip, username in zip(ips, usernames):
+    for machine_ip, username in machines:
         tasks.append(run_whitelist_setup(machine_ip, initial_private_key_path, username))
     
     # Run all whitelist setup tasks concurrently and wait for them to complete
@@ -799,7 +799,9 @@ def run_gre_setup():
     try:
         # Performing GRE Setup before starting
         gre = GRESetup(node_type="moat")
-        success = gre.moat(BENIGN_PRIVATE_IP, ATTACKER_PRIVATE_IP, KING_PRIVATE_IP)
+        success = gre.moat(benign_private_ip=BENIGN_PRIVATE_IP, 
+                    attacker_private_ip=ATTACKER_PRIVATE_IP, 
+                    king_private_ip=KING_PRIVATE_IP)
         if success :
             logger.info("GRE setup successfully done.")
         else :
@@ -816,14 +818,23 @@ if __name__ == "__main__":
 
     # run_gre_setup()
 
-    ips = [BENIGN_PUBLIC_IP, ATTACKER_PUBLIC_IP, KING_PUBLIC_IP]
-    usernames = [BENIGN_USERNAME, ATTACKER_USERNAME, KING_USERNAME]
+    machines = [
+        (BENIGN_PUBLIC_IP, BENIGN_USERNAME), 
+        (ATTACKER_PUBLIC_IP, ATTACKER_USERNAME), 
+        (KING_PUBLIC_IP, KING_USERNAME)
+    ]
     github_token = ""
     initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
     
     # Run the repository cloning setup first, wait for it to complete
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(setup_machines(ips, github_token, initial_private_key_path, usernames))
+    loop.run_until_complete(
+        setup_machines(
+            github_token, 
+            initial_private_key_path, 
+            machines
+        )
+    )
 
     with Miner() as miner:
         while not miner.should_exit:

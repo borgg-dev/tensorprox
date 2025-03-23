@@ -610,7 +610,8 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
-
+        label_hashes = json.dumps(label_hashes)
+        
         args = [
             "sudo",
             "/usr/bin/bash",
