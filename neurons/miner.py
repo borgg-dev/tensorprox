@@ -140,9 +140,9 @@ class Miner(BaseMinerNeuron):
             ssh_public_key, ssh_private_key = self.generate_ssh_key_pair()
 
             synapse.machine_availabilities.key_pair = (ssh_public_key, ssh_private_key)
-            synapse.machine_availabilities.machine_config["attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username="valiops", private_ip=ATTACKER_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username="valiops", private_ip=BENIGN_PRIVATE_IP)
-            synapse.machine_availabilities.machine_config["king"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username="valiops", private_ip=KING_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["attacker"] = MachineDetails(ip=ATTACKER_PUBLIC_IP, iface=ATTACKER_IFACE, username=RESTRICTED_USER, private_ip=ATTACKER_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["benign"] = MachineDetails(ip=BENIGN_PUBLIC_IP, iface=BENIGN_IFACE, username=RESTRICTED_USER, private_ip=BENIGN_PRIVATE_IP)
+            synapse.machine_availabilities.machine_config["king"] = MachineDetails(ip=KING_PUBLIC_IP, iface=KING_IFACE, username=RESTRICTED_USER, private_ip=KING_PRIVATE_IP)
             synapse.machine_availabilities.machine_config["moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
             # Use the initial private key for initial connection
@@ -542,13 +542,13 @@ class Miner(BaseMinerNeuron):
         ssh_public_key: str,
         initial_private_key_path: str,
         username: str,  # This is the user you connect as (e.g., 'borgg-vm' or 'root')
-        target_user: str = "valiops",
+        target_user: str = RESTRICTED_USER,
         timeout: int = 5,
         retries: int = 3,
     ):
         """
         Asynchronously connects to a remote machine via SSH using asyncssh,
-        generates an SSH key pair for the `valiops` user, adds the given SSH public key to the
+        generates an SSH key pair for the restriced user, adds the given SSH public key to the
         authorized_keys file, and updates sudoers for passwordless sudo access.
 
         Args:
@@ -577,7 +577,7 @@ class Miner(BaseMinerNeuron):
                 async with asyncssh.connect(**connection_params) as conn:
                     logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
-                    # Ensure .ssh directory exists and set proper permissions for `valiops`
+                    # Ensure .ssh directory exists and set proper permissions for the restricted user
                     commands = [
                         f"sudo mkdir -p /home/{target_user}/.ssh",
                         f"sudo chmod 700 /home/{target_user}/.ssh",
@@ -602,7 +602,7 @@ class Miner(BaseMinerNeuron):
                         # Ensure correct permissions on authorized_keys
                         await conn.run(f"sudo chmod 600 /home/{target_user}/.ssh/authorized_keys")
 
-                    # Update sudoers file for passwordless sudo for `valiops`
+                    # Update sudoers file for passwordless sudo for the restricted user
                     sudoers_entry = f"{target_user} ALL=(ALL) NOPASSWD: ALL"
                     logger.info(f"Updating sudoers file for user {target_user}...")
                     await conn.run(f'sudo echo "{sudoers_entry}" | sudo EDITOR="tee -a" visudo', check=False)
@@ -624,7 +624,7 @@ machine_ip: str,
 github_token: str,
 initial_private_key_path: str,
 username: str,
-repo_path: str = "/home/valiops/tensorprox",
+repo_path: str = f"/home/{RESTRICTED_USER}/tensorprox",
 repo_url: str = "github.com/borgg-dev/tensorprox.git",
 branch: str = "tensorproxV3",
 timeout: int = 5,
@@ -722,19 +722,46 @@ async def clone_repositories(ips: list, github_token: str, initial_private_key_p
     await asyncio.gather(*tasks)
 
 
-async def run_whitelist_setup(ip: str, private_key_path: str, username: str, remote_path: str = "/tmp/restrict.sh"):
+async def run_whitelist_setup(
+    ip: str,
+    private_key_path: str,
+    username: str,
+    remote_path: str = "/tmp/restrict.sh",
+    local_script_path: str = os.path.join(BASE_DIR, "tensorprox/core/restrict.sh"),
+    restricted_user: str = RESTRICTED_USER
+):    
     """
     This function will execute the restrict.sh setup on the remote machine.
-    It will run the restrict.sh script after setting up SSH keys and sudoers.
-    """
-    whitelist_script_path = os.path.join(BASE_DIR, "tensorprox/core/restrict.sh")
+    It uploads the restrict.sh script, makes it executable, runs it, and then removes it.
     
-    await send_file_via_scp(whitelist_script_path, "/tmp/restrict.sh", ip, private_key_path, username)
+    Args:
+        ip (str): IP address of the remote machine.
+        private_key_path (str): Path to the private SSH key for authentication.
+        username (str): SSH username for the remote machine.
+        remote_path (str): Path on the remote machine where the script will be uploaded (default is "/tmp/restrict.sh").
+        
+    Returns:
+        result (str): The result of executing the restrict.sh script.
+    """
+    
+    # Upload the whitelist script to the remote machine using SCP
+    await send_file_via_scp(local_script_path, remote_path, ip, private_key_path, username)
+    
+    # Make the script executable and run it with the restricted user
+    result = await ssh_connect_execute(
+        ip, 
+        private_key_path, 
+        username, 
+        f"chmod +x {remote_path} && bash {remote_path} {restricted_user}"
+    )
 
-    await ssh_connect_execute(ip, private_key_path, username, f"chmod +x {remote_path}")
-
-    result = await ssh_connect_execute(ip, private_key_path, username, f"bash {remote_path}")
-
+    # Optionally, check if the script was executed successfully before cleaning up
+    if result.stdout.strip() == "success":
+        await ssh_connect_execute(ip, private_key_path, username, f"rm -rf {remote_path}")
+    else:
+        # Handle failure
+        raise Exception(f"Script execution failed: {result}")
+    
     return result
 
 async def setup_machines(ips: list, github_token: str, initial_private_key_path: str, usernames: list):
@@ -748,7 +775,7 @@ async def setup_machines(ips: list, github_token: str, initial_private_key_path:
         usernames (list): A list of usernames corresponding to each machine's IP.
     """
     
-    logger.info("Setup restricted user valiops ...")
+    logger.info("Starting Restricted User creation + files cloning ...")
 
     tasks = []
 

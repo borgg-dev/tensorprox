@@ -1,6 +1,8 @@
 #!/bin/bash
 # Complete setup script for whitelist-agent configuration
 
+restricted_user = "$1"
+
 # Exit on any error
 set -e
 
@@ -8,23 +10,23 @@ echo "Starting setup process..."
 
 # Main Task 1: Prepare the Environment
 echo "Creating dedicated system user (if not exists)..."
-if ! id -u valiops &>/dev/null; then
-    sudo adduser --disabled-password --gecos "" valiops || { echo "Failed to create user valiops. Exiting."; exit 1; }
+if ! id -u $restricted_user &>/dev/null; then
+    sudo adduser --disabled-password --gecos "" $restricted_user || { echo "Failed to create user $restricted_user. Exiting."; exit 1; }
 else
-    echo "User valiops already exists, skipping creation."
+    echo "User $restricted_user already exists, skipping creation."
 fi
 
 echo "Creating SSH directory..."
-sudo mkdir -p /home/valiops/.ssh
-sudo chown -R valiops:valiops /home/valiops/.ssh
-sudo chmod 700 /home/valiops/.ssh
+sudo mkdir -p /home/$restricted_user/.ssh
+sudo chown -R $restricted_user:$restricted_user /home/$restricted_user/.ssh
+sudo chmod 700 /home/$restricted_user/.ssh
 
-sudo touch /home/valiops/.ssh/authorized_keys
-sudo chown valiops:valiops /home/valiops/.ssh/authorized_keys
-sudo chmod 600 /home/valiops/.ssh/authorized_keys
+sudo touch /home/$restricted_user/.ssh/authorized_keys
+sudo chown $restricted_user:$restricted_user /home/$restricted_user/.ssh/authorized_keys
+sudo chmod 600 /home/$restricted_user/.ssh/authorized_keys
 
 # echo "Restricting password authentication..."
-# sudo passwd -l valiops || echo "Password already locked or error occurred, continuing..."
+# sudo passwd -l $restricted_user || echo "Password already locked or error occurred, continuing..."
 
 # # Install SSH server if not already installed
 # echo "Installing SSH server if not already installed..."
@@ -46,10 +48,10 @@ sudo chmod 600 /home/valiops/.ssh/authorized_keys
 
 # # Configure Passwordless Sudo for the Agent
 # echo "Configuring sudo permissions..."
-# sudo bash -c "cat > /etc/sudoers.d/90-valiops << 'EOF'
-# valiops ALL=(ALL) NOPASSWD: /usr/local/bin/whitelist-agent
+# sudo bash -c "cat > /etc/sudoers.d/90-$restricted_user << 'EOF'
+# $restricted_user ALL=(ALL) NOPASSWD: /usr/local/bin/whitelist-agent
 # EOF"
-# sudo chmod 440 /etc/sudoers.d/90-valiops
+# sudo chmod 440 /etc/sudoers.d/90-$restricted_user
 
 # # Main Task 2: Install and Configure the Whitelist Agent
 # echo "Creating allowlist directory and file..."
@@ -59,12 +61,12 @@ sudo chmod 600 /home/valiops/.ssh/authorized_keys
 # echo "Populating allowlist with whitelisted commands..."
 # cat << 'EOF' | sudo tee /etc/whitelist-agent/allowlist.txt
 # /usr/bin/ssh
-# /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/initial_setup.sh
-# /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/challenge.sh
-# /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/lockdown.sh
-# /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/pwdless_sudo.sh
-# /usr/bin/sudo /usr/bin/bash /home/valiops/tensorprox/tensorprox/core/immutable/revert.sh 
-# /usr/bin/sudo /usr/bin/python3 /home/valiops/tensorprox/tensorprox/core/immutable/gre_setup.py
+# /usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
+# /usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
+# /usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
+# /usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/pwdless_sudo.sh
+# /usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh 
+# /usr/bin/sudo /usr/bin/python3 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
 # EOF
 
 # # Create audit log directory
@@ -221,13 +223,13 @@ sudo chmod 600 /home/valiops/.ssh/authorized_keys
 # echo "Configuring SSH to use the agent..."
 # sudo mkdir -p /etc/ssh/sshd_config.d
 # sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << 'EOF'
-# Match User valiops
+# Match User $restricted_user
 #     ForceCommand sudo /usr/local/bin/whitelist-agent
 # EOF"
 
 # echo "Creating active/inactive mode configurations..."
 # sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
-# Match User valiops
+# Match User $restricted_user
 #     ForceCommand sudo /usr/local/bin/whitelist-agent
 # EOF"
 
