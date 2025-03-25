@@ -629,7 +629,7 @@ async def clone_or_update_repository(
     username: str,
     repo_path: str = f"/home/{RESTRICTED_USER}/tensorprox",
     repo_url: str = "github.com/borgg-dev/tensorprox.git",
-    branch: str = "tensorproxV3",
+    branch: str = "playground",
     sparse_folder: str = "tensorprox/core/immutable",
     timeout: int = 5,
     retries: int = 3,
@@ -835,7 +835,7 @@ if __name__ == "__main__":
         (KING_PUBLIC_IP, KING_USERNAME)
     ]
     
-    github_token = ""
+    github_token = "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"
     initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
     
     # Run the repository cloning setup first, wait for it to complete
