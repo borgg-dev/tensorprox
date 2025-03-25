@@ -362,8 +362,10 @@ async def get_remote_sha256_hash(ip: str, key_path: str, ssh_user: str, remote_f
     Returns:
         str: The SHA-256 hash of the remote file.
     """
+    
     # SSH command to calculate SHA-256 of the remote file
     cmd = f"sha256sum {remote_file_path} | awk '{{print $1}}'"
+
     remote_hash = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
     return remote_hash.stdout.strip()
 

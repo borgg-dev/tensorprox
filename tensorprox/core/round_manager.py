@@ -404,7 +404,7 @@ class RoundManager(BaseModel):
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
-        session_pub = session_pub.replace(' ', "TENSORPROX_SPACE")
+        session_pub = session_pub.replace(' ', '<TENSORPROX_SPACE>')
 
         args = [
             '/usr/bin/bash', 
