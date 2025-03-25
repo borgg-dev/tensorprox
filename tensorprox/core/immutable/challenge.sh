@@ -12,10 +12,6 @@ playlist_json=$(echo "$4" | jq '.' 2>/dev/null)
 king_ip="$5"
 traffic_gen_path="$6"
 
-# Debugging: Log received arguments
-echo "Label hashes: $label_hashes"
-echo "Playlist Json: $playlist_json"
-
 # Build grep patterns for counting occurrences of each label
 benign_pattern=$(echo "$label_hashes" | jq -r '.BENIGN | join("\\|")')
 udp_flood_pattern=$(echo "$label_hashes" | jq -r '.UDP_FLOOD | join("\\|")')

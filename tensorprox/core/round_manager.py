@@ -621,6 +621,9 @@ class RoundManager(BaseModel):
 
         playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
         label_hashes = json.dumps(label_hashes)
+        
+        logger.info(f"Playlist : {playlist}")
+        logger.info(f"Label hashes : {label_hashes}")
 
         args = [
             "/usr/bin/bash",
