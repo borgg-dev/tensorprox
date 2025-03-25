@@ -15,9 +15,9 @@ labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
 node_types = ["attacker", "benign", "king", "moat"]
 
 ROUND_TIMEOUT: int = 300 #150 blocks / 30 minutes
-CHALLENGE_DURATION: int = 60 #15 minutes
+CHALLENGE_DURATION: int = 180 #15 minutes
 EPSILON: int = 30
-INITIAL_SETUP_TIMEOUT: int = 15
+INITIAL_SETUP_TIMEOUT: int = 15 
 
 TASK_TYPES: list = ['initial_setup', 'lockdown', 'revert', 'challenge', 'gre_setup']
 

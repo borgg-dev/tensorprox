@@ -455,6 +455,8 @@ class Validator(BaseValidatorNeuron):
                 logger.error(f"Error during challenge phase: {e}")
                 challenge_results = []
 
+        await asyncio.sleep(45)
+
         logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
 
         # Step 6: Revert
