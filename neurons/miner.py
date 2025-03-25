@@ -623,32 +623,32 @@ class Miner(BaseMinerNeuron):
         return
     
 async def clone_or_update_repository(
-machine_ip: str,
-github_token: str,
-initial_private_key_path: str,
-username: str,
-repo_path: str = f"/home/{RESTRICTED_USER}/tensorprox",
-repo_url: str = "github.com/borgg-dev/tensorprox.git",
-branch: str = "tensorproxV3",
-timeout: int = 5,
-retries: int = 3,
+    machine_ip: str,
+    github_token: str,
+    initial_private_key_path: str,
+    username: str,
+    repo_path: str = f"/home/{RESTRICTED_USER}/tensorprox",
+    repo_url: str = "github.com/borgg-dev/tensorprox.git",
+    branch: str = "tensorproxV3",
+    sparse_folder: str = "tensorprox/core/immutable",
+    timeout: int = 5,
+    retries: int = 3,
 ):
     """
     Asynchronously connects to a remote machine via SSH using asyncssh,
-    and either clones a GitHub repository or pulls the latest changes if it already exists.
+    and either clones or updates a specific folder of a GitHub repository using sparse checkout.
 
     Args:
         machine_ip (str): The public IP of the machine.
         github_token (str): GitHub personal access token for authentication.
-        repo_url (str): The GitHub repository URL to clone or update.
+        repo_url (str): The GitHub repository URL.
         branch (str): The branch to clone or pull.
-        initial_private_key_path (str): Path to the initial private key used for SSH authentication.
+        initial_private_key_path (str): Path to the initial private key for SSH authentication.
         username (str): The username for the SSH connection.
+        sparse_folder (str): The relative path of the folder to clone within the repository.
         timeout (int, optional): Timeout in seconds for the SSH connection. Defaults to 5.
         retries (int, optional): Number of retry attempts in case of failure. Defaults to 3.
     """
-
-
     for attempt in range(retries):
         try:
             logger.info(f"Attempting SSH connection to {machine_ip} with user {username} (Attempt {attempt + 1}/{retries})...")
@@ -664,7 +664,6 @@ retries: int = 3,
             async with asyncssh.connect(**connection_params) as conn:
                 logger.info(f"✅ Successfully connected to {machine_ip} as {username}")
 
-
                 # Check if Git is installed
                 try:
                     await conn.run("git --version", check=True)
@@ -675,12 +674,12 @@ retries: int = 3,
                     await conn.run(install_git_command, check=True)
                     logger.info(f"Git installation successful on {machine_ip}.")
 
-                # Check if the repository already exists
+                # Clone or update the repository with sparse checkout
                 result = await conn.run(f"sudo test -d {repo_path}/.git", check=False)
                 repo_exists = result.returncode == 0
 
                 if repo_exists:
-                    # Pull the latest changes from the branch
+                    # Pull the latest changes
                     logger.info(f"Repository already exists at {repo_path} on {machine_ip}. Pulling latest changes...")
                     pull_command = (
                         f"sudo bash -c 'cd {repo_path} && "
@@ -691,20 +690,29 @@ retries: int = 3,
                     result = await conn.run(pull_command, check=True)
                     logger.info(f"Repository updated successfully on {machine_ip}: {result.stdout}")
                 else:
-                    # Clone the repository
-                    logger.info(f"Cloning the repository from {repo_url} to {repo_path} on {machine_ip}...")
-                    clone_command = (
-                        f"sudo git clone --branch {branch} https://{github_token}@{repo_url} {repo_path}"
-                    )
-                    result = await conn.run(clone_command, check=True)
-                    logger.info(f"Repository cloned successfully on {machine_ip}: {result.stdout}")
+                    # Sparse checkout setup
+                    logger.info(f"Setting up sparse checkout for folder '{sparse_folder}'...")
+                    clone_commands = [
+                        f"sudo mkdir -p {repo_path}",
+                        f"sudo bash -c 'cd {repo_path} && git init'",
+                        f"sudo bash -c 'cd {repo_path} && git remote add origin https://{github_token}@{repo_url}'",
+                        f"sudo bash -c 'cd {repo_path} && git config core.sparseCheckout true'",
+                        f"sudo bash -c 'echo \"{sparse_folder}\" | sudo tee {repo_path}/.git/info/sparse-checkout'",
+                        f"sudo bash -c 'cd {repo_path} && git fetch origin {branch}'",
+                        f"sudo bash -c 'cd {repo_path} && git checkout {branch}'",
+                    ]
+
+                    for command in clone_commands:
+                        await conn.run(command, check=True)
+                    
+                    logger.info(f"Sparse checkout completed successfully for folder '{sparse_folder}'.")
 
                 return  # Exit function on success
 
         except (asyncssh.Error, OSError) as e:
-            logger.error(f"Error adding/updating tensorprox repository to {machine_ip} on attempt {attempt + 1}/{retries}: {e}")
+            logger.error(f"Error cloning/updating repository on attempt {attempt + 1}/{retries}: {e}")
             if attempt == retries - 1:
-                logger.error(f"Failed to add/update tensorprox repository to {machine_ip} after {retries} attempts.")
+                logger.error(f"Failed after {retries} attempts.")
 
     return
 

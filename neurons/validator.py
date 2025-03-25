@@ -457,25 +457,25 @@ class Validator(BaseValidatorNeuron):
 
         logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
 
-        # Step 6: Revert
-        with Timer() as revert_timer:    
+        # # Step 6: Revert
+        # with Timer() as revert_timer:    
 
-            logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
+        #     logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
 
-            try:
+        #     try:
                 
-                revert_results = await round_manager.execute_task(
-                    task="revert",
-                    miners=ready_miners,
-                    subset_miners=subset_miners,
-                    backup_suffix=backup_suffix,
-                )
+        #         revert_results = await round_manager.execute_task(
+        #             task="revert",
+        #             miners=ready_miners,
+        #             subset_miners=subset_miners,
+        #             backup_suffix=backup_suffix,
+        #         )
 
-            except Exception as e:
-                logger.error(f"Error during revert phase: {e}")
-                revert_results = []
+        #     except Exception as e:
+        #         logger.error(f"Error during revert phase: {e}")
+        #         revert_results = []
 
-        logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
+        # logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
 
         # Create a complete response event
         response_event = DendriteResponseEvent(
@@ -485,7 +485,7 @@ class Validator(BaseValidatorNeuron):
             # lockdown_status=lockdown_results,
             gre_status=gre_results,
             challenge_status=challenge_results,
-            revert_status=revert_results,
+            # revert_status=revert_results,
             uids=subset_miners,
         )
 
