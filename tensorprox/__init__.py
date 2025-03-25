@@ -16,8 +16,10 @@ node_types = ["attacker", "benign", "king", "moat"]
 
 ROUND_TIMEOUT: int = 60 #150 blocks / 30 minutes
 CHALLENGE_DURATION: int = 5 #15 minutes
-EPSILON: int = 5
-TASK_TYPES = ['initial_setup', 'lockdown', 'revert', 'challenge', 'gre_setup']
+EPSILON: int = 30
+INITIAL_SETUP_TIMEOUT: int = 15
+
+TASK_TYPES: list = ['initial_setup', 'lockdown', 'revert', 'challenge', 'gre_setup']
 
 # Store the base path dynamically, assuming `tensorprox` is the base directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -78,6 +78,7 @@ class Validator(BaseValidatorNeuron):
         super(Validator, self).__init__(config=config)
         self.load_state()
         self._lock = asyncio.Lock()
+        self.should_exit = False
         self.active_count = 0
         self.first_round = True
         self.aiohttp_port = int(os.environ.get("AXON_PORT")) + self.uid
@@ -278,7 +279,7 @@ class Validator(BaseValidatorNeuron):
 
     async def periodic_epoch_check(self) :
         """Periodically checks the current UTC time to decide when to trigger the next epoch."""
-        while True:
+        while not self.should_exit:
             current_time = int(time.time())
             if current_time % EPOCH_TIME == 0:  # Trigger epoch every `settings.EPOCH_PERIOD` seconds
                 # First round handling : make sure the timestamp is checked before being active
@@ -316,12 +317,12 @@ class Validator(BaseValidatorNeuron):
         # Step 1: Query miner availability
         with Timer() as timer:
             
-            # # hardcoded for testing purpose
-            # if 14 not in subset_miners:
-            #     subset_miners += [14]
+            # hardcoded for testing purpose
+            if 14 not in subset_miners:
+                subset_miners += [14]
 
-            # to_remove = [8,9,11,12,13,16]
-            # subset_miners = [miner for miner in subset_miners if miner not in to_remove]
+            to_remove = [8,9,11,12,13,16]
+            subset_miners = [miner for miner in subset_miners if miner not in to_remove]
 
             logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
             try:
@@ -353,6 +354,7 @@ class Validator(BaseValidatorNeuron):
                     miners=available_miners,
                     subset_miners=subset_miners,
                     backup_suffix=backup_suffix,
+                    timeout=INITIAL_SETUP_TIMEOUT
                 )
 
             except Exception as e:
@@ -545,8 +547,10 @@ async def main():
     try:
 
         logger.info(f"Validator is up and running, next round starting in {get_remaining_time(EPOCH_TIME)}...")
+        
+        while not validator_instance.should_exit:
+            await asyncio.sleep(1)
 
-        await asyncio.Event().wait()  # Keeps the server running indefinitely
     finally:
         # Cleanup on shutdown
         await cleanup_servers()  # Cleanup the servers

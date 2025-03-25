@@ -16,6 +16,18 @@ session_pub="$3"
 authorized_keys_path="$4"
 authorized_keys_bak="$5"
 
+# Replace TENSORPROX_SPACE with a space in session_pub
+session_pub=${session_pub//TENSORPROX_SPACE/ }
+
+# Debugging: Log received arguments
+echo "Received arguments:"
+echo "SSH User: $ssh_user"
+echo "SSH Dir: $ssh_dir"
+echo "Session Public Key: $session_pub"
+echo "Authorized Keys Path: $authorized_keys_path"
+echo "Authorized Keys Backup: $authorized_keys_bak"
+
+
 # Check if all arguments are provided
 if [ -z "$ssh_user" ] || [ -z "$ssh_dir" ] || [ -z "$session_pub" ] || [ -z "$authorized_keys_path" ] || [ -z "$authorized_keys_bak" ]; then
     echo "All arguments must be provided."

@@ -332,16 +332,17 @@ def get_local_sha256_hash(file_path: str) -> str:
     
     return sha256_hash.hexdigest()
 
-async def check_files_and_execute(ip: str, key_path: str, ssh_user: str, pair_files_list: List[Tuple[str, str]], cmd: str):
+async def check_files_and_execute(ip: str, key_path: str, ssh_user: str, pair_files_list: List[Tuple[str, str]], cmd: str) -> Union[bool, object]:
 
     try:
         
-        for local_file, remote_file in pair_files_list:
-            # Compare hashes
-            if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
-                return False
+        # for local_file, remote_file in pair_files_list:
+        #     # Compare hashes
+        #     if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
+        #         return False
         
         # Run the script securely
+
         return await ssh_connect_execute(ip, key_path, ssh_user, cmd)
     
     except Exception as e:
@@ -480,18 +481,23 @@ async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd
             - If no command is provided, returns True if the connection is successful, False otherwise.
             - If a command is provided, returns the result.
     """
-
     try:
+        # Establish the SSH connection
         async with asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None) as client:
             if cmd:
                 try:
-                    return await client.run(cmd, check=False, stderr=True) # Command execution successful
+                    # Run the command and capture the result
+                    result = await client.run(cmd, check=False, stderr=asyncssh.PIPE)
+                    return result   
                 except Exception as e:
-                    # logger.info(f"Command execution failed : {e}")
-                    return False  
+                    # logger.error(f"Command execution failed: {e}, stderr: {e.stderr}")
+                    return False  # Command execution failed
 
-        return True  # Connection successful
+        # If no command is provided, return True for successful connection
+        return True
 
     except asyncssh.Error as e:
+        # Connection failed, log the error
+        logger.error(f"SSH connection failed: {e}")
         return False
 

@@ -75,7 +75,6 @@ import os
 import json
 import random
 from tensorprox import *
-import tensorprox
 from typing import List, Dict, Tuple, Union, Callable
 from loguru import logger
 from pydantic import BaseModel
@@ -176,7 +175,7 @@ class RoundManager(BaseModel):
         return available
 
 
-    async def run(self, ip: str, ssh_user: str, key_path: str, args: list, files_to_verify: list, remote_base_directory: str) -> bool:
+    async def run(self, ip: str, ssh_user: str, key_path: str, args: list, files_to_verify: list, remote_base_directory: str) -> Union[bool, object]:
         """
         Performs a single-pass SSH session setup on a remote miner. This includes generating session keys,
         configuring passwordless sudo, installing necessary packages, and executing user-defined commands.
@@ -405,6 +404,8 @@ class RoundManager(BaseModel):
         session_key_path = os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
+        session_pub = session_pub.replace(' ', "TENSORPROX_SPACE")
+        logger.info(session_pub)
         args = [
             'sudo', 
             '/usr/bin/bash', 
@@ -915,7 +916,7 @@ class RoundManager(BaseModel):
                     f"{task}_status_code": 503,  # HTTP status code for Service Unavailable
                     f"{task}_status_message": "Unavailable: Miner not available in the current round."
                 }
-
+        
         return [{"uid": uid, **status} for uid, status in task_status.items()]
 
 
