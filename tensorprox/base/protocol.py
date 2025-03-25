@@ -8,7 +8,6 @@ settings = settings.settings
 
 class MachineDetails(BaseModel):
     ip: str | None = None
-    iface: str | None = None
     username: str | None = None
     private_ip: str | None = None
     

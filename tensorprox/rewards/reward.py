@@ -102,13 +102,13 @@ class ChallengeRewardModel(BaseModel):
     def exponential_ratio(ratio):
         return (math.exp(ratio**2) - 1) / (math.exp(1) - 1)
 
-    def reward(self, response_event: DendriteResponseEvent, uids: List[int], labels_dict: Dict) -> BatchRewardOutput:
+    def reward(self, response_event: DendriteResponseEvent, uids: List[int], label_hashes: Dict) -> BatchRewardOutput:
         """
         Calculate rewards for a batch of users based on their packet capture data.
 
         Args:
             uids (List[int]): A list of user IDs.
-            labels_dict (Dict): A dictionary mapping original labels to encrypted labels.
+            label_hashes (Dict): A dictionary mapping original labels to encrypted labels.
 
         Returns:
             BatchRewardOutput: An instance containing an array of computed rewards.
@@ -132,14 +132,14 @@ class ChallengeRewardModel(BaseModel):
 
             label_counts_results = response_event.challenge_status_by_uid[uid]["label_counts_results"]
 
-            default_count = {label:0 for label in labels_dict.keys()}
+            default_count = {label:0 for label in label_hashes.keys()}
 
-            attack_counts = next((counts for machine, counts, _ in label_counts_results if machine == "Attacker"), default_count)
-            benign_counts = next((counts for machine, counts, _ in label_counts_results if machine == "Benign"), default_count)
-            king_counts = next((counts for machine, counts, _ in label_counts_results if machine == "King"), default_count)
+            attack_counts = next((counts for machine, counts, _ in label_counts_results if machine == "attacker"), default_count)
+            benign_counts = next((counts for machine, counts, _ in label_counts_results if machine == "benign"), default_count)
+            king_counts = next((counts for machine, counts, _ in label_counts_results if machine == "king"), default_count)
 
-            attack_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "Attacker"), 0)
-            benign_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "Benign"), 0)
+            attack_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "attacker"), 0)
+            benign_avg_rtt = next((avg_rtt for machine, _, avg_rtt in label_counts_results if machine == "benign"), 0)
 
             # If all counts are the default (i.e., zero), skip this user
             if all(value == 0 for value in attack_counts.values()) and \
@@ -167,11 +167,12 @@ class ChallengeRewardModel(BaseModel):
 
             attack_counts, benign_counts, king_counts = packet_data[uid]
 
-            # Total packets sent from the Attacker machine
+
+            # Total packets sent from the attacker machine
             total_attacks_from_attacker = sum(attack_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
             total_benign_from_attacker = attack_counts.get("BENIGN", 0)
 
-            # Total packets sent from the Benign machine
+            # Total packets sent from the benign machine
             total_benign_from_benign = benign_counts.get("BENIGN", 0)
             total_attacks_from_benign = sum(benign_counts.get(label, 0) for label in ["TCP_SYN_FLOOD", "UDP_FLOOD"])
         
@@ -231,21 +232,21 @@ class BaseRewardConfig(BaseModel):
         cls,
         response_event: DendriteResponseEvent,
         uids: list[int],
-        labels_dict: dict,
+        label_hashes: dict,
     ) -> ChallengeRewardEvent:
         """
         Apply the reward model to a list of user IDs with optional custom labels.
 
         Args:
             uids (list[int]): A list of user IDs.
-            labels_dict (dict, optional): A custom dictionary mapping original labels to encrypted labels. Defaults to None.
+            label_hashes (dict): A custom dictionary mapping original labels to encrypted labels.
 
         Returns:
             ChallengeRewardEvent: An event containing the computed rewards and associated user IDs.
         """
 
         # Get the reward output
-        batch_rewards_output = cls.reward_model.reward(response_event, uids, labels_dict)
+        batch_rewards_output = cls.reward_model.reward(response_event, uids, label_hashes)
 
         # Return the ChallengeRewardEvent using the BatchRewardOutput
         return ChallengeRewardEvent(

@@ -1,3 +1,5 @@
+import os
+
 def _version_to_int(version_str: str) -> int:
     version_split = version_str.split(".") + ["0", "0"]
     major = int(version_split[0])
@@ -10,9 +12,26 @@ __version__ = "0.1.0"
 __spec_version__ = _version_to_int(__version__)
 
 labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
-node_types = ["Attacker", "Benign", "King", "Moat"]
-session_key_dir = "/var/tmp/session_keys"
+node_types = ["attacker", "benign", "king", "moat"]
 
-ROUND_TIMEOUT: int = 240 #150 blocks / 30 minutes
+ROUND_TIMEOUT: int = 300 #150 blocks / 30 minutes
 CHALLENGE_DURATION: int = 60 #15 minutes
 EPSILON: int = 30
+INITIAL_SETUP_TIMEOUT: int = 15
+
+TASK_TYPES: list = ['initial_setup', 'lockdown', 'revert', 'challenge', 'gre_setup']
+
+# Store the base path dynamically, assuming `tensorprox` is the base directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+#Temporary paths
+SESSION_KEY_DIR = "/var/tmp/session_keys"
+REMOTE_TRAFFIC_GEN_PATH: str = '/tmp/traffic_generator.py'
+
+# ===== GRE CONFIGURATION =====
+# Fixed overlay network IPs
+BENIGN_OVERLAY_IP = "10.200.77.102"
+ATTACKER_OVERLAY_IP = "10.200.77.103"
+KING_OVERLAY_IP = "10.200.77.1"
+
+RESTRICTED_USER = "valiops"

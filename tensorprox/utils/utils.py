@@ -1,4 +1,5 @@
 from requests import get
+from tensorprox import *
 import tensorprox
 import sys
 from datetime import datetime
@@ -10,12 +11,21 @@ import asyncio
 import random
 import time
 import asyncssh
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Dict, Union, List
 from loguru import logger
 import string
 import hashlib
 import psutil
 import ipaddress
+
+def get_remaining_time(duration):
+    current_time = time.time()
+    next_event_time = ((current_time // duration) + 1) * duration
+    remaining_time = next_event_time - current_time
+    remaining_minutes = int(remaining_time // 60)
+    remaining_seconds = int(remaining_time % 60)
+
+    return f"{remaining_minutes}m {remaining_seconds}s"
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -109,19 +119,48 @@ def get_authorized_keys_dir(ssh_user: str) -> str:
 
     return "/root/.ssh" if ssh_user == "root" else f"/home/{ssh_user}/.ssh"
 
-def create_session_key_dir(path = tensorprox.session_key_dir) :
+def get_default_dir(ssh_user: str) -> str:
+    """
+    Retrieves the correct default directory path based on the SSH user.
+
+    Args:
+        ssh_user (str): The username of the SSH user.
+
+    Returns:
+        str: The absolute path to the default directory.
+    """
+
+    return "/root" if ssh_user == "root" else f"/home/{ssh_user}"
+
+
+def create_session_key_dir(path = SESSION_KEY_DIR) :
 
     if not os.path.exists(path):
         try:
             os.makedirs(path, mode=0o700, exist_ok=True)
         except PermissionError as e:
-            #log_message("ERROR", f"Permission denied while creating {tensorprox.session_key_dir}: {e}")
+            #log_message("ERROR", f"Permission denied while creating {SESSION_KEY_DIR}: {e}")
             raise
         except Exception as e:
-            #log_message("ERROR", f"Unexpected error while creating {tensorprox.session_key_dir}: {e}")
+            #log_message("ERROR", f"Unexpected error while creating {SESSION_KEY_DIR}: {e}")
             raise
 
-def save_private_key(priv_key_str: str, path: str):
+# Define a helper function to generate file paths
+def get_immutable_path(base_directory: str, filename: str) -> str:
+    """
+    Generates an absolute path by joining the base directory with the given relative path.
+
+    Args:
+        base_directory (str): The path of the the base directory.
+        filename (str): The name of the file.
+
+    Returns:
+        str: The absolute path.
+    """
+    return os.path.join(base_directory, "tensorprox/core/immutable", filename)
+
+
+def save_file_with_permissions(priv_key_str: str, path: str):
     """
     Saves a private SSH key to a specified file with secure permissions.
 
@@ -207,9 +246,9 @@ def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
 
     # Role-specific weight calculation using a dictionary
     weights = {
-        "Attacker": (0.8, 0.2),
-        "Benign": (0.2, 0.8)
-    }.get(role, (0.5, 0.5))  # Default to (0.5, 0.5) if role is neither 'Attacker' nor 'Benign'
+        "attacker": (0.8, 0.2),
+        "benign": (0.2, 0.8)
+    }.get(role, (0.5, 0.5))  # Default to (0.5, 0.5) if role is neither 'attacker' nor 'benign'
 
     attack_weight, benign_weight = weights
 
@@ -260,6 +299,101 @@ def generate_random_hashes(n=10):
     
     return label_hashes
 
+def create_pairs_to_verify(
+    files_to_verify: List[str], 
+    remote_base_directory: str,
+    base_directory: str = BASE_DIR
+) -> Tuple[str, List[Tuple[str, str]]]:
+    
+    paired_list = []
+    for file in files_to_verify:
+        local_path = get_immutable_path(base_directory, file)  # Use the passed base_directory
+        remote_path = get_immutable_path(remote_base_directory, file)
+        paired_list.append((local_path, remote_path))
+
+    return paired_list
+
+def get_local_sha256_hash(file_path: str) -> str:
+    """
+    Calculates the SHA-256 hash of a local file.
+    
+    Args:
+        file_path (str): Path to the local file.
+        
+    Returns:
+        str: The SHA-256 hash of the local file.
+    """
+    sha256_hash = hashlib.sha256()
+    
+    with open(file_path, "rb") as f:
+        # Read the file in chunks
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    
+    return sha256_hash.hexdigest()
+
+async def check_files_and_execute(ip: str, key_path: str, ssh_user: str, pair_files_list: List[Tuple[str, str]], cmd: str) -> Union[bool, object]:
+
+    try:
+        
+        for local_file, remote_file in pair_files_list:
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
+                return False
+        
+        # Run the script securely
+
+        return await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+    
+    except Exception as e:
+        return False
+    
+
+async def get_remote_sha256_hash(ip: str, key_path: str, ssh_user: str, remote_file_path: str) -> str:
+    """
+    Calculates the SHA-256 hash of a remote file using SSH.
+    
+    Args:
+        ip (str): The IP address of the remote machine.
+        key_path (str): Path to the private SSH key.
+        ssh_user (str): The SSH user on the remote machine.
+        remote_file_path (str): The path to the file on the remote machine.
+        
+    Returns:
+        str: The SHA-256 hash of the remote file.
+    """
+    
+    # SSH command to calculate SHA-256 of the remote file
+    cmd = f"sha256sum {remote_file_path} | awk '{{print $1}}'"
+
+    remote_hash = await ssh_connect_execute(ip, key_path, ssh_user, cmd)
+    return remote_hash.stdout.strip()
+
+
+async def compare_file_hashes(ip: str, key_path: str, ssh_user: str, local_file_path: str, remote_file_path: str) -> bool:
+    """
+    Compares the SHA-256 hashes of a local file and a remote file.
+    
+    Args:
+        ip (str): The IP address of the remote machine.
+        key_path (str): Path to the private SSH key.
+        ssh_user (str): The SSH user on the remote machine.
+        local_file_path (str): Path to the local file.
+        remote_file_path (str): Path to the remote file.
+        
+    Returns:
+        bool: True if the hashes match, False otherwise.
+    """
+    # Calculate the SHA-256 hash of the local file
+    local_hash = get_local_sha256_hash(local_file_path)
+
+    # Calculate the SHA-256 hash of the remote file
+    remote_hash = await get_remote_sha256_hash(ip, key_path, ssh_user, remote_file_path)
+
+    # Compare the two hashes
+    return local_hash == remote_hash
+
+
 async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     """
     Asynchronously generates an ED25519 SSH key pair and stores it securely.
@@ -296,109 +430,76 @@ async def generate_local_session_keypair(key_path: str) -> Tuple[str, str]:
     # log_message("INFO", "✅ Session keypair generated and secured.")
     return priv, pub
 
+async def make_file_immutable(ip, key_path, ssh_user, remote_file_path, state=True):
+    immutable_flag = "+i" if state == True else "-i"
+    immutable_cmd = f"sudo chattr {immutable_flag} {remote_file_path}"
+    await ssh_connect_execute(ip, key_path, ssh_user, immutable_cmd)
 
-async def run_cmd_async(
-    conn: asyncssh.SSHClientConnection,
-    cmd: str | list,
-    ignore_errors: bool = True,
-    logging_output: bool = False,
-    use_sudo: bool = True,
-) -> object:
-    """
-    Executes a command on a remote machine asynchronously using SSH.
-
-    Args:
-        conn (asyncssh.SSHClientConnection): An active SSH connection.
-        cmd (str | list): The command to execute as a string or list.
-        ignore_errors (bool, optional): Whether to suppress command errors. Defaults to True.
-        logging_output (bool, optional): Whether to log the command output. Defaults to False.
-        use_sudo (bool, optional): Whether to run the command with sudo. Defaults to True.
-        timeout (int, optional): Timeout in seconds. Defaults to None (no timeout).
-
-    Returns:
-        object: A response object with stdout, stderr, exit_status, and returncode.
-    """
-
-    # Convert list to properly formatted command string
-    cmd = ' '.join(cmd) if isinstance(cmd, list) else cmd
-
-    # Set environment variables for apt operations
-    env = os.environ.copy()
-    if any(x in cmd for x in ['apt-get', 'apt', 'dpkg']):
-        env['DEBIAN_FRONTEND'] = 'noninteractive'
-
-    # Escape single quotes
-    escaped = cmd.replace("'", "'\\''")
-
-    # Construct final command with sudo if needed
-    final_cmd = f"sudo -S bash -c '{escaped}'" if use_sudo else f"bash -c '{escaped}'"
+# Function to verify the remote file's signature
+async def verify_remote_signature(ip, key_path, ssh_user, remote_signature_path, remote_file_path):
+    verify_cmd = f"gpg --verify --trust-model always {remote_signature_path} {remote_file_path}"
+    result = await ssh_connect_execute(ip, key_path, ssh_user, verify_cmd)
+    return result
+    
+async def send_file_via_scp(local_file, remote_path, remote_ip, remote_key_path, remote_user):
+    # Construct the SCP command
+    scp_command = [
+        'scp',
+        '-i', remote_key_path,  # Specify the SSH private key
+        '-o', 'StrictHostKeyChecking=no',  # Disable host key verification
+        '-o', 'UserKnownHostsFile=/dev/null',  # Don't store the host key
+        local_file,  # Local file to transfer
+        f'{remote_user}@{remote_ip}:{remote_path}'  # Remote destination
+    ]
 
     try:
-        result = await conn.run(final_cmd, check=True)
+        # Run the SCP command asynchronously using asyncio.subprocess
+        process = await asyncio.create_subprocess_exec(*scp_command)
 
-        out = result.stdout.strip()
-        err = result.stderr.strip()
+        # Wait for the SCP process to complete
+        await process.wait()
 
-        if err and not ignore_errors:
-            log_message("WARNING", f"⚠️ Command error '{cmd}': {err}")
-        elif out and logging_output:
-            log_message("INFO", f"🔎 Command '{cmd}' output: {out}")
+        if process.returncode == 0:
+            print(f"File {local_file} successfully sent to {remote_ip}:{remote_path}")
+        else:
+            print(f"SCP failed with return code {process.returncode}")
 
-        # Return object with both exit_status and returncode
-        return type('Result', (object,), {
-            'stdout': out,
-            'stderr': err,
-            'exit_status': result.exit_status,
-            'returncode': result.exit_status,  # Alias for compatibility
-        })()
+    except Exception as e:
+        print(f"Error: {e}")
 
-    except asyncssh.ProcessError as e:
-        # log_message("ERROR", f"🚨 Command execution failed: {cmd} - {str(e)}")
-        if not ignore_errors:
-            raise
 
-        return type('Result', (object,), {
-            'stdout': '',
-            'stderr': str(e),
-            'exit_status': e.exit_status,
-            'returncode': e.exit_status,
-        })()
-
-async def create_and_test_connection(ip: str, private_key_path: str, username: str) -> Optional[asyncssh.SSHClientConnection]:
+async def ssh_connect_execute(ip: str, private_key_path: str, username: str, cmd: Union[str, list] = None) -> Union[bool, object]:
     """
-    Establishes and tests an SSH connection using asyncssh.
+    Establishes an SSH connection, optionally executes a command, and closes the connection.
 
     Args:
         ip (str): The target machine's IP address.
         private_key_path (str): The path to the private key used for authentication.
         username (str): The SSH user to authenticate as.
+        cmd (Union[str, list], optional): The command to execute.
 
     Returns:
-        Optional[asyncssh.SSHClientConnection]: The active SSH connection if successful, otherwise None.
+        Union[bool, object]: 
+            - If no command is provided, returns True if the connection is successful, False otherwise.
+            - If a command is provided, returns the result.
     """
-
     try:
-        client = await asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None)
-        return client
+        # Establish the SSH connection
+        async with asyncssh.connect(ip, username=username, client_keys=[private_key_path], known_hosts=None) as client:
+            if cmd:
+                try:
+                    # Run the command and capture the result
+                    result = await client.run(cmd, check=False, stderr=asyncssh.PIPE)
+                    return result   
+                except Exception as e:
+                    # logger.error(f"Command execution failed: {e}, stderr: {e.stderr}")
+                    return False  # Command execution failed
+
+        # If no command is provided, return True for successful connection
+        return True
+
     except asyncssh.Error as e:
-        logger.error(f"SSH connection failed for {ip}: {str(e)}")
-        return None
+        # Connection failed, log the error
+        logger.error(f"SSH connection failed: {e}")
+        return False
 
-# Debug level (0=minimal, 1=normal, 2=verbose)
-DEBUG_LEVEL = 2
-
-def log(message, level=1):
-    """Log message if debug level is sufficient"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    if DEBUG_LEVEL >= level:
-        print("[{0}] {1}".format(timestamp, message))
-
-
-def get_remaining_time(duration):
-    current_time = time.time()
-    next_event_time = ((current_time // duration) + 1) * duration
-    remaining_time = next_event_time - current_time
-    remaining_minutes = int(remaining_time // 60)
-    remaining_seconds = int(remaining_time % 60)
-
-    return f"{remaining_minutes}m {remaining_seconds}s"

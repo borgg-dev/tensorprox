@@ -76,7 +76,7 @@ class ScoringConfig:
     """
     response: DendriteResponseEvent
     uids: int
-    labels_dict: dict
+    label_hashes: dict
     block: int
     step: int
 
@@ -106,7 +106,7 @@ class TaskScorer(AsyncLoopRunner):
         self,
         response: DendriteResponseEvent,
         uids : int,
-        labels_dict:dict,
+        label_hashes:dict,
         block: int,
         step: int,
     ) -> None:
@@ -122,7 +122,7 @@ class TaskScorer(AsyncLoopRunner):
             None
         """
         
-        self.scoring_round = ScoringConfig(response=response, uids=uids, labels_dict=labels_dict, block=block, step=step)
+        self.scoring_round = ScoringConfig(response=response, uids=uids, label_hashes=label_hashes, block=block, step=step)
 
     async def run_step(self) -> RewardLoggingEvent:
         """
@@ -141,7 +141,7 @@ class TaskScorer(AsyncLoopRunner):
         self.scoring_round = None
 
         #Calculate the reward
-        reward_event = self.base_reward_model.apply(response_event=scoring_config.response, uids=scoring_config.uids, labels_dict=scoring_config.labels_dict)
+        reward_event = self.base_reward_model.apply(response_event=scoring_config.response, uids=scoring_config.uids, label_hashes=scoring_config.label_hashes)
 
         global_vars.reward_events.append(reward_event)
 
