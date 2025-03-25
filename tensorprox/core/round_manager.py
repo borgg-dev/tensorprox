@@ -405,7 +405,7 @@ class RoundManager(BaseModel):
         _, session_pub = await generate_local_session_keypair(session_key_path)
 
         session_pub = session_pub.replace(' ', "TENSORPROX_SPACE")
-        logger.info(session_pub)
+
         args = [
             'sudo', 
             '/usr/bin/bash', 

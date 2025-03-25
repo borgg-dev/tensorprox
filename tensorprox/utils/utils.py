@@ -336,10 +336,10 @@ async def check_files_and_execute(ip: str, key_path: str, ssh_user: str, pair_fi
 
     try:
         
-        # for local_file, remote_file in pair_files_list:
-        #     # Compare hashes
-        #     if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
-        #         return False
+        for local_file, remote_file in pair_files_list:
+            # Compare hashes
+            if not await compare_file_hashes(ip, key_path, ssh_user, local_file, remote_file):
+                return False
         
         # Run the script securely
 

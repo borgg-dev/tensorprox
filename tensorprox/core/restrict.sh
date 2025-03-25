@@ -94,17 +94,6 @@ cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent
 
 ALLOWLIST="/etc/whitelist-agent/allowlist.txt"
 
-# Function to log actions
-log_action() {
-    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    local user="$USER"
-    local action="$1"
-    local status="$2"
-    local command="$3"
-    
-    echo "$timestamp | User: $user | Action: $action | Status: $status | Command: $command" >> "$AUDIT_LOG"
-}
-
 # Function to normalize path
 normalize_path() {
     local path="$1"
@@ -116,44 +105,65 @@ normalize_path() {
     fi
 }
 
-# Function to check if a command is allowed
 is_command_allowed() {
     local full_cmd="$1"
     
-    # Normalize the full command to its absolute path
-    local full_cmd_path=$(normalize_path "$full_cmd")
-    
-    # Iterate over each line in the allowlist and check if the full command path starts with any of the allowed paths
+    # Extract the base command and its arguments
+    read -ra cmd_parts <<< "$full_cmd"
+
+    # Extract main parts (first two should be sudo + command, third should be script path)
+    local base_cmd="${cmd_parts[0]}"  # Usually sudo
+    local sub_cmd="${cmd_parts[1]}"   # bash or python3
+    local script_path="${cmd_parts[2]}"  # The actual script being executed
+
+    # Convert base command and paths to absolute form
+    if command -v "$base_cmd" &> /dev/null; then
+        base_cmd=$(command -v "$base_cmd")
+    fi
+    if command -v "$sub_cmd" &> /dev/null; then
+        sub_cmd=$(command -v "$sub_cmd")
+    fi
+    if [[ -f "$script_path" ]]; then
+        script_path=$(realpath "$script_path")
+    fi
+
+    echo "Checking: base_cmd='$base_cmd', sub_cmd='$sub_cmd', script_path='$script_path'"
+
+    # Validate command against allowlist (ignoring additional arguments)
     while IFS= read -r allowed_cmd; do
-        if [[ "$full_cmd_path" == "$allowed_cmd"* ]]; then
-            return 0  # If the command path starts with an allowed path, it's allowed
+        # Normalize multiple spaces and compare with base commands
+        if [[ "$allowed_cmd" == "$base_cmd $sub_cmd $script_path"* ]]; then
+            return 0  # Allowed
         fi
-    done < "$ALLOWLIST"
-    
-    return 1  # Command is not allowed
+    done < "/etc/whitelist-agent/allowlist.txt"
+
+    return 1  # Not allowed
 }
+
+
 
 # Execute the command safely
 execute_command() {
     local cmd="$1"
-    local cmd_array=()
-    
-    # Parse command into array to avoid command injection
-    read -ra cmd_array <<< "$cmd"
-    
-    # Execute the command
-    "${cmd_array[@]}"
+
+    # Execute the command with sudo
+    sudo bash -c "$cmd"
     return $?
 }
 
 # The command passed by SSH will be the first argument to this script
 cmd="$1"
 
+# Check if a command was provided
+if [[ -z "$cmd" ]]; then
+    echo "No command provided."
+    exit 1
+fi
+
 # Extract the base command and check if it exists
 base_cmd=$(command -v ${cmd%% *} 2>/dev/null)
 if [[ -z "$base_cmd" ]]; then
     echo "Command not found: ${cmd%% *}"
-    log_action "SSH_COMMAND" "FAILED" "Command not found: ${cmd%% *}"
     exit 1
 fi
 
@@ -169,14 +179,16 @@ fi
 
 # Check if command is allowed
 if is_command_allowed "$full_cmd"; then
-    log_action "SSH_COMMAND" "ALLOWED" "$full_cmd"
     execute_command "$full_cmd"
     exit_code=$?
-    log_action "SSH_COMMAND" "COMPLETED" "Exit code: $exit_code for command: $full_cmd"
-    exit $exit_code
+    if [[ "$exit_code" -eq 0 ]]; then
+        exit $exit_code
+    else
+        echo "Command '$full_cmd' executed with errors. Exit code: $exit_code"
+        exit 1
+    fi
 else
     echo "Command '$full_cmd' not allowed."
-    log_action "SSH_COMMAND" "DENIED" "$full_cmd"
     exit 1
 fi
 
