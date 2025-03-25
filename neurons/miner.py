@@ -87,6 +87,7 @@ FORWARD_PORT: int = os.environ.get("FORWARD_PORT", 8080)
 ATTACKER_USERNAME: str = os.environ.get("ATTACKER_USERNAME", "root")
 BENIGN_USERNAME: str = os.environ.get("BENIGN_USERNAME", "root")
 KING_USERNAME: str = os.environ.get("KING_USERNAME", "root")
+INITIAL_PK_PATH: str = os.environ.get("PRIVATE_KEY_PATH")
 
 class Miner(BaseMinerNeuron):
     """
@@ -141,9 +142,6 @@ class Miner(BaseMinerNeuron):
             synapse.machine_availabilities.machine_config["king"] = MachineDetails(ip=KING_PUBLIC_IP, username=RESTRICTED_USER, private_ip=KING_PRIVATE_IP)
             synapse.machine_availabilities.machine_config["moat"] = MachineDetails(private_ip=MOAT_PRIVATE_IP)
 
-            # Use the initial private key for initial connection
-            initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
-
             #Machine's main user
             machine_usernames = {
                 "attacker": ATTACKER_USERNAME,
@@ -156,7 +154,7 @@ class Miner(BaseMinerNeuron):
                 self.add_ssh_key_to_remote_machine(
                     machine_ip=machine_details.ip,
                     ssh_public_key=ssh_public_key,
-                    initial_private_key_path=initial_private_key_path,
+                    initial_private_key_path=INITIAL_PK_PATH,
                     username=machine_usernames.get(machine_name)
                 )
                 for machine_name, machine_details in synapse.machine_availabilities.machine_config.items()
@@ -571,7 +569,7 @@ class Miner(BaseMinerNeuron):
                 connection_params = {
                     "host": machine_ip,
                     "username": username,
-                    "client_keys": [initial_private_key_path],
+                    "client_keys": [INITIAL_PK_PATH],
                     "known_hosts": None,
                     "connect_timeout": timeout,
                 }
@@ -725,7 +723,7 @@ async def clone_repositories(github_token: str, initial_private_key_path: str, m
         tasks.append(clone_or_update_repository(
             machine_ip=machine_ip,
             github_token=github_token,
-            initial_private_key_path=initial_private_key_path,
+            initial_private_key_path=INITIAL_PK_PATH,
             username=username,
         ))
 
@@ -827,7 +825,7 @@ if __name__ == "__main__":
 
     logger.info("Miner Instance started.")
 
-    # run_gre_setup()
+    run_gre_setup()
 
     machines = [
         (BENIGN_PUBLIC_IP, BENIGN_USERNAME), 
@@ -836,14 +834,13 @@ if __name__ == "__main__":
     ]
     
     github_token = ""
-    initial_private_key_path = os.environ.get("PRIVATE_KEY_PATH")
     
     # Run the repository cloning setup first, wait for it to complete
     loop = asyncio.get_event_loop()
     loop.run_until_complete(
         setup_machines(
             github_token, 
-            initial_private_key_path, 
+            INITIAL_PK_PATH, 
             machines
         )
     )

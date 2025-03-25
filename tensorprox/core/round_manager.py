@@ -612,7 +612,7 @@ class RoundManager(BaseModel):
             linked_files (list, optional): List of linked files to verify along with the script (default includes "traffic_generator.py").
 
         Returns:
-            tuple: The result of the challenge execution (could be any relevant value depending on the implementation of `run`).
+            tuple: The result of the challenge execution.
         """
 
         remote_script_path = get_immutable_path(remote_base_directory, script_name)

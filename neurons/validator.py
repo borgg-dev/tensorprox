@@ -384,6 +384,7 @@ class Validator(BaseValidatorNeuron):
         #             task="lockdown",
         #             miners=setup_completed_miners,
         #             subset_miners=subset_miners,
+        #             timeout=LOCKDOWN_TIMEOUT
         #         )
 
         #     except Exception as e:
@@ -416,6 +417,7 @@ class Validator(BaseValidatorNeuron):
                     task="gre_setup",
                     miners=locked_miners,
                     subset_miners=subset_miners,
+                    timeout=GRE_SETUP_TIMEOUT
                 )
 
             except Exception as e:
@@ -449,6 +451,7 @@ class Validator(BaseValidatorNeuron):
                     subset_miners=subset_miners,
                     label_hashes=label_hashes,
                     playlists=playlists,
+                    timeout=CHALLENGE_TIMEOUT
                 )
 
             except Exception as e:
