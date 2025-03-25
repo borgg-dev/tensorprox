@@ -407,7 +407,6 @@ class RoundManager(BaseModel):
         session_pub = session_pub.replace(' ', "TENSORPROX_SPACE")
 
         args = [
-            'sudo', 
             '/usr/bin/bash', 
             remote_script_path,
             ssh_user, 
@@ -461,7 +460,6 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         args = [
-            'sudo', 
             '/usr/bin/bash', 
             remote_script_path,
             ssh_user, ssh_dir, 
@@ -515,7 +513,6 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         args = [
-            'sudo', 
             '/usr/bin/bash', 
             remote_script_path,
             ip, 
@@ -568,8 +565,7 @@ class RoundManager(BaseModel):
         files_to_verify = [script_name] + linked_files
 
         args = [
-            'sudo', 
-            '/usr/bin/python3', 
+            '/usr/bin/python3.10', 
             remote_script_path,
             machine_name, 
             moat_private_ip
@@ -627,7 +623,6 @@ class RoundManager(BaseModel):
         label_hashes = json.dumps(label_hashes)
 
         args = [
-            "sudo",
             "/usr/bin/bash",
             remote_script_path,
             machine_name,

@@ -65,19 +65,17 @@ sudo touch /etc/whitelist-agent/allowlist.txt
 echo "Populating allowlist with whitelisted commands..."
 cat << EOF | sudo tee /etc/whitelist-agent/allowlist.txt
 /usr/bin/ssh
-
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh | awk '{print $1}'
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh | awk '{print $1}'
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh | awk '{print $1}'
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh | awk '{print $1}'
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py | awk '{print $1}'
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py | awk '{print $1}'
-
-/usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
-/usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
-/usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
-/usr/bin/sudo /usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
-/usr/bin/sudo /usr/bin/python3 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
+/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
+/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
+/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
+/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
+/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
+/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py
+/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
+/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
+/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
+/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
+/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
 EOF
 
 # Create audit log directory
@@ -112,27 +110,21 @@ is_command_allowed() {
     read -ra cmd_parts <<< "$full_cmd"
 
     # Extract main parts (first two should be sudo + command, third should be script path)
-    local base_cmd="${cmd_parts[0]}"  # Usually sudo
-    local sub_cmd="${cmd_parts[1]}"   # bash or python3
-    local script_path="${cmd_parts[2]}"  # The actual script being executed
+    local base_cmd="${cmd_parts[0]}"   # bash or python3
+    local script_path="${cmd_parts[1]}"  # The actual script being executed
 
     # Convert base command and paths to absolute form
     if command -v "$base_cmd" &> /dev/null; then
         base_cmd=$(command -v "$base_cmd")
     fi
-    if command -v "$sub_cmd" &> /dev/null; then
-        sub_cmd=$(command -v "$sub_cmd")
-    fi
     if [[ -f "$script_path" ]]; then
         script_path=$(realpath "$script_path")
     fi
 
-    echo "Checking: base_cmd='$base_cmd', sub_cmd='$sub_cmd', script_path='$script_path'"
-
     # Validate command against allowlist (ignoring additional arguments)
     while IFS= read -r allowed_cmd; do
         # Normalize multiple spaces and compare with base commands
-        if [[ "$allowed_cmd" == "$base_cmd $sub_cmd $script_path"* ]]; then
+        if [[ "$allowed_cmd" == "$base_cmd $script_path"* ]]; then
             return 0  # Allowed
         fi
     done < "/etc/whitelist-agent/allowlist.txt"
