@@ -13,17 +13,25 @@
 # pip install -r requirements.txt
 
 # # Generate cold key using btcli
-# btcli w regen_coldkey --wallet.name borgg --mnemonic "actress dirt board drop envelope cricket link energy book case deal giant"
+# btcli w regen_coldkey --wallet.name Superwallet --mnemonic "magnet holiday oil such that fold silver afford warrior mother maze misery"
 
-# #Generate hot key using btcli
-# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey validator1 --mnemonic "two oven toy elevator cargo certain bird connect sport tip soda rebel"
+# #Generate Validator_hotkey UID 8 using btcli
+# btcli w regen_hotkey --wallet.name Superwallet --wallet.hotkey test-vali --mnemonic "frog drift surge puppy clutch pride carpet unlock edge sun long plunge"
 
-# #Generate hot key using btcli
-# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey validator2 --mnemonic "brick jelly unable coral during warm pyramid blame loop tunnel kind transfer"
+# #Generate Validator2_hotkey UID 16 using btcli
+# btcli w regen_hotkey --wallet.name Superwallet --wallet.hotkey test-vali2 --mnemonic "curve innocent clog unveil upgrade write banana sniff decorate casual pony blanket"
 
-# #Generate hot key using btcli
-# btcli w regen_hotkey --wallet.name borgg --wallet.hotkey miner --mnemonic "permit fragile index outer vintage purse divert hotel fee few burger drama"
+# #Generate miner_hotkey UID 9 using btcli
+# btcli w regen_hotkey --wallet.name Superwallet --wallet.hotkey test-miner --mnemonic "own faint future crop empower woman coil crater into melt shiver slab"
 
+# #Generate miner2_hotkey UID 11 using btcli
+# btcli w regen_hotkey --wallet.name Superwallet --wallet.hotkey test-miner2 --mnemonic "pottery patch ghost crush deny learn advance plunge nerve margin obscure sell"
+
+# #Generate miner3_hotkey UID 12 using btcli
+# btcli w regen_hotkey --wallet.name Superwallet --wallet.hotkey test-miner3 --mnemonic "middle melody daring hybrid peanut sunny gravity pilot bleak rare armed uncover"
+
+# #Generate miner3_hotkey UID 13 using btcli
+# btcli w regen_hotkey --wallet.name Superwallet --wallet.hotkey test-miner4 --mnemonic "doll fire pause birth tip vendor admit label reopen sorry symbol error"
 
 pm2 kill && pm2 flush
 
@@ -31,5 +39,8 @@ pm2 kill && pm2 flush
 pm2 start "python3 ~/tensorprox/neurons/miner.py" --name miner
 pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator
 
+# pm2 start "python3 ~/TensorProx/TrafficLogger/websocket_server.py" --name websocket_server
+# pm2 start "python3 ~/generate_udp_traffic.py" --name traffic
+
 # Display the logs of pm2 processes
-pm2 logs validator
+pm2 logs miner

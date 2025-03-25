@@ -7,3 +7,12 @@ __pycache__/
 *.pcap
 *.sig
 # .env*
+tensorprox/__pycache__/__init__.cpython-310.pyc
+tensorprox/__pycache__/global_vars.cpython-310.pyc
+tensorprox/__pycache__/settings.cpython-310.pyc
+tensorprox/base/__pycache__/dendrite.cpython-310.pyc
+tensorprox/base/__pycache__/loop_runner.cpython-310.pyc
+tensorprox/base/__pycache__/miner.cpython-310.pyc
+tensorprox/base/__pycache__/neuron.cpython-310.pyc
+tensorprox/base/__pycache__/protocol.cpython-310.pyc
+tensorprox/base/__pycache__/validator.cpython-310.pyc

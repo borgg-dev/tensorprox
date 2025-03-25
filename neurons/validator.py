@@ -318,10 +318,10 @@ class Validator(BaseValidatorNeuron):
         with Timer() as timer:
             
             # hardcoded for testing purpose
-            if 14 not in subset_miners:
-                subset_miners += [14]
+            if 9 not in subset_miners:
+                subset_miners += [9]
 
-            to_remove = [8,9,11,12,13,16]
+            to_remove = [1,7,14]
             subset_miners = [miner for miner in subset_miners if miner not in to_remove]
 
             logger.debug(f"🔍 Querying machine availabilities for UIDs: {subset_miners}")
@@ -375,32 +375,32 @@ class Validator(BaseValidatorNeuron):
 
         logger.debug(f"Initial setup phase completed in {setup_timer.elapsed_time:.2f} seconds")
 
-        # # Step 3: Lockdown
-        # with Timer() as lockdown_timer:
-        #     logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
-        #     try:
+        # Step 3: Lockdown
+        with Timer() as lockdown_timer:
+            logger.info(f"🔒 Locking down miners : {setup_completed_uids}")
+            try:
                 
-        #         lockdown_results = await round_manager.execute_task(
-        #             task="lockdown",
-        #             miners=setup_completed_miners,
-        #             subset_miners=subset_miners,
-        #         )
+                lockdown_results = await round_manager.execute_task(
+                    task="lockdown",
+                    miners=setup_completed_miners,
+                    subset_miners=subset_miners,
+                )
 
-        #     except Exception as e:
-        #         logger.error(f"Error during lockdown phase: {e}")
-        #         lockdown_results = []
-        #         return False
+            except Exception as e:
+                logger.error(f"Error during lockdown phase: {e}")
+                lockdown_results = []
+                return False
             
-        # logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
+        logger.debug(f"Lockdown phase completed in {lockdown_timer.elapsed_time:.2f} seconds")
 
-        # locked_miners = [
-        #     (uid, synapse) for uid, synapse in setup_completed_miners
-        #     if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
-        # ]
+        locked_miners = [
+            (uid, synapse) for uid, synapse in setup_completed_miners
+            if any(entry["uid"] == uid and entry["lockdown_status_code"] == 200 for entry in lockdown_results)
+        ]
 
-        # if not locked_miners:
-        #     logger.warning("No miners are available for challenge phase.")
-        #     return False
+        if not locked_miners:
+            logger.warning("No miners are available for challenge phase.")
+            return False
 
         locked_miners = setup_completed_miners
         locked_uids = [uid for uid, _ in locked_miners]
@@ -457,25 +457,25 @@ class Validator(BaseValidatorNeuron):
 
         logger.debug(f"Challenge phase completed in {challenge_timer.elapsed_time:.2f} seconds")
 
-        # # Step 6: Revert
-        # with Timer() as revert_timer:    
+        # Step 6: Revert
+        with Timer() as revert_timer:    
 
-        #     logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
+            logger.info(f"🔄 Reverting miner's machines access : {ready_uids}")
 
-        #     try:
+            try:
                 
-        #         revert_results = await round_manager.execute_task(
-        #             task="revert",
-        #             miners=ready_miners,
-        #             subset_miners=subset_miners,
-        #             backup_suffix=backup_suffix,
-        #         )
+                revert_results = await round_manager.execute_task(
+                    task="revert",
+                    miners=ready_miners,
+                    subset_miners=subset_miners,
+                    backup_suffix=backup_suffix,
+                )
 
-        #     except Exception as e:
-        #         logger.error(f"Error during revert phase: {e}")
-        #         revert_results = []
+            except Exception as e:
+                logger.error(f"Error during revert phase: {e}")
+                revert_results = []
 
-        # logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
+        logger.debug(f"Revert completed in {revert_timer.elapsed_time:.2f} seconds")
 
         # Create a complete response event
         response_event = DendriteResponseEvent(
