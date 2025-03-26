@@ -7,31 +7,34 @@ def _version_to_int(version_str: str) -> int:
     patch = int(version_split[2])
     return (10000 * major) + (100 * minor) + patch
 
+#Release version
 __version__ = "0.1.0" 
-
 __spec_version__ = _version_to_int(__version__)
 
-labels = ["BENIGN", "UDP_FLOOD", "TCP_SYN_FLOOD"]
-node_types = ["attacker", "benign", "king", "moat"]
-
-ROUND_TIMEOUT: int = 300 #150 blocks / 30 minutes
-CHALLENGE_DURATION: int = 60 #15 minutes
+#Inner parameters
 EPSILON: int = 30
-INITIAL_SETUP_TIMEOUT: int = 15
+DELTA: int = 15
+CHALLENGE_DURATION: int = 60 #15 minutes
+NODE_TYPES = ["attacker", "benign", "king", "moat"]
 
-TASK_TYPES: list = ['initial_setup', 'lockdown', 'revert', 'challenge', 'gre_setup']
+#Timeouts
+ROUND_TIMEOUT: int = 300 #150 blocks / 30 minutes
+INITIAL_SETUP_TIMEOUT: int = 30 # 30 seconds
+LOCKDOWN_TIMEOUT: int = 60
+GRE_SETUP_TIMEOUT: int = 210
+CHALLENGE_TIMEOUT: int = CHALLENGE_DURATION + DELTA
+REVERT_TIMEOUT: int = 60
 
 # Store the base path dynamically, assuming `tensorprox` is the base directory
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-#Temporary paths
-SESSION_KEY_DIR = "/var/tmp/session_keys"
-REMOTE_TRAFFIC_GEN_PATH: str = '/tmp/traffic_generator.py'
+#Default validator user on remote machines
+RESTRICTED_USER = "valiops"
 
-# ===== GRE CONFIGURATION =====
+#Temporary path for session_keys storage
+SESSION_KEY_DIR = "/var/tmp/session_keys"
+
 # Fixed overlay network IPs
 BENIGN_OVERLAY_IP = "10.200.77.102"
 ATTACKER_OVERLAY_IP = "10.200.77.103"
 KING_OVERLAY_IP = "10.200.77.1"
-
-RESTRICTED_USER = "valiops"
