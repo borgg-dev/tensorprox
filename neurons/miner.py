@@ -154,7 +154,6 @@ class Miner(BaseMinerNeuron):
                 self.add_ssh_key_to_remote_machine(
                     machine_ip=machine_details.ip,
                     ssh_public_key=ssh_public_key,
-                    initial_private_key_path=INITIAL_PK_PATH,
                     username=machine_usernames.get(machine_name)
                 )
                 for machine_name, machine_details in synapse.machine_availabilities.machine_config.items()
@@ -191,15 +190,15 @@ class Miner(BaseMinerNeuron):
             task = synapse.task
             state=synapse.state
 
-
-            logger.debug(f"📧 Task {task} received from {synapse.dendrite.hotkey}. State : {state}.")
+            logger.debug(f"📧 Synapse received from {synapse.dendrite.hotkey}. Task : {task} | State : {state}.")
 
             if state == "GET_READY":
+
                 if not self.firewall_active:
                     self.firewall_active = True
                     self.stop_firewall_event.clear()  # Reset stop event
                     # Start sniffing in a separate thread to avoid blocking
-                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(KING_OVERLAY_IP, "ipip-to-king"))
+                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(KING_OVERLAY_IP, ["gre-benign", "gre-attacker"]))
                     self.firewall_thread.daemon = True  # Set the thread to daemon mode to allow termination
                     self.firewall_thread.start()
                     logger.info("🔥 Moat firewall activated.")
@@ -207,6 +206,7 @@ class Miner(BaseMinerNeuron):
                     logger.info("💥 Moat firewall already activated.")
     
             elif state == "END_ROUND":
+
                 if self.firewall_active:
                     self.firewall_active = False
                     self.stop_firewall_event.set()  # Signal firewall to stop
@@ -271,32 +271,27 @@ class Miner(BaseMinerNeuron):
         loop.run_forever()  # Ensure the loop keeps running
 
 
-    async def moat_forward_packet(self, packet, destination_ip, destination_port, protocol):
+    async def moat_forward_packet(self, packet, destination_ip):
         """
-        Forward the packet to King based on its protocol (TCP/UDP).
+        Forward the packet to King using raw sockets.
         
         Args:
             packet (bytes): The network packet to be forwarded.
             destination_ip (str): The IP address of King.
-            destination_port (int): The port number of King.
-            protocol (int): The protocol identifier (6 for TCP, 17 for UDP).
         """
-
+        
         try:
-            if protocol == 6:  # TCP protocol
-                # Create a TCP socket
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.connect((destination_ip, destination_port))  # Establish connection
-                    s.sendall(packet)  # Send the full packet
-
-            elif protocol == 17:  # UDP protocol
-                # Create a UDP socket
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                    s.sendto(packet, (destination_ip, destination_port))  # Send the packet
-
+            # Create a raw socket
+            with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW) as s:
+                # Set IP header options if needed (e.g., TTL)
+                # s.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, 64)
+                
+                # Forward the packet directly
+                s.sendto(packet, (destination_ip, 0))  # Port 0 is ignored for raw sockets
+                
         except Exception as e:
             # Log any errors encountered during forwarding
-            # logger.error(f"Failed to forward packet to King ({destination_ip}:{destination_port}) - Error: {e}")
+            # logger.error(f"Failed to forward packet to King ({destination_ip}) - Error: {e}")
             pass
 
 
@@ -308,13 +303,10 @@ class Miner(BaseMinerNeuron):
             packet_data (bytes): The network packet data to store.   
         """
 
-        eth_header = packet_data[0:14]
-        eth_protocol = struct.unpack('!H', eth_header[12:14])[0]
+        if len(packet_data) < 20:
+            return
 
-        if eth_protocol != 0x0800:
-            return  # Ignore non-IPv4 packets
-
-        ip_header = packet_data[14:34]
+        ip_header = packet_data[0:20]
         iph = struct.unpack('!BBHHHBBH4s4s', ip_header)
         protocol = iph[6]
 
@@ -438,19 +430,32 @@ class Miner(BaseMinerNeuron):
 
                 # Predict whether batch is allowed
                 is_allowed, label_type = self.is_allowed_batch(features)  
-
-                # Forward or block the packets based on decision
-                if is_allowed:
-                    logger.info(f"Allowing batch of {len(batch)} packets...")
-                    for packet_data, protocol in batch:  # Extract packet and protocol
-                        await self.moat_forward_packet(packet_data, KING_OVERLAY_IP, int(self.forward_port), protocol)
-                else:
-                    logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
+                
+                # # Forward or block the packets based on decision
+                # if is_allowed:
+                #     logger.info(f"Allowing batch of {len(batch)} packets...")
+                #     for packet_data, protocol in batch:  # Extract packet and protocol
+                #         await self.moat_forward_packet(packet_data, KING_OVERLAY_IP)
+                # else:
+                #     logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
+                
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
 
 
-    async def sniff_packets_stream(self, destination_ip, iface, stop_event=None):
+    async def sniff_packets_stream(self, destination_ip, ifaces, stop_event=None):
+        """
+        Sniffs packets on multiple interfaces asynchronously.
+
+        Args:
+            destination_ip (str): The destination IP to filter packets.
+            ifaces (list): List of network interfaces to sniff packets on.
+        """
+
+        tasks = [self._sniff_on_interface(destination_ip, iface, stop_event) for iface in ifaces]
+        await asyncio.gather(*tasks)  # Run sniffing tasks concurrently
+
+    async def _sniff_on_interface(self, destination_ip, iface, stop_event):
         """
         Sniffs packets and adds them to the buffer.
         
@@ -460,6 +465,7 @@ class Miner(BaseMinerNeuron):
             stop_event (asyncio.Event, optional): An event to signal stopping the sniffing loop. 
                 If provided, the function will exit when stop_event is set. Defaults to None.
         """
+        
         logger.info(f"Sniffing packets going to {destination_ip} on interface {iface}")
 
         raw_socket = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
@@ -477,7 +483,7 @@ class Miner(BaseMinerNeuron):
 
             await asyncio.sleep(0)  # Yield control back to the event loop to run other tasks (like batch_processing_loop)
 
-        logger.info("Stopping packet sniffing...")
+        logger.info(f"Stopping packet sniffing on interface {iface}...")
         raw_socket.close()
 
 
@@ -541,8 +547,8 @@ class Miner(BaseMinerNeuron):
         self,
         machine_ip: str,
         ssh_public_key: str,
-        initial_private_key_path: str,
         username: str,  # This is the user you connect as (e.g., 'borgg-vm' or 'root')
+        initial_private_key_path: str = INITIAL_PK_PATH,
         target_user: str = RESTRICTED_USER,
         timeout: int = 5,
         retries: int = 3,
@@ -569,7 +575,7 @@ class Miner(BaseMinerNeuron):
                 connection_params = {
                     "host": machine_ip,
                     "username": username,
-                    "client_keys": [INITIAL_PK_PATH],
+                    "client_keys": [initial_private_key_path],
                     "known_hosts": None,
                     "connect_timeout": timeout,
                 }
@@ -623,8 +629,8 @@ class Miner(BaseMinerNeuron):
 async def clone_or_update_repository(
     machine_ip: str,
     github_token: str,
-    initial_private_key_path: str,
     username: str,
+    initial_private_key_path: str = INITIAL_PK_PATH,
     repo_path: str = f"/home/{RESTRICTED_USER}/tensorprox",
     repo_url: str = "github.com/borgg-dev/tensorprox.git",
     branch: str = "tensorproxV3",
@@ -714,7 +720,7 @@ async def clone_or_update_repository(
 
     return
 
-async def clone_repositories(github_token: str, initial_private_key_path: str, machines: List[tuple]):
+async def clone_repositories(github_token: str, machines: List[tuple]):
     """
     This function clones or updates the repositories on the remote machines.
     """
@@ -723,7 +729,6 @@ async def clone_repositories(github_token: str, initial_private_key_path: str, m
         tasks.append(clone_or_update_repository(
             machine_ip=machine_ip,
             github_token=github_token,
-            initial_private_key_path=INITIAL_PK_PATH,
             username=username,
         ))
 
@@ -771,7 +776,7 @@ async def run_whitelist_setup(
         # Handle any exceptions and return an error message
         return f"An error occurred: {str(e)}"
 
-async def setup_machines(github_token: str, initial_private_key_path: str, machines: List[tuple]):
+async def setup_machines(github_token: str, machines: List[tuple], initial_private_key_path: str = INITIAL_PK_PATH):
     """
     Set up repository cloning for multiple machines using their corresponding IPs and usernames.
     
@@ -795,7 +800,7 @@ async def setup_machines(github_token: str, initial_private_key_path: str, machi
     # If any whitelist setup fails, don't proceed with cloning
     if all(setup_results):
         logger.info("Whitelist setup successful on all machines, proceeding with cloning.")
-        await clone_repositories(github_token, initial_private_key_path, machines)
+        await clone_repositories(github_token, machines)
     else:
         logger.info("Whitelist setup failed on one or more machines, aborting cloning.")
 
@@ -825,7 +830,7 @@ if __name__ == "__main__":
 
     logger.info("Miner Instance started.")
 
-    run_gre_setup()
+    # run_gre_setup()
 
     machines = [
         (BENIGN_PUBLIC_IP, BENIGN_USERNAME), 
@@ -840,7 +845,6 @@ if __name__ == "__main__":
     loop.run_until_complete(
         setup_machines(
             github_token, 
-            INITIAL_PK_PATH, 
             machines
         )
     )

@@ -9,6 +9,10 @@
 # #Activate virtual env
 # python3 -m venv tp && source tp/bin/activate
 
+# #Clone main repository
+# git clone http://github.com/borgg-dev/tensorprox.git
+# cd tensorprox/
+
 # # Install Python dependencies from requirements.txt
 # pip install -r requirements.txt
 

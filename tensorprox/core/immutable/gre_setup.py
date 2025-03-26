@@ -1505,6 +1505,13 @@ class GRESetup:
     def moat(self, benign_private_ip, attacker_private_ip, king_private_ip):
                 
         """Configure Moat node with enhanced acceleration and improved reliability"""
+
+        # Remove any existing iptables rules that might allow automatic forwarding
+        self.run_cmd(["iptables", "-F", "FORWARD"])  # Flush the FORWARD chain
+
+        # Set default policy to DROP for FORWARD chain
+        self.run_cmd(["iptables", "-P", "FORWARD", "DROP"])
+
         # --- Begin robust error handling ---
         # Try to detect if a previous installation attempt was interrupted
         if os.path.exists("/var/lib/dpkg/lock-frontend") or os.path.exists("/var/lib/apt/lists/lock"):
