@@ -1681,27 +1681,7 @@ class GRESetup:
 
         # 7. Set up enhanced acceleration for the moat node (central router)
         log("[INFO] Setting up enhanced acceleration for {0}".format(self.node_type), level=1)
-        
-        # Apply kernel optimizations
-        self.optimize_kernel_for_overlay_network()
-        
-        # Set up hugepages
-        self.setup_hugepages(resource_plan)
-        
-        # CPU and IRQ optimization
-        self.optimize_cpu_irq_for_tunnel(resource_plan)
-        
-        # Virtio-specific optimizations if applicable
-        self.optimize_virtio_for_tunneling()
-        
-        # Create optimized XDP program
-        self.create_optimized_xdp_program(primary_interface)
-        
-        # DPDK optimization
-        self.optimize_dpdk_for_virtio(resource_plan)
-        
-        # Create enhanced AF_XDP program
-        self.create_enhanced_afxdp_program("gre-benign", resource_plan)
+        self.setup_enhanced_acceleration("gre-benign", resource_plan)
         
         log("[INFO] Enhanced acceleration setup complete for {0}".format(self.node_type), level=1)
         

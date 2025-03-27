@@ -257,6 +257,7 @@ def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
     weights = [attack_weight_per_label] * len(attack_labels) + [benign_weight]
 
     while current_total < total_seconds:
+        
         # Select label based on role-specific weight distribution
         name = random.choices(attack_labels + benign_labels, weights, k=1)[0]
         class_vector = random.choice(type_class_map[name]) if name != "pause" else None
