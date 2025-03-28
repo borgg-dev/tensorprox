@@ -154,7 +154,7 @@ Miners must run the `restrict.sh` script before joining the network to:
 ### Epoch Management
 
 - Periodic validation cycles
-- Synchronized across all active validators
+- Synchronized across all validators
 
 # Reward Mechanism
 
