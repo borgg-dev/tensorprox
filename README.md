@@ -223,29 +223,18 @@ To maximize network performance, the system implements:
 - BBR congestion control
 - MTU optimization to minimize fragmentation
 
-# Technical Overview
-
-## Protocol Communication
-Built using Bittensor SDK, enabling secure and efficient node interactions through PingSynapse communication protocol.
-
-## Key Technologies
-- Bittensor SDK
-- Custom Routing Firewall
-- SSH Access Management
-- Synthetic Traffic Generation
-
 # Contribution
 
 We welcome contributions! Detailed guidelines will be published soon.
 
 # License
 
-Licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
+Licensed under the **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**.
 
 ## Licensing Terms
 - Non-commercial use permitted
 - Commercial use restricted to mining/validating within TensorProx subnet
-- Commercial licensing requests: Contact Shugo LTD
+- Commercial licensing requests: Contact **Shugo LTD**
 
 # Contact
 
