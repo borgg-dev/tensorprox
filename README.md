@@ -80,28 +80,24 @@ The validator executes a comprehensive validation process consisting of multiple
    - Clean up test environments
    - Prepare for next validation round
 
+
 ## Technical Highlights
 
 ### Dynamic Miner Selection
-- Uses time-synchronized random shuffling
-- Ensures fair distribution of challenges
-- Prevents predictable miner assignments
+- Implements a time-synchronized random shuffling technique
+- Uses universal timestamp-based seed to generate deterministic, unpredictable miner distributions
+- Asynchronous aiohttp-based validator readiness checks ensure real-time network mapping
 
 ### Challenge Generation
 - Dynamically creates traffic playlists
 - Generates random label hashes
 - Simulates diverse attack scenarios
 
-### Asynchronous Architecture
-- Utilizes `asyncio` for concurrent processing
-- Implements robust timeout management
-- Supports high-performance validation
-
 ## Epoch Management
 
 - Periodic validation cycles
-- Synchronized across all validators
-- Consistent challenge distribution
+- Synchronized across all active validators
+- **Guarantees Mutual Exclusivity**: mathematically ensures zero miner subset overlap across all active validators
 
 # Reward Mechanism
 
