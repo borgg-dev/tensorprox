@@ -17,12 +17,14 @@
 This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1.0+**. To learn more about the Bittensor project and the underlying mechanics, [read here.](https://docs.bittensor.com/)
 
 
+# How to start
 
 <div align="center">
 
 **[Validator Instructions](./assets/validator.md)** · **[Miner Instructions](./assets/miner.md)**
 
 </div>
+
 
 # Introduction
 
