@@ -26,7 +26,7 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 
 Tensorprox introduces a novel approach to **DDoS protection** with a distributed architecture and an innovative incentive mechanism powered by the **Bittensor Network**. The validation process leverages **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate realistic attack scenarios. This project aims to evolve into a **global cybersecurity solution**, tackling the most complex security challenges.
 
-# Core Conceptual Design: The Chessboard Defense
+# Core Conceptual Design: The Chess Battlefield
 
 The subnet operates on a unique distributed network architecture where:
 - **Validators** challenge miners by simulating real-world DDoS scenarios
@@ -35,11 +35,11 @@ The subnet operates on a unique distributed network architecture where:
 
 Tensorprox employs a novel architectural design, creating a robust and adaptable DDoS mitigation system. This design strategically positions key components to ensure comprehensive protection of the target server, referred to as the "King."
 
-**King**: Represents the target server, the ultimate recipient of network traffic and the asset requiring protection. The King's availability and stability are paramount.
+**King**: It represents the target server, the receiver machine and the asset requiring protection.
 
-**Attackers & Benign**: These are traffic generator machines simulating real-world network conditions. "Attackers" generate malicious traffic, mimicking DDoS attacks, while "Benign" generates legitimate traffic to test the system's ability to differentiate between the two.
+**Attacker & Benign**: These are traffic generator machines simulating real-world network conditions. "Attacker" generates malicious traffic, mimicking DDoS attacks, while "Benign" generates legitimate traffic.
 
-**Moat**: This is the central component of the architecture, acting as a routing firewall and scrubbing center. The Moat is run by miners and is responsible for inspecting all incoming traffic, filtering out malicious packets, and forwarding legitimate traffic to the King. The Moat leverages Advanced Forwarding eXpress Data Path (AF_XDP) for high-performance packet processing.
+**Moat**: It is run by miners and acts as a routing firewall and scrubbing center. The Moat is responsible for inspecting all incoming traffic, filtering out malicious packets, and forwarding legitimate traffic to the King. The Moat leverages Advanced Forwarding eXpress Data Path (AF_XDP) for high-performance packet processing.
 
 The system works by positioning the Moat strategically between the traffic generators (Attacker and Benign) and the King. All traffic must pass through the Moat, which analyzes and filters it based on pre-defined rules and dynamically learned patterns. 
 
