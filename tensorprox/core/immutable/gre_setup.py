@@ -1111,14 +1111,14 @@ class GRESetup:
         __u32 action = XDP_PASS;
 
         struct ethhdr *eth = data;
-        if (eth + 1 > data_end)
+        if ((void *)(eth + 1) > data_end)
             return XDP_PASS;
 
         if (eth->h_proto != bpf_htons(ETH_P_IP))
             return XDP_PASS;
 
         struct iphdr *iph = (struct iphdr *)(eth + 1);
-        if (iph + 1 > data_end)
+        if ((void *)(iph + 1) > data_end)
             return XDP_PASS;
 
         // Check for tunnel traffic or overlay IPs with minimal branching
@@ -1682,6 +1682,7 @@ class GRESetup:
         # 7. Set up enhanced acceleration for the moat node (central router)
         log("[INFO] Setting up enhanced acceleration for {0}".format(self.node_type), level=1)
         self.setup_enhanced_acceleration("gre-benign", resource_plan)
+
         
         log("[INFO] Enhanced acceleration setup complete for {0}".format(self.node_type), level=1)
         

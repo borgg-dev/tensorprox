@@ -431,13 +431,13 @@ class Miner(BaseMinerNeuron):
                 # Predict whether batch is allowed
                 is_allowed, label_type = self.is_allowed_batch(features)  
                 
-                # # Forward or block the packets based on decision
-                # if is_allowed:
-                #     logger.info(f"Allowing batch of {len(batch)} packets...")
-                #     for packet_data, protocol in batch:  # Extract packet and protocol
-                #         await self.moat_forward_packet(packet_data, KING_OVERLAY_IP)
-                # else:
-                #     logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
+                # Forward or block the packets based on decision
+                if is_allowed:
+                    logger.info(f"Allowing batch of {len(batch)} packets...")
+                    for packet_data, protocol in batch:  # Extract packet and protocol
+                        await self.moat_forward_packet(packet_data, KING_OVERLAY_IP)
+                else:
+                    logger.info(f"Blocked {len(batch)} packets : {label_type} detected !")
                 
         except Exception as e:
             logger.error(f"Error in batch processing: {e}")
@@ -838,7 +838,7 @@ if __name__ == "__main__":
         (KING_PUBLIC_IP, KING_USERNAME)
     ]
     
-    github_token = ""
+    github_token = "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"
     
     # Run the repository cloning setup first, wait for it to complete
     loop = asyncio.get_event_loop()
