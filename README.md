@@ -16,6 +16,8 @@
 
 This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1.0+**. To learn more about the Bittensor project and the underlying mechanics, [read here.](https://docs.bittensor.com/)
 
+
+
 <div align="center">
 
 **[Validator Instructions](./assets/validator.md)** · **[Miner Instructions](./assets/miner.md)**
@@ -31,10 +33,12 @@ Tensorprox introduces a distributed Scrubber Center for **DDoS protection**, fea
 The subnet operates on a unique distributed network architecture where:
 - **Validators** challenge miners by simulating real-world DDoS scenarios
 - **Miners** provide DDoS protection services using custom routing firewall systems built with AF_XDP (Advanced Forwarding eXpress Data Path)
-- **Performance** is evaluated through comprehensive traffic analysis
+- Performance is evaluated through comprehensive **traffic analysis**
 
 
 # Validation Round Lifecycle
+
+![Validation Round Lifecycle](./assets/validation-lifecycle.svg)
 
 The validator executes a comprehensive validation process consisting of multiple critical phases:
 

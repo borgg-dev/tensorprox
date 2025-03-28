@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <style>
+    .title {
+      font-family: Arial, sans-serif;
+      font-size: 24px;
+      font-weight: bold;
+      fill: #333;
+    }
+    .phase {
+      font-family: Arial, sans-serif;
+      font-size: 18px;
+      fill: #555;
+    }
+    .description {
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      fill: #777;
+    }
+    .box {
+      fill: #f4f4f4;
+      stroke: #ccc;
+      stroke-width: 1px;
+    }
+  </style>
+  
+  <!-- Title -->
+  <text x="20" y="40" class="title">Validation Round Lifecycle</text>
+  
+  <!-- Phase Boxes -->
+  <rect x="20" y="70" width="760" height="60" rx="10" class="box"/>
+  <text x="40" y="100" class="phase">1. Availability Check</text>
+  <text x="40" y="120" class="description">- Query miners for machines' availability</text>
+  <text x="40" y="140" class="description">- Filter and select responsive miners</text>
+
+  <rect x="20" y="150" width="760" height="60" rx="10" class="box"/>
+  <text x="40" y="180" class="phase">2. Initial Setup</text>
+  <text x="40" y="200" class="description">- Establish session keys</text>
+  <text x="40" y="220" class="description">- Prepare machines for lockdown</text>
+
+  <rect x="20" y="230" width="760" height="60" rx="10" class="box"/>
+  <text x="40" y="260" class="phase">3. Lockdown</text>
+  <text x="40" y="280" class="description">- Prevent external interference</text>
+  <text x="40" y="300" class="description">- Ensure controlled testing conditions</text>
+
+  <rect x="20" y="310" width="760" height="60" rx="10" class="box"/>
+  <text x="40" y="340" class="phase">4. GRE Configuration</text>
+  <text x="40" y="360" class="description">- Creates an isolated, controlled network playground</text>
+  <text x="40" y="380" class="description">- Provides a sandboxed environment for attack vector research</text>
+
+  <rect x="20" y="390" width="760" height="60" rx="10" class="box"/>
+  <text x="40" y="420" class="phase">5. Challenge Execution</text>
+  <text x="40" y="440" class="description">- Generate synthetic traffic scenarios including complex DDoS attack patterns</text>
+  <text x="40" y="460" class="description">- Test miner's protection capabilities</text>
+
+  <rect x="20" y="470" width="760" height=60 rx=10 class=box/>
+  <text x=40 y=500 class=phase>6. Revert</text>
+  <text x=40 y=520 class=description>- Restore original machine configurations</text>
+  <text x=40 y=540 class=description>- Clean up test environments</text>
+</svg>
