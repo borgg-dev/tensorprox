@@ -2,7 +2,7 @@
 
 # **Tensorprox: SN234** <!-- omit in toc -->
 [![Discord Chat](https://img.shields.io/discord/308323056592486420.svg)](https://discord.gg/bittensor)
-![Creative Commons Badge](https://creativecommons.org/licenses/by-nc/4.0/deed.en)
+[![Creative Commons Badge](https://img.shields.io/badge/Creative%20Commons-ED592F?logo=creativecommons&logoColor=fff&style=for-the-badge)](https://creativecommons.org/licenses/by-nc/4.0/deed.en)
 
 ---
 
