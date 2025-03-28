@@ -14,35 +14,74 @@
 
 ---
 
-This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1.0+**. To learn more about the Bittensor project and the underlying mechanics, [read here.](https://docs.bittensor.com/)
+# Validator Architecture
 
-# Introduction
+## Core Responsibilities
 
-Tensorprox defines an innovative incentive mechanism for creating a distributed Scrubber Center to protect miners and server instances from DDoS attacks. The validation process employs **synthetic traffic generation by alternating between normal traffic and complex DDoS attack simulations, aiming to reproduce the natural behavior of both normal and malicious traffic**.
+The Tensorprox Validator is a sophisticated component responsible for:
+- Coordinating DDoS protection challenges
+- Managing miner availability and performance
+- Executing complex validation rounds
+- Implementing a fair and dynamic reward mechanism
 
-## Core Concept
+## Validation Workflow
 
-The subnet operates on a unique distributed network architecture where:
-- **Validators** challenge miners by simulating real-world DDoS scenarios
-- **Miners** provide DDoS protection services using custom routing firewall systems
-- **Performance** is evaluated through comprehensive traffic analysis
+### Validation Round Lifecycle
 
-## Network Architecture
+The validator executes a comprehensive validation process consisting of multiple critical phases:
 
-### Components
-- **Validator Nodes**: Responsible for challenge generation and performance evaluation
-- **Miner Nodes**: Provide DDoS mitigation services
-- **Test Machines**:
-  * Attacker Machine: Generates malicious traffic
-  * Benign Machine: Generates normal traffic
-  * King Machine: Target receiver machine
+1. **Availability Check**
+   - Query miners for machine availability
+   - Filter and select responsive miners
+   - Ensure network readiness
 
-### Workflow
-1. SSH access established via PingSynapse protocol
-2. Validator locks machine access
-3. Synthetic traffic scenarios generated
-4. Miner's protection model evaluated
-5. Performance metrics calculated
+2. **Initial Setup**
+   - Establish session keys
+   - Prepare infrastructure for challenge
+   - Validate miner's initial configuration
+
+3. **Lockdown**
+   - Secure miner's test environments
+   - Prevent external interference
+   - Ensure controlled testing conditions
+
+4. **GRE (Generic Routing Encapsulation) Configuration**
+   - Set up network tunneling
+   - Prepare traffic routing mechanisms
+   - Enable precise traffic management
+
+5. **Challenge Execution**
+   - Generate synthetic traffic scenarios
+   - Simulate complex DDoS attack patterns
+   - Test miner's protection capabilities
+
+6. **Revert**
+   - Restore original machine configurations
+   - Clean up test environments
+   - Prepare for next validation round
+
+## Technical Highlights
+
+### Dynamic Miner Selection
+- Uses time-synchronized random shuffling
+- Ensures fair distribution of challenges
+- Prevents predictable miner assignments
+
+### Challenge Generation
+- Dynamically creates traffic playlists
+- Generates random label hashes
+- Simulates diverse attack scenarios
+
+### Asynchronous Architecture
+- Utilizes `asyncio` for concurrent processing
+- Implements robust timeout management
+- Supports high-performance validation
+
+## Epoch Management
+
+- Periodic validation cycles
+- Synchronized across all validators
+- Consistent challenge distribution
 
 # Reward Mechanism
 
@@ -104,10 +143,12 @@ We welcome contributions! Detailed guidelines will be published soon.
 
 # License
 
-The only authorized commercial use of this software is for mining or validating within the TensorProx subnet.
-For any other commercial licensing requests, please contact Shugo LTD.
+Licensed under the Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0).
 
-See the full license terms here: https://creativecommons.org/licenses/by-nc/4.0/
+## Licensing Terms
+- Non-commercial use permitted
+- Commercial use restricted to mining/validating within TensorProx subnet
+- Commercial licensing requests: Contact Shugo LTD
 
 # Contact
 
