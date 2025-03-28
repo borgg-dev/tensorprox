@@ -81,7 +81,7 @@ The validator executes a comprehensive validation process consisting of multiple
    - Prepare for next validation round
 
 
-## Secure Validator Access: Whitelist-Agent Mechanism
+## Restricted Validator Access: Whitelist-Agent Mechanism
 
 ### Access Control Architecture
 
