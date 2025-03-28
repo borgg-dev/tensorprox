@@ -50,7 +50,7 @@ The subnet operates on a unique distributed network architecture where:
    - Prevent external interference
    - Ensure controlled testing conditions
 
-4. **GRE (Generic Routing Encapsulation) Configuration**
+4. **Generic Routing Encapsulation (GRE)**
    - Creates an isolated, controlled network playground
    - Provides a sandboxed environment for attack vector research
 
