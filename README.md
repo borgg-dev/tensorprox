@@ -149,12 +149,12 @@ Miners must run the `restrict.sh` script before joining the network to:
 - Implements a time-synchronized random shuffling technique
 - Uses universal timestamp-based seed to generate deterministic, unpredictable miner distributions
 - Asynchronous aiohttp-based validator readiness checks ensure real-time network mapping
+- **Guarantees Mutual Exclusivity**: mathematically ensures zero miner subset overlap across all active validators
 
 ### Epoch Management
 
 - Periodic validation cycles
 - Synchronized across all active validators
-- **Guarantees Mutual Exclusivity**: mathematically ensures zero miner subset overlap across all active validators
 
 # Reward Mechanism
 
