@@ -82,19 +82,19 @@ The scoring system evaluates miners based on their ability to **protect the King
 
 The reward function is composed of four key metrics:
 
-1. **Attack Detection Accuracy (ADA)** - 30% Weight
+1. **Attack Mitigation Accuracy (AMA)** - 30% Weight
    - Measures the ability to detect and block malicious traffic
    - Calculated as: `(Total Attack Packets - Attacks Reaching King) / Total Attack Packets`
 
-2. **False Positive Rate (FPR)** - 30% Weight
-   - Evaluates precision in distinguishing between benign and malicious traffic
+2. **Benign Delivery Rate (BDR)** - 30% Weight
+   - Evaluates the efficiency of forwarding normal traffic
    - Calculated as: `1 - (Total Benign Packets - Benign Packets Reaching King) / Total Benign Packets`
 
-3. **Throughput Efficiency** - 20% Weight
+3. **Traffic Throughput Capacity (TTC)** - 20% Weight
    - Measures capacity to handle network traffic
    - Normalized total packets sent relative to maximum packets processed
 
-4. **Latency Factor** - 20% Weight
+4. **Latency Factor (LF)** - 20% Weight
    - Assesses response time and network performance
    - Calculated using normalized Round-Trip Time (RTT)
 
