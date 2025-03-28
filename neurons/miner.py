@@ -838,7 +838,7 @@ if __name__ == "__main__":
         (KING_PUBLIC_IP, KING_USERNAME)
     ]
     
-    github_token = "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"
+    github_token = ""
     
     # Run the repository cloning setup first, wait for it to complete
     loop = asyncio.get_event_loop()
