@@ -106,14 +106,9 @@ The whitelist includes only essential commands for the validation process:
    - Executed if whitelisted
    - Rejected if not authorized
 
-### Must-run Setup for security reasons
 
-Miners must run the `restrict.sh` script before joining the network to:
-- Create the restricted user
-- Install the whitelist-agent
-- Set up proper system hardening
-
-**Note**: Always conduct thorough security audits and testing in controlled environments before network deployment.
+**Note**: Miners must run the `restrict.sh` script on all remote machines before joining the network for security reasons.
+Always conduct thorough security audits and testing in controlled environments before network deployment.
 
 
 # Security Guarantees
