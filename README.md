@@ -18,7 +18,7 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 
 # Introduction
 
-Tensorprox defines an innovative incentive mechanism for creating a distributed Scrubber Center to protect miners and server instances from DDoS attacks. The validation process employs **synthetic traffic generation by alternating between normal traffic and complex DDoS attack simulations, aiming to reproduce the natural behavior of both normal and malicious traffic**.
+Tensorprox introduces a distributed **Scrubber Center** for DDoS protection, featuring an innovative incentive mechanism. The validation process uses **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate comprehensive attack scenarios. The project aims to evolve into a **global cybersecurity solution** addressing diverse attack vectors.
 
 # Core Concept
 
