@@ -1111,14 +1111,14 @@ class GRESetup:
         __u32 action = XDP_PASS;
 
         struct ethhdr *eth = data;
-        if ((void *)(eth + 1) > data_end)
+        if (eth + 1 > data_end)
             return XDP_PASS;
 
         if (eth->h_proto != bpf_htons(ETH_P_IP))
             return XDP_PASS;
 
         struct iphdr *iph = (struct iphdr *)(eth + 1);
-        if ((void *)(iph + 1) > data_end)
+        if (iph + 1 > data_end)
             return XDP_PASS;
 
         // Check for tunnel traffic or overlay IPs with minimal branching
@@ -1505,13 +1505,6 @@ class GRESetup:
     def moat(self, benign_private_ip, attacker_private_ip, king_private_ip):
                 
         """Configure Moat node with enhanced acceleration and improved reliability"""
-
-        # Remove any existing iptables rules that might allow automatic forwarding
-        self.run_cmd(["iptables", "-F", "FORWARD"])  # Flush the FORWARD chain
-
-        # Set default policy to DROP for FORWARD chain
-        self.run_cmd(["iptables", "-P", "FORWARD", "DROP"])
-
         # --- Begin robust error handling ---
         # Try to detect if a previous installation attempt was interrupted
         if os.path.exists("/var/lib/dpkg/lock-frontend") or os.path.exists("/var/lib/apt/lists/lock"):
@@ -1681,8 +1674,8 @@ class GRESetup:
 
         # 7. Set up enhanced acceleration for the moat node (central router)
         log("[INFO] Setting up enhanced acceleration for {0}".format(self.node_type), level=1)
+        
         self.setup_enhanced_acceleration("gre-benign", resource_plan)
-
         
         log("[INFO] Enhanced acceleration setup complete for {0}".format(self.node_type), level=1)
         
