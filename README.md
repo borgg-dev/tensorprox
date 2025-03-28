@@ -178,6 +178,17 @@ Always conduct thorough security audits and testing in controlled environments b
 - **Synchronization across all validators** achieved through universal timestamp-based trigger
 - Provides deterministic round progression **without centralized coordinator**
 
+## Whitelist-Agent
+
+- Granular Access Control: Restricts remote command execution
+- Implements strict command allowlisting
+- Validates every SSH command against pre-approved whitelist
+
+## Script Integrity Verification
+
+SHA-256 Checksum Validation: Ensures script authenticity before execution
+
+
 
 # ANNEX
 
