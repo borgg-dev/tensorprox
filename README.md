@@ -38,8 +38,6 @@ The subnet operates on a unique distributed network architecture where:
 
 # Validation Round Lifecycle
 
-The validator executes a comprehensive validation process consisting of multiple critical phases:
-
 1. **Availability Check**
    - Query miners for machines' availability
    - Filter and select responsive miners
