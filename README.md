@@ -176,7 +176,9 @@ Always conduct thorough security audits and testing in controlled environments b
 ## Epoch Management
 
 - Periodic validation cycles
-- Synchronized across all validators
+- Synchronization across all validators achieved through universal timestamp-based trigger
+- Guarantees validators start validation rounds in near-perfect temporal alignment
+- Provides deterministic round progression without centralized coordinator
 
 
 # ANNEX
