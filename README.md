@@ -63,6 +63,44 @@ The subnet operates on a unique distributed network architecture where:
    - Clean up test environments
 
 
+# Reward Mechanism
+
+## Overview
+
+The reward mechanism is a sophisticated scoring system that evaluates miners' performance in DDoS protection based on multiple critical metrics.
+
+### Reward Calculation Components
+
+The reward function is composed of four key metrics:
+
+1. **Attack Detection Accuracy (ADA)** - 30% Weight
+   - Measures the ability to detect and block malicious traffic
+   - Calculated as: `(Total Attack Packets - Attacks Reaching King) / Total Attack Packets`
+
+2. **False Positive Rate (FPR)** - 30% Weight
+   - Evaluates precision in distinguishing between benign and malicious traffic
+   - Calculated as: `1 - (Total Benign Packets - Benign Packets Reaching King) / Total Benign Packets`
+
+3. **Throughput Efficiency** - 20% Weight
+   - Measures capacity to handle network traffic
+   - Normalized total packets sent relative to maximum packets processed
+
+4. **Latency Factor** - 20% Weight
+   - Assesses response time and network performance
+   - Calculated using normalized Round-Trip Time (RTT)
+
+### Scoring Method
+
+The final reward is calculated using a weighted sum:
+
+```
+Reward = (0.3 * Attack Detection Accuracy) + 
+         (0.3 * False Positive Rate) + 
+         (0.2 * Normalized Packets Sent) + 
+         (0.2 * Normalized RTT)
+```
+
+
 # Restricted Validator Access: Whitelist-Agent Mechanism
 
 ## Access Control Architecture
@@ -131,42 +169,6 @@ Always conduct thorough security audits and testing in controlled environments b
 - Periodic validation cycles
 - Synchronized across all validators
 
-# Reward Mechanism
-
-## Overview
-
-The reward mechanism is a sophisticated scoring system that evaluates miners' performance in DDoS protection based on multiple critical metrics.
-
-### Reward Calculation Components
-
-The reward function is composed of four key metrics:
-
-1. **Attack Detection Accuracy (ADA)** - 30% Weight
-   - Measures the ability to detect and block malicious traffic
-   - Calculated as: `(Total Attack Packets - Attacks Reaching King) / Total Attack Packets`
-
-2. **False Positive Rate (FPR)** - 30% Weight
-   - Evaluates precision in distinguishing between benign and malicious traffic
-   - Calculated as: `1 - (Total Benign Packets - Benign Packets Reaching King) / Total Benign Packets`
-
-3. **Throughput Efficiency** - 20% Weight
-   - Measures capacity to handle network traffic
-   - Normalized total packets sent relative to maximum packets processed
-
-4. **Latency Factor** - 20% Weight
-   - Assesses response time and network performance
-   - Calculated using normalized Round-Trip Time (RTT)
-
-### Scoring Method
-
-The final reward is calculated using a weighted sum:
-
-```
-Reward = (0.3 * Attack Detection Accuracy) + 
-         (0.3 * False Positive Rate) + 
-         (0.2 * Normalized Packets Sent) + 
-         (0.2 * Normalized RTT)
-```
 
 # ANNEX
 
