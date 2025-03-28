@@ -26,7 +26,7 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 
 Tensorprox introduces a novel approach to **DDoS protection** with a distributed architecture and an innovative incentive mechanism powered by the **Bittensor Network**. The validation process leverages **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate realistic attack scenarios. This project aims to evolve into a **global cybersecurity solution**, tackling the most complex security challenges.
 
-# Core Conceptual Design: The Chess Battlefield
+# Core Conceptual Design
 
 The subnet operates on a unique distributed network architecture where:
 - **Validators** challenge miners by simulating real-world DDoS scenarios
@@ -76,7 +76,7 @@ The system works by positioning the Moat strategically between the traffic gener
 
 ## Overview
 
-The scoring system evaluates miners based on their ability to protect the King by blocking attacks and handling high volume of packets with low latency.
+The scoring system evaluates miners based on their ability to **protect the King** by blocking attacks and handling **high volume of packets** with **low latency**.
 
 ### Reward Calculation Components
 
@@ -114,7 +114,7 @@ Reward = (0.3 * Attack Detection Accuracy) +
 
 ## Access Control Architecture
 
-Tensorprox implements a restrictive security model to ensure validators can only execute predefined commands during the validation process. This is achieved through a custom `whitelist-agent` mechanism that provides granular control over remote command execution.
+Tensorprox implements a **restrictive security model** to ensure validators can only execute predefined commands during the validation process. This is achieved through a custom `whitelist-agent` mechanism that provides **granular control** over remote command execution.
 
 ### Key Security Features
 
@@ -154,7 +154,7 @@ The whitelist includes only essential commands for the validation process:
    - Rejected if not authorized
 
 
-**Note**: Miners must run the `restrict.sh` script on all remote machines before joining the network for security reasons.
+**Note**: Miners **must run** the `restrict.sh` script on all remote machines before joining the network for security reasons.
 Always conduct thorough security audits and testing in controlled environments before network deployment.
 
 
@@ -168,17 +168,17 @@ Always conduct thorough security audits and testing in controlled environments b
 # Technical Highlights
 
 ## Dynamic Miner Selection
-- Implements a time-synchronized random shuffling technique
-- Uses universal timestamp-based seed to generate deterministic, unpredictable miner distributions
-- Asynchronous aiohttp-based validator readiness checks ensure real-time network mapping
+- Implements a **time-synchronized** random shuffling technique
+- Uses universal timestamp-based seed to generate **deterministic**, **unpredictable miner distributions**
+- Asynchronous aiohttp-based validator readiness checks ensure **real-time network mapping**
 - **Guarantees Mutual Exclusivity**: mathematically ensures zero miner subset overlap across all active validators
 
 ## Epoch Management
 
 - Periodic validation cycles
-- Synchronization across all validators achieved through universal timestamp-based trigger
+- **Synchronization across all validators** achieved through universal timestamp-based trigger
 - Guarantees validators start validation rounds in near-perfect temporal alignment
-- Provides deterministic round progression without centralized coordinator
+- Provides deterministic round progression **without centralized coordinator**
 
 
 # ANNEX
