@@ -41,35 +41,29 @@ The subnet operates on a unique distributed network architecture where:
 The validator executes a comprehensive validation process consisting of multiple critical phases:
 
 1. **Availability Check**
-   - Query miners for machine availability
+   - Query miners for machines' availability
    - Filter and select responsive miners
-   - Ensure network readiness
 
 2. **Initial Setup**
    - Establish session keys
-   - Prepare infrastructure for challenge
-   - Validate miner's initial configuration
+   - Prepare machines for lockdown
 
 3. **Lockdown**
-   - Secure miner's test environments
    - Prevent external interference
    - Ensure controlled testing conditions
 
 4. **GRE (Generic Routing Encapsulation) Configuration**
-   - Set up network tunneling / Prepare traffic routing mechanisms
    - Creates an isolated, controlled network playground
    - Provides a sandboxed environment for attack vector research
 
 5. **Challenge Execution**
-   - Generate synthetic traffic scenarios
-   - Simulate complex DDoS attack patterns
+   - Generate synthetic traffic scenarios including complex DDoS attack patterns
    - Test miner's protection capabilities
 
 6. **Revert**
    - Restore original machine configurations
    - Clean up test environments
-   - Prepare for next validation round
-
+   
 
 ## Restricted Validator Access: Whitelist-Agent Mechanism
 
