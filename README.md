@@ -34,9 +34,7 @@ The subnet operates on a unique distributed network architecture where:
 - **Performance** is evaluated through comprehensive traffic analysis
 
 
-# Validator Architecture
-
-## Validation Round Lifecycle
+# Validation Round Lifecycle
 
 The validator executes a comprehensive validation process consisting of multiple critical phases:
 
@@ -63,15 +61,15 @@ The validator executes a comprehensive validation process consisting of multiple
 6. **Revert**
    - Restore original machine configurations
    - Clean up test environments
-   
 
-## Restricted Validator Access: Whitelist-Agent Mechanism
 
-### Access Control Architecture
+# Restricted Validator Access: Whitelist-Agent Mechanism
 
-Tensorprox implements a sophisticated security model to ensure validators can only execute predefined, critical commands during the validation process. This is achieved through a custom `whitelist-agent` mechanism that provides granular control over remote command execution.
+## Access Control Architecture
 
-#### Key Security Features
+Tensorprox implements a restrictive security model to ensure validators can only execute predefined commands during the validation process. This is achieved through a custom `whitelist-agent` mechanism that provides granular control over remote command execution.
+
+### Key Security Features
 
 1. **Restricted User Creation**
    - Each miner creates a dedicated system user with limited privileges
@@ -87,20 +85,19 @@ Tensorprox implements a sophisticated security model to ensure validators can on
    - Command paths are normalized and checked against the allowlist
    - Unauthorized commands are immediately rejected
 
-#### Allowed Commands Example
+### Allowed Commands Example
 
 The whitelist includes only essential commands for the validation process:
 - SSH connection maintenance
-- Specific validation scripts:
+- Specific scripts needed for the full round execution:
   - `initial_setup.sh`
   - `challenge.sh`
   - `lockdown.sh`
   - `revert.sh`
-- Python scripts for network configuration:
   - `gre_setup.py`
   - `traffic_generator.py`
 
-#### Security Workflow
+### Security Workflow
 
 1. Validator initiates SSH connection
 2. `whitelist-agent` intercepts the connection
@@ -109,15 +106,7 @@ The whitelist includes only essential commands for the validation process:
    - Executed if whitelisted
    - Rejected if not authorized
 
-
-### Security Guarantees
-
-- **Principle of Least Privilege**: Miners expose only required functionality
-- **Dynamic Allowlist**: Easy to update approved commands
-- **Audit Trail**: Logging of all command attempts
-- **No Direct Shell Access**: Prevents interactive shell sessions
-
-### Recommended Setup
+### Must-run Setup for security reasons
 
 Miners must run the `restrict.sh` script before joining the network to:
 - Create the restricted user
@@ -127,15 +116,25 @@ Miners must run the `restrict.sh` script before joining the network to:
 
 **Note**: Always conduct thorough security audits and testing in controlled environments before network deployment.
 
-## Technical Highlights
 
-### Dynamic Miner Selection
+# Security Guarantees
+
+- **Principle of Least Privilege**: Miners expose only required functionality
+- **Dynamic Allowlist**: Easy to update approved commands
+- **Audit Trail**: Logging of all command attempts
+- **No Direct Shell Access**: Prevents interactive shell sessions
+- **Script Integrity Verification**: Validators ensure the integrity of scripts like initial_setup.sh, challenge.sh, lockdown.sh, revert.sh, gre_setup.py, and traffic_generator.py by performing SHA-256 checksum comparisons before execution. This prevents unauthorized modifications by miners, ensuring that only validated scripts are executed during the validation process.
+
+
+# Technical Highlights
+
+## Dynamic Miner Selection
 - Implements a time-synchronized random shuffling technique
 - Uses universal timestamp-based seed to generate deterministic, unpredictable miner distributions
 - Asynchronous aiohttp-based validator readiness checks ensure real-time network mapping
 - **Guarantees Mutual Exclusivity**: mathematically ensures zero miner subset overlap across all active validators
 
-### Epoch Management
+## Epoch Management
 
 - Periodic validation cycles
 - Synchronized across all validators
