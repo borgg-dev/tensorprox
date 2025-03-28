@@ -110,11 +110,11 @@ Reward = (0.3 * Attack Detection Accuracy) +
 ```
 
 
-# Restricted Validator Access: Whitelist-Agent Mechanism
+# Restricted Validator Access: Whitelist-Agent
 
 ## Access Control Architecture
 
-Tensorprox implements a **restrictive security model** to ensure validators can only execute predefined commands during the validation process. This is achieved through a custom `whitelist-agent` mechanism that provides **granular control** over remote command execution.
+Tensorprox implements a **restrictive security model** to ensure validators can only execute predefined commands during the validation process. This is achieved through a custom `whitelist-agent` that provides **granular control** over remote command execution.
 
 ### Key Security Features
 
@@ -168,16 +168,14 @@ Always conduct thorough security audits and testing in controlled environments b
 # Technical Highlights
 
 ## Dynamic Miner Selection
-- Implements a **time-synchronized** random shuffling technique
-- Uses universal timestamp-based seed to generate **deterministic**, **unpredictable miner distributions**
-- Asynchronous aiohttp-based validator readiness checks ensure **real-time network mapping**
+- Implements a **time-synchronized** seed to generate **deterministic**, **unpredictable miner distributions**
+- Asynchronous aiohttp-based validator readiness checks ensure **dynamic network mapping**
 - **Guarantees Mutual Exclusivity**: mathematically ensures zero miner subset overlap across all active validators
 
 ## Epoch Management
 
 - Periodic validation cycles
 - **Synchronization across all validators** achieved through universal timestamp-based trigger
-- Guarantees validators start validation rounds in near-perfect temporal alignment
 - Provides deterministic round progression **without centralized coordinator**
 
 
