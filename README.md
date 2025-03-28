@@ -24,7 +24,7 @@ Tensorprox defines an innovative incentive mechanism for creating a distributed 
 
 The subnet operates on a unique distributed network architecture where:
 - **Validators** challenge miners by simulating real-world DDoS scenarios
-- **Miners** provide DDoS protection services using custom routing firewall systems
+- **Miners** provide DDoS protection services using custom routing firewall systems built with AF_XDP (Advanced Forwarding eXpress Data Path)
 - **Performance** is evaluated through comprehensive traffic analysis
 
 ## Network Architecture
