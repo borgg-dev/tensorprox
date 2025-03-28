@@ -24,40 +24,49 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 </div>
 <br/>
 
-Tensorprox introduces a unique approach for **DDoS protection**, featuring an distributed architecture with an innovative incentive mechanism leveraged by the Bittensor Network. The validation process uses **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate comprehensive attack scenarios. The project aims to evolve into a **global cybersecurity solution** addressing the most challenging security vectors.
+Tensorprox introduces a novel approach to **DDoS protection** with a distributed architecture and an innovative incentive mechanism powered by the **Bittensor Network**. The validation process leverages **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate realistic attack scenarios. This project aims to evolve into a **global cybersecurity solution**, tackling the most complex security challenges.
 
-# Core Concept
+# Core Conceptual Design: The Chessboard Defense
 
 The subnet operates on a unique distributed network architecture where:
 - **Validators** challenge miners by simulating real-world DDoS scenarios
-- **Miners** provide DDoS protection services using custom routing firewall systems built with AF_XDP (Advanced Forwarding eXpress Data Path)
+- **Miners** provide DDoS protection services
 - Performance is evaluated through comprehensive **traffic analysis**
 
+Tensorprox employs a novel architectural design, creating a robust and adaptable DDoS mitigation system. This design strategically positions key components to ensure comprehensive protection of the target server, referred to as the "King."
+
+**King**: Represents the target server, the ultimate recipient of network traffic and the asset requiring protection. The King's availability and stability are paramount.
+
+**Attackers & Benign**: These are traffic generator machines simulating real-world network conditions. "Attackers" generate malicious traffic, mimicking DDoS attacks, while "Benign" generates legitimate traffic to test the system's ability to differentiate between the two.
+
+**Moat**: This is the central component of the architecture, acting as a routing firewall and scrubbing center. The Moat is run by miners and is responsible for inspecting all incoming traffic, filtering out malicious packets, and forwarding legitimate traffic to the King. The Moat leverages Advanced Forwarding eXpress Data Path (AF_XDP) for high-performance packet processing.
+
+The system works by positioning the Moat strategically between the traffic generators (Attacker and Benign) and the King. All traffic must pass through the Moat, which analyzes and filters it based on pre-defined rules and dynamically learned patterns. 
 
 # Validation Round Lifecycle
 
 1. **Availability Check**
-   - Query miners for machines' availability
+   - Query miners for **machines' availability**
    - Filter and select responsive miners
 
 2. **Initial Setup**
-   - Establish session keys
+   - Establish **session keys**
    - Prepare machines for lockdown
 
 3. **Lockdown**
    - Prevent external interference
-   - Ensure controlled testing conditions
+   - Ensure **controlled** testing conditions
 
 4. **Generic Routing Encapsulation (GRE)**
    - Creates an isolated, controlled network playground
-   - Provides a sandboxed environment for attack vector research
+   - Provides a **sandboxed environment** for attack vector research
 
 5. **Challenge Execution**
-   - Generate synthetic traffic scenarios including complex DDoS attack patterns
+   - Generate **synthetic traffic scenarios** including complex DDoS attack patterns
    - Test miner's protection capabilities
 
 6. **Revert**
-   - Restore original machine configurations
+   - **Restore** original machine configurations
    - Clean up test environments
 
 
@@ -65,7 +74,7 @@ The subnet operates on a unique distributed network architecture where:
 
 ## Overview
 
-The reward mechanism is a sophisticated scoring system that evaluates miners' performance in DDoS protection based on multiple critical metrics.
+The scoring system evaluates miners based on their ability to protect the King by blocking attacks and handling high volume of packets with low latency.
 
 ### Reward Calculation Components
 
