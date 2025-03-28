@@ -24,7 +24,7 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 
 # Introduction
 
-Tensorprox introduces a distributed Scrubber Center for **DDoS protection**, featuring an innovative incentive mechanism. The validation process uses **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate comprehensive attack scenarios. The project aims to evolve into a **global cybersecurity solution** addressing the most challenging attack vectors.
+Tensorprox introduces a distributed Scrubber Center for **DDoS protection**, featuring an innovative incentive mechanism leveraged by the Bittensor Network. The validation process uses **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate comprehensive attack scenarios. The project aims to evolve into a **global cybersecurity solution** addressing the most challenging security vectors.
 
 # Core Concept
 
@@ -36,17 +36,7 @@ The subnet operates on a unique distributed network architecture where:
 
 # Validator Architecture
 
-## Core Responsibilities
-
-The Tensorprox Validator is a sophisticated component responsible for:
-- Coordinating DDoS protection challenges
-- Managing miner availability and performance
-- Executing synchronized validation rounds without relying on any centralized orchestrator
-- Implementing a fair and dynamic reward mechanism
-
-## Validation Workflow
-
-### Validation Round Lifecycle
+## Validation Round Lifecycle
 
 The validator executes a comprehensive validation process consisting of multiple critical phases:
 
