@@ -106,7 +106,7 @@ The reward function is composed of four key metrics:
    - Assesses response time and network performance
    - Calculated using log-based normalized Round-Trip Time (RTT): 
    ```
-   LF = 1 / (1 + math.log(AVG_RTT + 1)**3 / 10)
+   LF = 1 / (1 + log(AVG_RTT + 1)**3 / 10)
    ```
 
 ### Scoring Method
