@@ -66,9 +66,9 @@ The validator executes a comprehensive validation process consisting of multiple
    - Ensure controlled testing conditions
 
 4. **GRE (Generic Routing Encapsulation) Configuration**
-   - Set up network tunneling
-   - Prepare traffic routing mechanisms
-   - Enable precise traffic management
+   - Set up network tunneling / Prepare traffic routing mechanisms
+   - Creates an isolated, controlled network playground
+   - Provides a sandboxed environment for attack vector research
 
 5. **Challenge Execution**
    - Generate synthetic traffic scenarios
