@@ -81,6 +81,68 @@ The validator executes a comprehensive validation process consisting of multiple
    - Prepare for next validation round
 
 
+## Secure Validator Access: Whitelist-Agent Mechanism
+
+### Access Control Architecture
+
+Tensorprox implements a sophisticated security model to ensure validators can only execute predefined, critical commands during the validation process. This is achieved through a custom `whitelist-agent` mechanism that provides granular control over remote command execution.
+
+#### Key Security Features
+
+1. **Restricted User Creation**
+   - Each miner creates a dedicated system user with limited privileges
+   - SSH access is confined to a single, purpose-specific user account
+
+2. **Command Whitelist**
+   - Only pre-approved commands can be executed remotely
+   - Strict allowlist prevents unauthorized command execution
+   - Supported commands are explicitly defined in `/etc/whitelist-agent/allowlist.txt`
+
+3. **Validated Command Execution**
+   - Every SSH command undergoes comprehensive validation
+   - Command paths are normalized and checked against the allowlist
+   - Unauthorized commands are immediately rejected
+
+#### Allowed Commands Example
+
+The whitelist includes only essential commands for the validation process:
+- SSH connection maintenance
+- Specific validation scripts:
+  - `initial_setup.sh`
+  - `challenge.sh`
+  - `lockdown.sh`
+  - `revert.sh`
+- Python scripts for network configuration:
+  - `gre_setup.py`
+  - `traffic_generator.py`
+
+#### Security Workflow
+
+1. Validator initiates SSH connection
+2. `whitelist-agent` intercepts the connection
+3. Proposed command is checked against allowlist
+4. Command is either:
+   - Executed if whitelisted
+   - Rejected if not authorized
+
+
+### Security Guarantees
+
+- **Principle of Least Privilege**: Miners expose only required functionality
+- **Dynamic Allowlist**: Easy to update approved commands
+- **Audit Trail**: Logging of all command attempts
+- **No Direct Shell Access**: Prevents interactive shell sessions
+
+### Recommended Setup
+
+Miners must run the `restrict.sh` script before joining the network to:
+- Create the restricted user
+- Configure SSH access
+- Install the whitelist-agent
+- Set up proper system hardening
+
+**Note**: Always conduct thorough security audits and testing in controlled environments before network deployment.
+
 ## Technical Highlights
 
 ### Dynamic Miner Selection
