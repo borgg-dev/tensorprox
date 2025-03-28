@@ -110,7 +110,6 @@ The whitelist includes only essential commands for the validation process:
 
 Miners must run the `restrict.sh` script before joining the network to:
 - Create the restricted user
-- Configure SSH access
 - Install the whitelist-agent
 - Set up proper system hardening
 
@@ -120,8 +119,6 @@ Miners must run the `restrict.sh` script before joining the network to:
 # Security Guarantees
 
 - **Principle of Least Privilege**: Miners expose only required functionality
-- **Dynamic Allowlist**: Easy to update approved commands
-- **Audit Trail**: Logging of all command attempts
 - **No Direct Shell Access**: Prevents interactive shell sessions
 - **Script Integrity Verification**: Validators ensure the integrity of scripts like initial_setup.sh, challenge.sh, lockdown.sh, revert.sh, gre_setup.py, and traffic_generator.py by performing SHA-256 checksum comparisons before execution. This prevents unauthorized modifications by miners, ensuring that only validated scripts are executed during the validation process.
 
