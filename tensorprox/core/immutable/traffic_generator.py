@@ -41,6 +41,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 class TrafficType(Enum):
     """Enumeration of traffic types supported by the framework."""
     ATTACK = auto()
@@ -638,15 +639,19 @@ class Attack(ABC):
         
         # Set up signal for enforcing the duration
         signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(self.duration)  # Set alarm for the duration
+        signal.alarm(self.duration)
         
-        if not self.traffic_shaper.acquire_lock():
-            return
+        # If not running in parallel benign mode, acquire the shaping lock.
+        if not (getattr(self, "parallel", False) and self.traffic_type == TrafficType.BENIGN):
+            if not self.traffic_shaper.acquire_lock():
+                return
         
         try:
             # Set the process group ID to allow group termination
             os.setpgid(0, 0)
-            self.traffic_shaper.setup_shaping(self.packet_loss, self.jitter)
+            # Only setup traffic shaping if not running as parallel benign.
+            if not (getattr(self, "parallel", False) and self.traffic_type == TrafficType.BENIGN):
+                self.traffic_shaper.setup_shaping(self.packet_loss, self.jitter)
             self.start_time = time.time()
             
             logger.info(f"Executing attack: {self.__class__.__name__} targeting {self.target_ips}")
@@ -656,8 +661,9 @@ class Attack(ABC):
                 logger.info(f"Attack {self.__class__.__name__} stopped after {self.duration}s.")
         finally:
             signal.alarm(0)  # Disable alarm
-            self.traffic_shaper.remove_shaping()
-            self.traffic_shaper.release_lock()
+            if not (getattr(self, "parallel", False) and self.traffic_type == TrafficType.BENIGN):
+                self.traffic_shaper.remove_shaping()
+                self.traffic_shaper.release_lock()
             terminate_all_processes()
             logger.info("Script completed.")
 
@@ -771,7 +777,10 @@ class TCPTraffic(BenignTraffic):
     def run(self) -> None:
         """Run the TCP traffic simulation."""
         logger.info("Starting TCP Traffic Simulation")
-        self.start_time = time.time()
+        # Ensure start_time is set
+        if self.start_time is None:
+            self.start_time = time.time()
+            
         total_duration = self.duration
         num_processes_per_ip = max(5, multiprocessing.cpu_count() // 2 // len(self.target_ips))
         processes = []
@@ -915,41 +924,55 @@ class TCPTraffic(BenignTraffic):
             await asyncio.sleep(max(0.0001, random.uniform(0.001 / rate, 0.05 / rate)))
 
     async def simulate_real_world_load(self, sport: int, dport: int, window_size: int, 
-                                       flags: str, tcp_options: List[Tuple], duration: int, 
-                                       pause_event: Event, target_ip: str) -> None:
-        """Simulate real-world load by sending TCP packets."""
+                                  flags: str, tcp_options: List[Tuple], duration: int, 
+                                  pause_event: Event, target_ip: str) -> None:
+        """Simulate real-world load by sending TCP packets with raw sockets."""
         start_time = time.time()
         packet_interval = 0.01  # Interval between packets to limit rate
+        
+        # Create a raw socket for sending packets
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        
+        try:
+            while time.time() - start_time < duration:
+                if pause_event.is_set():
+                    await asyncio.sleep(1)
+                    continue
 
-        while time.time() - start_time < duration:
-            if pause_event.is_set():
-                await asyncio.sleep(1)
-                continue
+                src_ip = self.generate_random_ip()
+                payload = self.generate_payload("BENIGN-TCP-", self.packet_factory.max_tcp_payload_size)
+                
+                # Use packet factory to create TCP packet with MTU limits
+                packet = self.packet_factory.create_tcp_packet(
+                    src_ip=src_ip, 
+                    dst_ip=target_ip, 
+                    src_port=sport, 
+                    dst_port=dport, 
+                    payload=payload,
+                    window_size=window_size,
+                    flags=flags
+                )
 
-            src_ip = self.generate_random_ip()
+                try:
+                    # Send using raw socket
+                    sock.sendto(packet, (target_ip, 0))
+                    logger.debug(f"Raw packet sent to {target_ip}:{dport} from {src_ip}:{sport} with flags {flags}")
+                except OSError as e:
+                    logger.error(f"Error sending raw packet: {e}")
 
-            # Use get_identifier or fallback if no custom_identifier is set
-            payload = self.generate_payload("BENIGN-TCP-", self.packet_factory.max_tcp_payload_size)
-            packet = IP(src=src_ip, dst=target_ip) / \
-                     TCP(sport=sport, dport=dport, window=window_size, flags=flags, options=tcp_options) / \
-                     Raw(load=payload)
+                await asyncio.sleep(packet_interval)
 
-            try:
-                send(packet, verbose=0)
-                logger.debug(f"Raw packet sent to {target_ip}:{dport} from {src_ip}:{sport} with flags {flags}")
-            except OSError as e:
-                logger.error(f"Error sending raw packet: {e}")
+                if random.random() < 0.02:
+                    idle_time = random.uniform(0.01, 0.2)
+                    await asyncio.sleep(idle_time)
 
-            await asyncio.sleep(packet_interval)
-
-            if random.random() < 0.02:
-                idle_time = random.uniform(0.01, 0.2)
-                await asyncio.sleep(idle_time)
-
-            if random.randint(0, 10000) < 1:
-                pause_time = random.uniform(0.5, 2)
-                logger.info(f"Pausing traffic for {pause_time:.2f} seconds for natural idle period...")
-                await asyncio.sleep(pause_time)
+                if random.randint(0, 10000) < 1:
+                    pause_time = random.uniform(0.5, 2)
+                    logger.info(f"Pausing traffic for {pause_time:.2f} seconds for natural idle period...")
+                    await asyncio.sleep(pause_time)
+        finally:
+            sock.close()
 
     async def simulate_tcp_client(self, target_ip: str, target_port: int, 
                                   pause_event: Event) -> None:
@@ -996,10 +1019,10 @@ class TCPTraffic(BenignTraffic):
 
                     payload = self.generate_payload("BENIGN-TCP-", self.packet_factory.max_tcp_payload_size)
                     writer.write(payload.encode())
-                    logger.info(f"Sent BENIGN payload to {target_ip}:{target_port} from {local_ip}")
+                    logger.debug(f"Sent BENIGN payload to {target_ip}:{target_port} from {local_ip}")
                     await writer.drain()
 
-                    logger.info(f"Awaiting response from {target_ip}:{target_port} to {local_ip}")
+                    logger.debug(f"Awaiting response from {target_ip}:{target_port} to {local_ip}")
                     try:
                         data = await asyncio.wait_for(reader.read(1500), timeout=10)
                         if data:
@@ -1039,7 +1062,8 @@ class TCPTraffic(BenignTraffic):
 ##################
 ## UDP - Benign ##
 ##################
-    
+
+
 class UDPTraffic(BenignTraffic):
     """Class to simulate benign UDP traffic."""
     
@@ -1048,6 +1072,10 @@ class UDPTraffic(BenignTraffic):
     def run(self) -> None:
         """Run the UDP traffic simulation."""
         logger.info("Starting UDP Benign Traffic Simulation")
+        # Ensure start_time is set
+        if self.start_time is None:
+            self.start_time = time.time()
+            
         total_duration = self.duration
         # Update: Use 50% of available CPU cores per target IP
         num_processes_per_ip = max(1, (multiprocessing.cpu_count() // 2) // len(self.target_ips))
@@ -1068,6 +1096,8 @@ class UDPTraffic(BenignTraffic):
         logger.info("All UDP traffic simulation processes have completed.")
     
     def run_process(self, total_duration: int, pause_event: Event, target_ip: str) -> None:
+        # NEW: Initialize start_time in the child process to ensure the UDP loop runs for the full duration.
+        self.start_time = time.time()
         asyncio.run(self.simulate_realistic_conditions(target_ip, total_duration, pause_event))
     
     async def simulate_realistic_conditions(self, target_ip: str, total_duration: int, 
@@ -1082,10 +1112,9 @@ class UDPTraffic(BenignTraffic):
                 remaining_time = self.start_time + total_duration - time.time()
                 phase_duration = min(random.randint(1800, 3600), remaining_time)
                 await self.manage_load_phases(target_ip, phase_duration, pause_event)
-
-
+    
     async def manage_load_phases(self, target_ip: str, total_duration: int, 
-                                    pause_event: Event) -> None:
+                                 pause_event: Event) -> None:
         regions = ['NA', 'EU', 'ASIA', 'SA', 'AF', 'OCEANIA']
         traffic_types = ['DNS', 'NTP', 'SSDP', 'RANDOM']
         
@@ -1098,14 +1127,14 @@ class UDPTraffic(BenignTraffic):
             await self.simulate_phase_for_target(
                 target_ip, rate, phase_duration, region, traffic_type, pause_event
             )
-
+    
     async def burst_traffic(self, target_ip: str, region: str, pause_event: Event) -> None:
         burst_duration = min(random.randint(300, 600), self.duration)
         burst_rate = random.randint(7000, 15000)
         await self.simulate_phase_for_target(
             target_ip, burst_rate, burst_duration, region, "BURST", pause_event
         )
-
+    
     async def simulate_phase_for_target(self, target_ip: str, rate: int, duration: int, 
                                         region: str, traffic_type: str, 
                                         pause_event: Event) -> None:
@@ -1121,7 +1150,7 @@ class UDPTraffic(BenignTraffic):
             sport = random.randint(1024, 65535)
             dport = random.choice([53, 123, 1900, 11211, 80, 443, 22, 21, 3306, 53])
             ttl = random.randint(1, 128)
-            payload = self.generate_payload("BENIGN-UDP-", self.packet_factory.max_tcp_payload_size)
+            payload = self.generate_payload("BENIGN-UDP-", self.packet_factory.max_udp_payload_size)
             
             if random.random() < 0.15:
                 burst_mode = True
@@ -1136,34 +1165,54 @@ class UDPTraffic(BenignTraffic):
                 burst_mode = False
                 rate = random.randint(500, 1000)
             await asyncio.sleep(max(0.0001, random.uniform(0.001 / rate, 0.05 / rate)))
-
+    
     async def simulate_real_world_load(self, src_ip: str, dport: int, ttl: int, 
-                                        payload: str, duration: int, pause_event: Event, 
-                                        target_ip: str) -> None:
+                                   payload: str, duration: int, pause_event: Event, 
+                                   target_ip: str) -> None:
+        """Simulate real-world load by sending UDP packets using raw sockets."""
         start_time = time.time()
-        while time.time() - start_time < duration:
-            if pause_event.is_set():
-                await asyncio.sleep(1)
-                continue
-            
-            packet = IP(src=src_ip, dst=target_ip, ttl=ttl) / \
-                        UDP(sport=random.randint(1024, 65535), dport=dport) / \
-                        Raw(load=payload)
-            
-            try:
-                send(packet, verbose=0, iface=self.interface)
-                logger.debug(f"UDP Packet sent to {target_ip} with src port {packet[UDP].sport} and dst port {dport}")
-            except OSError as e:
-                logger.error(f"Error sending UDP packet: {e}")
-            
-            if random.random() < 0.02:
-                idle_time = random.uniform(0.01, 0.2)
-                await asyncio.sleep(idle_time)
-            
-            if random.randint(0, 10000) < 1:
-                pause_time = random.uniform(0.5, 2)
-                logger.info(f"Pausing UDP traffic for {pause_time:.2f} seconds for natural idle period...")
-                await asyncio.sleep(pause_time)
+        
+        # Create a raw socket for sending packets
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_UDP)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        
+        try:
+            while time.time() - start_time < duration:
+                if pause_event.is_set():
+                    await asyncio.sleep(1)
+                    continue
+                
+                sport = random.randint(1024, 65535)
+                
+                # Use packet factory to create UDP packet with MTU limits
+                packet = self.packet_factory.create_udp_packet(
+                    src_ip=src_ip,
+                    dst_ip=target_ip,
+                    sport=sport,
+                    dport=dport,
+                    payload=payload
+                )
+                
+                # Modify TTL in the IP header (8th byte)
+                if ttl != 255:  # Default TTL in create_udp_packet is 255
+                    packet = packet[:8] + struct.pack("!B", ttl) + packet[9:]
+                
+                try:
+                    sock.sendto(packet, (target_ip, 0))
+                    logger.debug(f"UDP Packet sent to {target_ip} with dst port {dport}")
+                except OSError as e:
+                    logger.error(f"Error sending UDP packet: {e}")
+                
+                if random.random() < 0.02:
+                    idle_time = random.uniform(0.01, 0.2)
+                    await asyncio.sleep(idle_time)
+                
+                if random.randint(0, 10000) < 1:
+                    pause_time = random.uniform(0.5, 2)
+                    logger.info(f"Pausing UDP traffic for {pause_time:.2f} seconds for natural idle period...")
+                    await asyncio.sleep(pause_time)
+        finally:
+            sock.close()
 
 
 #################
@@ -2591,6 +2640,7 @@ class UDPEncryptedPayloadFlood(UDPAttack):
             sock.close()
 
 
+
 def get_attack_classes() -> Dict[str, Type[Attack]]:
     """Get all available attack classes."""
     return {
@@ -2623,18 +2673,21 @@ def get_attack_classes() -> Dict[str, Type[Attack]]:
     }
 
 
-def get_attack_types() -> Tuple[List[str], List[str]]:
-    """Get lists of available attack and benign traffic types."""
-    attack_types = []
-    benign_types = []
-    
-    for key, cls in get_attack_classes().items():
-        if cls.traffic_type == TrafficType.ATTACK:
-            attack_types.append(key)
-        elif cls.traffic_type == TrafficType.BENIGN:
-            benign_types.append(key)
-    
-    return attack_types, benign_types
+# NEW helper: Run an attack instance in a new process (used for parallel benign attacks)
+def run_attack_instance(attack_class, target_ips, interface, duration, label_identifier, min_port, max_port):
+    attack_instance = attack_class(
+        target_ips=target_ips,
+        interface=interface,
+        duration=duration,
+        pause_event=Event(),
+        custom_identifier=label_identifier,
+        min_port=min_port,
+        max_port=max_port
+    )
+    # Mark instance as running in parallel so that traffic shaping is skipped
+    attack_instance.parallel = True
+    attack_instance.execute()
+
 
 def main() -> None:
     """Main entry point for the traffic generator."""
@@ -2664,50 +2717,73 @@ def main() -> None:
         logger.error(f"Failed to load playlists file: {e}")
         sys.exit(1)
     
-    # NEW: Convert playlist list to dict if necessary
+    # NEW: Determine playlist structure.
+    # If any entry has a "classes" key, assume the JSON is in the new parallel benign format.
     if isinstance(playlist, list):
-        grouped_playlist = {}
-        for entry in playlist:
-            key = entry.get('class_vector')
-            if key:
-                grouped_playlist.setdefault(key, []).append(entry)
-        playlist = grouped_playlist
+        if any("classes" in entry for entry in playlist):
+            playlist_entries = playlist  # Use as is.
+        else:
+            # Group by class_vector as before.
+            grouped_playlist = {}
+            for entry in playlist:
+                key = entry.get('class_vector')
+                if key:
+                    grouped_playlist.setdefault(key, []).append(entry)
+            playlist_entries = []
+            for key, entries in grouped_playlist.items():
+                playlist_entries.extend(entries)
+    else:
+        # If not a list, assume it's already grouped.
+        playlist_entries = []
+        for key, entries in playlist.items():
+            playlist_entries.extend(entries)
     
-    # Extract attack and benign traffic types from playlists
-    all_traffic_types = []
-    for _, entries in playlist.items():
-        for entry in entries:
-            all_traffic_types.append(entry['class_vector'])  # Collecting class_vector values
-
     attack_classes = get_attack_classes()
 
-    # Loop over all traffic types in the playlist and execute them
-    for traffic in all_traffic_types:
-        attack_class = attack_classes.get(traffic.lower())
-        if not attack_class:
-            logger.error(f"Error: Traffic type '{traffic}' is not recognized.")
-            continue
-        
-        # Loop over the corresponding attack class list
-        for entry in playlist.get(traffic, []):
-            name = entry.get('name', None)
-            label_identifier = entry.get('label_identifier', None)
-            duration = entry.get('duration', 10)  # Default to 10 seconds if not specified
-
-            logger.info(f"Starting traffic generation for: {name} ({traffic}) with duration: {duration} seconds")
+    # Process each entry in the playlist
+    for entry in playlist_entries:
+        # If the entry has a "classes" key, run those benign attacks in parallel.
+        if "classes" in entry:
+            benign_processes = []
+            for sub_entry in entry["classes"]:
+                attack_class = attack_classes.get(sub_entry["class_vector"].lower())
+                if not attack_class:
+                    logger.error(f"Error: Traffic type '{sub_entry['class_vector']}' is not recognized.")
+                    continue
+                logger.info(f"Starting parallel benign traffic generation for: {entry['name']} "
+                            f"({sub_entry['class_vector']}) with duration: {sub_entry.get('duration', 10)} seconds")
+                p = Process(target=run_attack_instance, args=(
+                    attack_class,
+                    target_ips,
+                    args.interface,
+                    sub_entry.get("duration", 10),
+                    sub_entry.get("label_identifier"),
+                    sub_entry.get("min_port", 1),
+                    sub_entry.get("max_port", 65535)
+                ))
+                p.start()
+                benign_processes.append(p)
+            for p in benign_processes:
+                p.join()
+        else:
+            # Standard single attack entry processing.
+            attack_class = attack_classes.get(entry["class_vector"].lower())
+            if not attack_class:
+                logger.error(f"Error: Traffic type '{entry['class_vector']}' is not recognized.")
+                continue
             
-            # Instantiate and execute the attack
+            logger.info(f"Starting traffic generation for: {entry['name']} "
+                        f"({entry['class_vector']}) with duration: {entry.get('duration', 10)} seconds")
+            
             attack_instance = attack_class(
                 target_ips=target_ips,
                 interface=args.interface,
-                duration=duration,
+                duration=entry.get("duration", 10),
                 pause_event=Event(),
-                custom_identifier=label_identifier,
-                min_port=1,
-                max_port=65535            
+                custom_identifier=entry.get("label_identifier"),
+                min_port=entry.get("min_port", 1),
+                max_port=entry.get("max_port", 65535)
             )
-
-            # Execute the traffic generation
             attack_instance.execute()
             
 if __name__ == "__main__":

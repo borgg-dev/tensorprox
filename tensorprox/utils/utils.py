@@ -254,23 +254,51 @@ def create_random_playlist(total_seconds, label_hashes, role=None, seed=None):
 
     # Calculate individual weights
     attack_weight_per_label = attack_weight / len(attack_labels)
+    combined_labels = attack_labels + benign_labels
     weights = [attack_weight_per_label] * len(attack_labels) + [benign_weight]
 
     while current_total < total_seconds:
         
         # Select label based on role-specific weight distribution
-        name = random.choices(attack_labels + benign_labels, weights, k=1)[0]
-        class_vector = random.choice(type_class_map[name]) if name != "pause" else None
-        label_identifier = random.choice(label_hashes[name]) if name != "pause" else None
+        name = random.choices(combined_labels, weights, k=1)[0]
+        # Determine the duration for this step (ensuring we don't exceed total_seconds)
         duration = min(random.randint(60, 180), total_seconds - current_total)
 
-        # Add activity to the playlist
-        playlist.append({
-            "name": name, 
-            "class_vector": class_vector,
-            "label_identifier": label_identifier, 
-            "duration": duration
-        })
+        # If role is "Benign" and label "BENIGN" is chosen, output a grouped unit with two class_vectors.
+        if role == "Benign" and name == "BENIGN":
+            
+            benign_unit = {
+                "name": "BENIGN",
+                "classes": [
+                    {
+                        "class_vector": "tcp_traffic",
+                        "label_identifier": random.choice(label_hashes["BENIGN"]),
+                        "duration": duration
+                    },
+                    {
+                        "class_vector": "udp_traffic",
+                        "label_identifier": random.choice(label_hashes["BENIGN"]),
+                        "duration": duration
+                    }
+                ]
+            }
+
+            playlist.append(benign_unit)
+
+        else :
+
+            # For all other cases, use the existing logic
+            # Note: For non-"pause" labels, select the class_vector and label_identifier
+            class_vector = random.choice(type_class_map[name]) if name != "pause" else None
+            label_identifier = random.choice(label_hashes[name]) if name != "pause" else None
+
+            # Add activity to the playlist
+            playlist.append({
+                "name": name, 
+                "class_vector": class_vector,
+                "label_identifier": label_identifier, 
+                "duration": duration
+            })
 
         current_total += duration
 

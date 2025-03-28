@@ -695,7 +695,7 @@ async def clone_or_update_repository(
                     logger.info(f"Repository updated successfully on {machine_ip}: {result.stdout}")
                 else:
                     # Sparse checkout setup
-                    logger.info(f"Setting up sparse checkout for folder '{sparse_folder}'...")
+                    logger.info(f"Setting up sparse checkout on {machine_ip} for folder '{sparse_folder}'...")
                     clone_commands = [
                         f"sudo mkdir -p {repo_path}",
                         f"sudo bash -c 'cd {repo_path} && git init'",
@@ -709,7 +709,7 @@ async def clone_or_update_repository(
                     for command in clone_commands:
                         await conn.run(command, check=True)
                     
-                    logger.info(f"Sparse checkout completed successfully for folder '{sparse_folder}'.")
+                    logger.info(f"Sparse checkout completed successfully on {machine_ip} for folder '{sparse_folder}'.")
 
                 return  # Exit function on success
 
