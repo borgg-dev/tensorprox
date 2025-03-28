@@ -20,23 +20,13 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 
 Tensorprox defines an innovative incentive mechanism for creating a distributed Scrubber Center to protect miners and server instances from DDoS attacks. The validation process employs **synthetic traffic generation by alternating between normal traffic and complex DDoS attack simulations, aiming to reproduce the natural behavior of both normal and malicious traffic**.
 
-## Core Concept
+# Core Concept
 
 The subnet operates on a unique distributed network architecture where:
 - **Validators** challenge miners by simulating real-world DDoS scenarios
 - **Miners** provide DDoS protection services using custom routing firewall systems built with AF_XDP (Advanced Forwarding eXpress Data Path)
 - **Performance** is evaluated through comprehensive traffic analysis
 
-## Network Architecture
-
-### Components
-- **Validator Nodes**: Responsible for challenge generation and performance evaluation
-- **Miner Nodes**: Provide DDoS mitigation services
-- **Test Machines**:
-  * Attacker Machine: Generates malicious traffic
-  * Benign Machine: Generates normal traffic
-  * King Machine: Target receiver machine
-  
 
 # Validator Architecture
 
