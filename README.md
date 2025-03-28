@@ -18,13 +18,13 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 
 <div align="center">
 
-**[Validator Documentation](./assets/validator.md)** · **[Miner Documentation](./assets/miner.md)**
+**[Validator Instructions](./assets/validator.md)** · **[Miner Instructions](./assets/miner.md)**
 
 </div>
 
 # Introduction
 
-Tensorprox introduces a distributed Scrubber Center for **DDoS protection**, featuring an innovative incentive mechanism. The validation process uses **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate comprehensive attack scenarios. The project aims to evolve into a **global cybersecurity solution** addressing diverse attack vectors.
+Tensorprox introduces a distributed Scrubber Center for **DDoS protection**, featuring an innovative incentive mechanism. The validation process uses **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate comprehensive attack scenarios. The project aims to evolve into a **global cybersecurity solution** addressing the most challenging attack vectors.
 
 # Core Concept
 
@@ -140,19 +140,20 @@ Reward = (0.3 * Attack Detection Accuracy) +
          (0.2 * Normalized RTT)
 ```
 
+# ANNEX
 
-# GRE/IPIP Tunnel Architecture
+## GRE/IPIP Tunnel Architecture
 
 
 ![Network Topology](./assets/architecture.svg)
 
 
 
-## Network Architecture Overview
+### Network Architecture Overview
 
 The Tensorprox system employs a sophisticated network topology utilizing GRE tunnels to create a secure, flexible overlay network. The architecture consists of four interconnected nodes within the 10.0.0.0/24 physical network, establishing a complex tunnel infrastructure.
 
-### Network Nodes
+#### Network Nodes
 
 1. **Benign Node (10.0.0.4)**
    - Physical interface on 10.0.0.0/24 network
@@ -177,9 +178,9 @@ The Tensorprox system employs a sophisticated network topology utilizing GRE tun
    - GRE tunnel to Moat (gre-moat: 192.168.101.2/30)
    - IPIP tunnel (ipip-king) with overlay IP: 10.200.77.1/32
 
-## Traffic Flow Mechanics
+### Traffic Flow Mechanics
 
-### Benign to King Traffic Flow
+#### Benign to King Traffic Flow
 1. Traffic originates from Benign (10.200.77.102) to King (10.200.77.1)
 2. Routed via gre-moat interface
 3. Encapsulated in GRE and sent to Moat
@@ -187,7 +188,7 @@ The Tensorprox system employs a sophisticated network topology utilizing GRE tun
 5. Forwarded through gre-king to King
 6. King processes packet through ipip-king interface
 
-### Attacker to King Traffic Flow
+#### Attacker to King Traffic Flow
 1. Traffic originates from Attacker (10.200.77.103) to King (10.200.77.1)
 2. Routed via gre-moat interface
 3. Encapsulated in GRE and sent to Moat
@@ -195,7 +196,7 @@ The Tensorprox system employs a sophisticated network topology utilizing GRE tun
 5. Forwarded through gre-king to King
 6. King processes packet through ipip-king interface
 
-## Key Architectural Features
+### Key Architectural Features
 
 1. **Multi-level Encapsulation**
    - IPIP tunnels provide custom overlay network addressing
@@ -213,7 +214,7 @@ The Tensorprox system employs a sophisticated network topology utilizing GRE tun
    - 10.0.0.0/8 routing allows dynamic IP additions
    - Scalable overlay network configuration
 
-## Kernel Optimization Techniques
+### Kernel Optimization Techniques
 
 To maximize network performance, the system implements:
 - IP forwarding enablement
