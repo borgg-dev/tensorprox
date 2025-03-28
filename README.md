@@ -115,7 +115,7 @@ Always conduct thorough security audits and testing in controlled environments b
 
 - **Principle of Least Privilege**: Miners expose only required functionality
 - **No Direct Shell Access**: Prevents interactive shell sessions
-- **Script Integrity Verification**: Validators ensure the integrity of scripts like initial_setup.sh, challenge.sh, lockdown.sh, revert.sh, gre_setup.py, and traffic_generator.py by performing SHA-256 checksum comparisons before execution. This prevents unauthorized modifications by miners, ensuring that only validated scripts are executed during the validation process.
+- **Script Integrity Verification**: Validators ensure the integrity of all scripts used during the round by performing SHA-256 checksum comparisons before execution. This prevents unauthorized modifications by miners, ensuring that only tamper-free scripts are executed during the validation process.
 
 
 # Technical Highlights
