@@ -2,13 +2,13 @@
 
 # **Tensorprox: SN234** <!-- omit in toc -->
 [![Discord Chat](https://img.shields.io/discord/308323056592486420.svg)](https://discord.gg/bittensor)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+![Creative Commons Badge](https://creativecommons.org/licenses/by-nc/4.0/deed.en)
 
 ---
 
 ### The Incentivized DDoS Scrubbing Center <!-- omit in toc -->
 
-[Discord](https://discord.gg/bittensor) • [Taostats](https://taostats.io/) •
+[Discord](https://discord.gg/bittensor) • [Taostats](https://taostats.io/) • [Linkedin](https://www.linkedin.com/company/105804417/admin/dashboard/) • [Twitter](https://x.com/shugoio)
 
 </div>
 
