@@ -150,12 +150,7 @@ Miners must run the `restrict.sh` script before joining the network to:
 - Uses universal timestamp-based seed to generate deterministic, unpredictable miner distributions
 - Asynchronous aiohttp-based validator readiness checks ensure real-time network mapping
 
-### Challenge Generation
-- Dynamically creates traffic playlists
-- Generates random label hashes
-- Simulates diverse attack scenarios
-
-## Epoch Management
+### Epoch Management
 
 - Periodic validation cycles
 - Synchronized across all active validators
