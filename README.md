@@ -43,6 +43,8 @@ Tensorprox employs a novel architectural design, creating a robust and adaptable
 
 The system works by positioning the Moat strategically between the traffic generators (Attacker and Benign) and the King. All traffic must pass through the Moat, which analyzes and filters it based on pre-defined rules and dynamically learned patterns. 
 
+**Note**: For scalability reasons, access to the Attacker, Benign, and King machines must be provided by the miner to the validator via SSH connections.
+
 # Validation Round Lifecycle
 
 1. **Availability Check**
