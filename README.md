@@ -99,7 +99,7 @@ The reward function is composed of four key metrics:
    - Measures capacity to handle network traffic
    - Ratio of total packets processed (sum of benign packets forwarded and attack packets blocked) by a miner to the highest number of packets processed by any miner in a given round :
    ```
-   Normalized TPC = (Benign Packets Forwarded + Attack Packets Blocked) / Max Packets Processed
+   TPC = (Benign Packets Forwarded + Attack Packets Blocked) / Max Packets Processed
    ```
 
 4. **Latency Factor (LF)** - 20% Weight
@@ -114,7 +114,7 @@ The reward function is composed of four key metrics:
 The final reward is calculated using a weighted sum:
 
 ```
-Reward = (0.3 * AMA) + (0.3 * BDR) + (0.2 * TTC) + (0.2 * LF)
+Reward = (0.3 * AMA) + (0.3 * BDR) + (0.2 * TPC) + (0.2 * LF)
 ```
 
 
