@@ -95,11 +95,11 @@ The reward function is composed of four key metrics:
    ```
    BDR = (exp((Total Reaching Benign / Total Benign Packets)**2) - 1) / (exp(1) - 1)
    ```
-3. **Normalized Traffic Processing Capacity (TPC)** - 20% Weight
-   - Measures capacity to handle network traffic
+3. **Relative Throughput Capacity (RTC)** - 20% Weight
+   - Measures capacity to handle network traffic compared to other miners
    - Ratio of total packets processed (sum of benign packets forwarded and attack packets blocked) by a miner to the highest number of packets processed by any miner in a given round :
    ```
-   TPC = (Benign Packets Forwarded + Attack Packets Blocked) / Max Packets Processed
+   RTC = (Benign Packets Forwarded + Attack Packets Blocked) / Max Packets Processed
    ```
 
 4. **Latency Factor (LF)** - 20% Weight

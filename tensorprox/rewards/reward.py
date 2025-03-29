@@ -204,21 +204,20 @@ class ChallengeRewardModel(BaseModel):
             BDR = total_reaching_benign / total_benign_sent if total_benign_sent > 0 else 0    
             reward_BDR = self.exponential_ratio(ratio=BDR)
 
-            # Normalized Traffic Processing Capacity (TPC)
-            TPC = total_blocked_attacks + total_reaching_benign
-            normalized_TPC = TPC / max_packets_processed if max_packets_processed > 0 else 0
+            # Relative Throughput Capacity (RTC)
+            RTC = (total_blocked_attacks + total_reaching_benign) / max_packets_processed if max_packets_processed > 0 else 0
 
             # Log-based Normalized RTT          
             LF = self.normalize_rtt(input=rtt)
 
             logging.info(f"AMA for UID {uid} : {AMA}")
             logging.info(f"BDR for UID {uid} : {BDR}")
-            logging.info(f"Normalized TPC for UID {uid} : {normalized_TPC}")
+            logging.info(f"RTC for UID {uid} : {RTC}")
             logging.info(f"Average RTT for UID {uid} : {rtt} ms")
             logging.info(f"LF for UID {uid} : {LF}")
 
             # Calculate reward function
-            reward = alpha * reward_AMA + beta * reward_BDR + gamma * normalized_TPC + delta * LF
+            reward = alpha * reward_AMA + beta * reward_BDR + gamma * RTC + delta * LF
             scores.append(reward)
 
         return BatchRewardOutput(rewards=np.array(scores))
