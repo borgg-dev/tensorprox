@@ -187,13 +187,13 @@ class ChallengeRewardModel(BaseModel):
             # Total benign packets processed (reaching King)
             total_reaching_benign = king_counts.get("BENIGN", 0)
 
-            # Attack Detection Accuracy (ADA)
-            ADA = (total_attacks_sent - total_reaching_attacks) / total_attacks_sent if total_attacks_sent > 0 else 0
-            reward_ADA = self.exponential_ratio(ratio=ADA)
+            # Attack Mitigation Accuracy (AMA)
+            AMA = (total_attacks_sent - total_reaching_attacks) / total_attacks_sent if total_attacks_sent > 0 else 0
+            reward_ADA = self.exponential_ratio(ratio=AMA)
 
-            # False Positive Rate (FPR)
-            FPR =  1 - (total_benign_sent - total_reaching_benign) / total_benign_sent if total_benign_sent > 0 else 0    
-            reward_FPR = self.exponential_ratio(ratio=FPR)
+            # Benign Delivery Rate (BDR)
+            BDR =  1 - (total_benign_sent - total_reaching_benign) / total_benign_sent if total_benign_sent > 0 else 0    
+            reward_FPR = self.exponential_ratio(ratio=BDR)
 
             # Normalized total packets sent
             normalized_packets_sent = total_packets_sent / max_packets if max_packets > 0 else 0
@@ -202,8 +202,8 @@ class ChallengeRewardModel(BaseModel):
             rtt = rtt_dict[uid]  # Get the RTT for the current uid
             normalized_rtt = self.normalize_rtt(input=rtt)
 
-            logging.info(f"ADA for UID {uid} : {ADA}")
-            logging.info(f"FPR for UID {uid} : {FPR}")
+            logging.info(f"AMA for UID {uid} : {AMA}")
+            logging.info(f"BDR for UID {uid} : {BDR}")
             logging.info(f"Normalized_packets_sent for UID {uid} : {normalized_packets_sent}")
             logging.info(f"Average RTT for UID {uid} : {rtt} ms")
             logging.info(f"Normalized RTT for UID {uid} : {normalized_rtt}")

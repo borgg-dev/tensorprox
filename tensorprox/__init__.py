@@ -12,7 +12,7 @@ __version__ = "0.1.0"
 __spec_version__ = _version_to_int(__version__)
 
 #Inner parameters
-EPSILON: int = 30
+EPSILON: int = 15
 DELTA: int = 15
 CHALLENGE_DURATION: int = 60 #15 minutes
 NODE_TYPES = ["attacker", "benign", "king", "moat"]
@@ -21,7 +21,7 @@ NODE_TYPES = ["attacker", "benign", "king", "moat"]
 ROUND_TIMEOUT: int = 300 #150 blocks / 30 minutes
 INITIAL_SETUP_TIMEOUT: int = 30 # 30 seconds
 LOCKDOWN_TIMEOUT: int = 60
-GRE_SETUP_TIMEOUT: int = 210
+GRE_SETUP_TIMEOUT: int = 180
 CHALLENGE_TIMEOUT: int = CHALLENGE_DURATION + DELTA
 REVERT_TIMEOUT: int = 60
 

@@ -9,6 +9,10 @@
 # #Activate virtual env
 # python3 -m venv tp && source tp/bin/activate
 
+# #Clone main repository
+# git clone http://github.com/borgg-dev/tensorprox.git
+# cd tensorprox/
+
 # # Install Python dependencies from requirements.txt
 # pip install -r requirements.txt
 
@@ -32,4 +36,4 @@ pm2 start "python3 ~/tensorprox/neurons/miner.py" --name miner
 pm2 start "python3 ~/tensorprox/neurons/validator.py" --name validator
 
 # Display the logs of pm2 processes
-pm2 logs validator
+pm2 logs miner
