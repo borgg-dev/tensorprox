@@ -86,20 +86,20 @@ The reward function is composed of four key metrics:
    - Measures the ability to detect and block malicious traffic
    - Calculated as: 
    ```
-   AMA = (exp(((Total Attack Packets - Attacks Reaching King) / Total Attack Packets)**2) - 1) / (exp(1) - 1)
+   AMA = (exp((Total Blocked Attacks / Total Attack Packets)**2) - 1) / (exp(1) - 1)
    ```
 
 2. **Benign Delivery Rate (BDR)** - 30% Weight
    - Evaluates the efficiency of forwarding normal traffic
    - Calculated as: 
    ```
-   BDR = (exp((1 - (Total Benign Packets - Benign Packets Reaching King) / Total Benign Packets)**2) - 1) / (exp(1) - 1)
+   BDR = (exp((Total Reaching Benign / Total Benign Packets)**2) - 1) / (exp(1) - 1)
    ```
-3. **Traffic Throughput Capacity (TTC)** - 20% Weight
+3. **Normalized Traffic Processing Capacity (TPC)** - 20% Weight
    - Measures capacity to handle network traffic
-   - Ratio of total packets processed by a miner to the highest number of packets processed by any miner in a given round :
+   - Ratio of total packets processed (sum of benign packets forwarded and attack packets blocked) by a miner to the highest number of packets processed by any miner in a given round :
    ```
-   TTC = Total Packets Processed / Max Packets processed
+   Normalized TPC = (Benign Packets Forwarded + Attack Packets Blocked) / Max Packets Processed
    ```
 
 4. **Latency Factor (LF)** - 20% Weight
