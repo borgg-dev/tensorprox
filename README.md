@@ -19,10 +19,14 @@ This repository is the **official codebase for Bittensor Subnet 234 (SN234) v0.1
 <br/>
 <div align="center">
 
-**[Validator Instructions](./assets/validator.md)** · **[Miner Instructions](./assets/miner.md)**
+# How to start ?
+
+**[Run A Validator Node](./assets/validator.md)** · **[Run A Miner Node](./assets/miner.md)**
 
 </div>
 <br/>
+
+# Introduction
 
 Tensorprox introduces a novel approach to **DDoS protection** with a distributed architecture and an innovative incentive mechanism powered by the **Bittensor Network**. The validation process leverages **synthetic traffic generation**, alternating between normal and malicious network behaviors to simulate realistic attack scenarios. This project aims to evolve into a **global cybersecurity solution**, tackling the most complex security challenges.
 
