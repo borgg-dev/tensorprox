@@ -112,7 +112,6 @@ Tensorprox implements a **restrictive security model** to ensure validators can 
 2. **Command Whitelist**
    - Only pre-approved commands can be executed remotely
    - Strict allowlist prevents unauthorized command execution
-   - Supported commands are explicitly defined in `/etc/whitelist-agent/allowlist.txt`
 
 3. **Validated Command Execution**
    - Every SSH command undergoes comprehensive validation

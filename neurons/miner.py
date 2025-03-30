@@ -830,7 +830,7 @@ if __name__ == "__main__":
 
     logger.info("Miner Instance started.")
 
-    # run_gre_setup()
+    run_gre_setup()
 
     machines = [
         (BENIGN_PUBLIC_IP, BENIGN_USERNAME), 
