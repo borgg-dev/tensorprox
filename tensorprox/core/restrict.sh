@@ -3,6 +3,13 @@
 
 restricted_user="$1"
 
+# Check if user argument is provided
+if [[ -z "$restricted_user" ]]; then
+    echo "Error: Username must be provided as the first argument."
+    echo "Usage: $0 <username>"
+    exit 1
+fi
+
 # Exit on any error
 set -e
 
@@ -10,19 +17,19 @@ echo "Starting setup process..."
 
 # Main Task 1: Prepare the Environment
 echo "Creating dedicated system user (if not exists)..."
-if ! id -u $restricted_user &>/dev/null; then
-    sudo adduser --disabled-password --gecos "" $restricted_user || { echo "Failed to create user $restricted_user. Exiting."; exit 1; }
+if ! id -u "$restricted_user" &>/dev/null; then
+    sudo adduser --disabled-password --gecos "" "$restricted_user" || { echo "Failed to create user $restricted_user. Exiting."; exit 1; }
 else
     echo "User $restricted_user already exists, skipping creation."
 fi
 
 echo "Creating SSH directory..."
 sudo mkdir -p "/home/$restricted_user/.ssh"
-sudo chown -R $restricted_user:$restricted_user "/home/$restricted_user/.ssh"
+sudo chown -R "$restricted_user:$restricted_user" "/home/$restricted_user/.ssh"
 sudo chmod 700 "/home/$restricted_user/.ssh"
 
 sudo touch "/home/$restricted_user/.ssh/authorized_keys"
-sudo chown $restricted_user:$restricted_user "/home/$restricted_user/.ssh/authorized_keys"
+sudo chown "$restricted_user:$restricted_user" "/home/$restricted_user/.ssh/authorized_keys"
 sudo chmod 600 "/home/$restricted_user/.ssh/authorized_keys"
 
 echo "Restricting password authentication..."
@@ -55,23 +62,24 @@ Defaults!/usr/local/bin/whitelist-agent !requiretty
 $restricted_user ALL=(ALL) NOPASSWD: /usr/local/bin/whitelist-agent
 EOF"
 
-sudo chmod 440 $sudoers_file
-
+sudo chmod 440 "$sudoers_file"
 
 echo "Writing the agent script..."
-cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent
+# Using double quotes for EOF to allow variable expansion
+sudo bash -c "cat << EOF > /usr/local/bin/whitelist-agent
 #!/usr/bin/env bash
 
 # Function to normalize path
 normalize_path() {
-    local path="$1"
+    local path=\"\$1\"
     if command -v realpath &>/dev/null; then
-        realpath "$path"
+        realpath \"\$path\" 2>/dev/null || echo \"\$path\"
     else
-        readlink -f "$path"
+        readlink -f \"\$path\" 2>/dev/null || echo \"\$path\"
     fi
 }
 
+# Define allowed commands with proper user path expansion
 ALLOWED_COMMANDS=(
     \"/usr/bin/ssh\"
     \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh\"
@@ -87,98 +95,131 @@ ALLOWED_COMMANDS=(
     \"/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py\"
 )
 
+# Improved command validation function
 is_command_allowed() {
-    local full_cmd="$1"
+    local full_cmd=\"\$1\"
     
     # Extract the base command and its arguments
-    read -ra cmd_parts <<< "$full_cmd"
-
-    # Extract main parts (base command and script path)
-    local base_cmd="${cmd_parts[0]}"   # e.g., /usr/bin/bash
-    local script_path="${cmd_parts[1]}"  # The script being executed
-
-    # Normalize paths
-    if command -v "$base_cmd" &>/dev/null; then
-        base_cmd=$(command -v "$base_cmd")
-    fi
-    if [[ -f "$script_path" ]]; then
-        script_path=$(realpath "$script_path")
+    read -ra cmd_parts <<< \"\$full_cmd\"
+    
+    # Need at least one part
+    if [[ \${#cmd_parts[@]} -lt 1 ]]; then
+        return 1
     fi
 
-    # Validate command against the allowed list
-    for allowed_cmd in "${ALLOWED_COMMANDS[@]}"; do
-        if [[ "$allowed_cmd" == "$base_cmd $script_path"* ]]; then
-            return 0  # Allowed
+    # Extract main parts
+    local base_cmd=\$(normalize_path \"\${cmd_parts[0]}\")
+    
+    # If we have more parts, get the script path
+    local script_path=\"\"
+    if [[ \${#cmd_parts[@]} -gt 1 ]]; then
+        script_path=\$(normalize_path \"\${cmd_parts[1]}\")
+    fi
+    
+    # Build normalized command for comparison
+    local normalized_cmd=\"\$base_cmd\"
+    if [[ -n \"\$script_path\" ]]; then
+        normalized_cmd=\"\$base_cmd \$script_path\"
+    fi
+    
+    # Check against allowed commands
+    for allowed_cmd in \"\${ALLOWED_COMMANDS[@]}\"; do
+        # First, normalize the allowed command for comparison
+        local allowed_base=\$(echo \"\$allowed_cmd\" | cut -d' ' -f1)
+        local allowed_base_norm=\$(normalize_path \"\$allowed_base\")
+        
+        # If allowed command has arguments, extract and normalize the script path
+        if [[ \"\$allowed_cmd\" == *\" \"* ]]; then
+            local allowed_script=\$(echo \"\$allowed_cmd\" | cut -d' ' -f2)
+            local allowed_script_norm=\$(normalize_path \"\$allowed_script\")
+            local allowed_norm=\"\$allowed_base_norm \$allowed_script_norm\"
+            
+            # Match beginning of command (to allow for additional arguments)
+            if [[ \"\$normalized_cmd\" == \"\$allowed_norm\"* ]]; then
+                return 0
+            fi
+        else
+            # Just compare the base command
+            if [[ \"\$normalized_cmd\" == \"\$allowed_base_norm\"* ]]; then
+                return 0
+            fi
         fi
     done
 
     return 1  # Not allowed
 }
 
-
-# Execute the command safely
+# Safer command execution
 execute_command() {
-    local cmd="$1"
-
-    # Execute the command with sudo
-    sudo bash -c "$cmd"
-    return $?
+    # Use arrays to handle arguments properly and prevent injection
+    local cmd_array=()
+    
+    # Read command into array
+    read -ra cmd_array <<< \"\$1\"
+    
+    # Execute with sudo using array to preserve argument structure
+    sudo \"\${cmd_array[@]}\"
+    return \$?
 }
 
 # The command passed by SSH will be the first argument to this script
-cmd="$1"
+cmd=\"\$1\"
 
 # Check if a command was provided
-if [[ -z "$cmd" ]]; then
-    echo "No command provided."
+if [[ -z \"\$cmd\" ]]; then
+    echo \"No command provided.\"
     exit 1
 fi
 
-# Extract the base command and check if it exists
-base_cmd=$(command -v ${cmd%% *} 2>/dev/null)
-if [[ -z "$base_cmd" ]]; then
-    echo "Command not found: ${cmd%% *}"
-    exit 1
-fi
+# Get the base command (first word)
+base_cmd_name=\"\${cmd%% *}\"
 
-# Normalize the base command path
-base_cmd=$(normalize_path "$base_cmd")
-
-# Replace base command with full path
-if [[ "$cmd" == *" "* ]]; then
-    full_cmd="$base_cmd ${cmd#* }"
-else
-    full_cmd="$base_cmd"
-fi
-
-# Check if command is allowed
-if is_command_allowed "$full_cmd"; then
-    execute_command "$full_cmd"
-    exit_code=$?
-    if [[ "$exit_code" -eq 0 ]]; then
-        exit $exit_code
-    else
-        echo "Command '$full_cmd' executed with errors. Exit code: $exit_code"
+# If it's a relative path or just a command name, try to find the full path
+if [[ \"\$base_cmd_name\" != /* ]]; then
+    base_cmd=\$(command -v \"\$base_cmd_name\" 2>/dev/null)
+    if [[ -z \"\$base_cmd\" ]]; then
+        echo \"Command not found: \$base_cmd_name\"
         exit 1
     fi
 else
-    echo "Command '$full_cmd' not allowed."
+    base_cmd=\"\$base_cmd_name\"
+fi
+
+# Replace base command with full path in the original command
+if [[ \"\$cmd\" == *\" \"* ]]; then
+    full_cmd=\"\$base_cmd \${cmd#* }\"
+else
+    full_cmd=\"\$base_cmd\"
+fi
+
+# Check if command is allowed
+if is_command_allowed \"\$full_cmd\"; then
+    # Use a safer execution method
+    execute_command \"\$full_cmd\"
+    exit_code=\$?
+    if [[ \"\$exit_code\" -eq 0 ]]; then
+        exit \$exit_code
+    else
+        echo \"Command '\$full_cmd' executed with errors. Exit code: \$exit_code\"
+        exit 1
+    fi
+else
+    echo \"Command '\$full_cmd' not allowed.\"
     exit 1
 fi
-
-EOF
+EOF"
 
 echo "Writing the agent wrapper..."
-cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent-wrapper
+sudo bash -c "cat << 'EOF' > /usr/local/bin/whitelist-agent-wrapper
 #!/bin/bash
 
-
-if [ -n "$SSH_ORIGINAL_COMMAND" ]; then
-    /usr/local/bin/whitelist-agent "$SSH_ORIGINAL_COMMAND"
+if [ -n \"\$SSH_ORIGINAL_COMMAND\" ]; then
+    /usr/local/bin/whitelist-agent \"\$SSH_ORIGINAL_COMMAND\"
 else
-    /usr/local/bin/whitelist-agent
+    echo \"No command specified\"
+    exit 1
 fi
-EOF
+EOF"
 
 echo "Setting proper permissions for the agent script..."
 sudo chmod 755 /usr/local/bin/whitelist-agent
@@ -189,18 +230,18 @@ sudo chown root:root /usr/local/bin/whitelist-agent-wrapper
 
 echo "Configuring SSH to use the agent..."
 sudo mkdir -p /etc/ssh/sshd_config.d
-sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << 'EOF'
+sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.conf << EOF
 Match User $restricted_user
     ForceCommand /usr/local/bin/whitelist-agent-wrapper
 EOF"
 
 echo "Creating active/inactive mode configurations..."
-sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << 'EOF'
+sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.active.conf << EOF
 Match User $restricted_user
     ForceCommand /usr/local/bin/whitelist-agent-wrapper
 EOF"
 
-sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << 'EOF'
+sudo bash -c "cat > /etc/ssh/sshd_config.d/whitelist.inactive.conf << EOF
 # No ForceCommand line, so the user gets a normal shell
 EOF"
 
