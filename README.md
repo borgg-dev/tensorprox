@@ -47,9 +47,7 @@ The system works by positioning the Moat strategically between the traffic gener
 
 # Validation Round Lifecycle
 
-<div style="padding:200px;">
-    <img src="./assets/round_lifecycle.png" style="max-width: 100%;"/>
-</div>
+<img src="./assets/round_lifecycle.png" style="padding: 40px;"/>
 
 # Reward Mechanism
 
