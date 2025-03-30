@@ -65,27 +65,26 @@ cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent
 # Function to normalize path
 normalize_path() {
     local path="$1"
-    # Convert to absolute path and resolve symlinks
-    if [[ -e "$path" ]]; then
-        readlink -f "$path"
+    if command -v realpath &>/dev/null; then
+        realpath "$path"
     else
-        echo "$path"
+        readlink -f "$path"
     fi
 }
 
 ALLOWED_COMMANDS=(
-    "/usr/bin/ssh"
-    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh"
-    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh"
-    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh"
-    "/usr/bin/sha256sum /home/$restricted_use"r/tensorprox/tensorprox/core/immutable/revert.sh"
-    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py"
-    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py"
-    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh"
-    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh"
-    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh"
-    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh"
-    "/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py"
+    \"/usr/bin/ssh\"
+    \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh\"
+    \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh\"
+    \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh\"
+    \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh\"
+    \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py\"
+    \"/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py\"
+    \"/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh\"
+    \"/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh\"
+    \"/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh\"
+    \"/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh\"
+    \"/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py\"
 )
 
 is_command_allowed() {
@@ -94,19 +93,19 @@ is_command_allowed() {
     # Extract the base command and its arguments
     read -ra cmd_parts <<< "$full_cmd"
 
-    # Extract main parts (first two should be sudo + command, third should be script path)
-    local base_cmd="${cmd_parts[0]}"   # bash or python3
-    local script_path="${cmd_parts[1]}"  # The actual script being executed
+    # Extract main parts (base command and script path)
+    local base_cmd="${cmd_parts[0]}"   # e.g., /usr/bin/bash
+    local script_path="${cmd_parts[1]}"  # The script being executed
 
-    # Convert base command and paths to absolute form
-    if command -v "$base_cmd" &> /dev/null; then
+    # Normalize paths
+    if command -v "$base_cmd" &>/dev/null; then
         base_cmd=$(command -v "$base_cmd")
     fi
     if [[ -f "$script_path" ]]; then
         script_path=$(realpath "$script_path")
     fi
 
-    # Validate command against the array (ignoring additional arguments)
+    # Validate command against the allowed list
     for allowed_cmd in "${ALLOWED_COMMANDS[@]}"; do
         if [[ "$allowed_cmd" == "$base_cmd $script_path"* ]]; then
             return 0  # Allowed
@@ -115,7 +114,6 @@ is_command_allowed() {
 
     return 1  # Not allowed
 }
-
 
 
 # Execute the command safely
