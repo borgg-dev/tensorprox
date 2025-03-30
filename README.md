@@ -1,3 +1,9 @@
+<picture>
+    <source srcset="./assets/shugo_white.png"  media="(prefers-color-scheme: dark)">
+    <source srcset="./assets/shugo_black.png"  media="(prefers-color-scheme: light)">
+    <img src="shugo_black.png">
+</picture>
+
 <div align="center">
 
 # **Tensorprox: SN234** <!-- omit in toc -->
