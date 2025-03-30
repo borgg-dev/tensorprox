@@ -57,40 +57,10 @@ EOF"
 
 sudo chmod 440 $sudoers_file
 
-# Main Task 2: Install and Configure the Whitelist Agent
-echo "Creating allowlist directory and file..."
-sudo mkdir -p /etc/whitelist-agent
-sudo touch /etc/whitelist-agent/allowlist.txt
-
-echo "Populating allowlist with whitelisted commands..."
-cat << EOF | sudo tee /etc/whitelist-agent/allowlist.txt
-/usr/bin/ssh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
-/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
-EOF
-
-# Create audit log directory
-echo "Creating audit log directory..."
-sudo mkdir -p /var/log/whitelist-agent
-
-echo "Setting proper permissions for allowlist..."
-sudo chmod 644 /etc/whitelist-agent/allowlist.txt
-sudo chmod 755 /etc/whitelist-agent
 
 echo "Writing the agent script..."
 cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent
 #!/usr/bin/env bash
-
-ALLOWLIST="/etc/whitelist-agent/allowlist.txt"
 
 # Function to normalize path
 normalize_path() {
@@ -102,6 +72,21 @@ normalize_path() {
         echo "$path"
     fi
 }
+
+ALLOWED_COMMANDS=(
+    "/usr/bin/ssh",
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh",
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh",
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh",
+    "/usr/bin/sha256sum /home/$restricted_use"r/tensorprox/tensorprox/core/immutable/revert.sh",
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py",
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py",
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh",
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh",
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh",
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh",
+    "/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py"
+)
 
 is_command_allowed() {
     local full_cmd="$1"
@@ -121,13 +106,12 @@ is_command_allowed() {
         script_path=$(realpath "$script_path")
     fi
 
-    # Validate command against allowlist (ignoring additional arguments)
-    while IFS= read -r allowed_cmd; do
-        # Normalize multiple spaces and compare with base commands
+    # Validate command against the array (ignoring additional arguments)
+    for allowed_cmd in "${ALLOWED_COMMANDS[@]}"; do
         if [[ "$allowed_cmd" == "$base_cmd $script_path"* ]]; then
             return 0  # Allowed
         fi
-    done < "/etc/whitelist-agent/allowlist.txt"
+    done
 
     return 1  # Not allowed
 }
