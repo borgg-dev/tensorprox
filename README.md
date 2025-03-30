@@ -33,15 +33,17 @@ The subnet operates on a unique distributed network architecture where:
 - **Miners** provide DDoS protection services
 - Performance is evaluated through comprehensive **traffic analysis**
 
-Tensorprox employs a novel architectural design, creating a robust and adaptable DDoS mitigation system. This design strategically positions key components to ensure comprehensive protection of the target server, referred to as the "King."
+Tensorprox employs a novel architectural design to build a robust and adaptable DDoS mitigation system. This design strategically positions key components to ensure comprehensive protection of the target server, referred to as the "King."
 
-**King**: It represents the target server, the receiver machine and the asset requiring protection.
+**King**: It represents the target server requiring protection.
 
 **Attacker & Benign**: These are traffic generator machines simulating real-world network conditions. "Attacker" generates malicious traffic, mimicking DDoS attacks, while "Benign" generates legitimate traffic.
 
-**Moat**: It is run by miners and acts as a routing firewall and scrubbing center. The Moat is responsible for inspecting all incoming traffic, filtering out malicious packets, and forwarding legitimate traffic to the King. The Moat leverages Advanced Forwarding eXpress Data Path (AF_XDP) for high-performance packet processing.
+**Moat**: It is run by miners and acts as a routing firewall. The Moat leverages Advanced Forwarding eXpress Data Path (AF_XDP) for high-performance packet processing.
 
 The system works by positioning the Moat strategically between the traffic generators (Attacker and Benign) and the King. All traffic must pass through the Moat, which analyzes and filters it based on pre-defined rules and dynamically learned patterns. 
+
+![Tensorprox Architecture](./assets/tensorprox-architecture.svg)
 
 **Note**: For scalability reasons, access to the Attacker, Benign, and King machines must be provided by the miner to the validator via SSH connections.
 
@@ -91,7 +93,7 @@ The reward function is composed of four key metrics:
 The final reward is calculated using a weighted sum:
 
 ```
-Reward = (0.3 * AMA) + (0.3 * BDR) + (0.2 * TPC) + (0.2 * LF)
+Reward = (0.3 * AMA) + (0.3 * BDR) + (0.2 * RTC) + (0.2 * LF)
 ```
 
 
