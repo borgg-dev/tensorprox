@@ -47,9 +47,30 @@ The system works by positioning the Moat strategically between the traffic gener
 
 # Validation Round Lifecycle
 
-<div style="padding: 20px; text-align: center;">
-    <img src="./assets/round_lifecycle.png"/>
-</div>
+1. **Availability Check**
+   - Query miners for **machines' availability**
+   - Filter and select responsive miners
+
+2. **Initial Setup**
+   - Establish **session keys**
+   - Prepare machines for lockdown
+
+3. **Lockdown**
+   - Prevent external interference
+   - Ensure **controlled** testing conditions
+
+4. **Generic Routing Encapsulation (GRE)**
+   - Creates an isolated, controlled network playground
+   - Provides a **sandboxed environment** for attack vector research
+
+5. **Challenge Execution**
+   - Generate **synthetic traffic scenarios** including complex DDoS attack patterns
+   - Test miner's protection capabilities
+
+6. **Revert**
+   - **Restore** original machine configurations
+   - Clean up test environments
+
 
 # Reward Mechanism
 
