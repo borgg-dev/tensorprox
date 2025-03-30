@@ -58,39 +58,36 @@ EOF"
 sudo chmod 440 $sudoers_file
 
 # Main Task 2: Install and Configure the Whitelist Agent
-echo "Creating allowlist directory and file..."
-sudo mkdir -p /etc/whitelist-agent
-sudo touch /etc/whitelist-agent/allowlist.txt
-
-echo "Populating allowlist with whitelisted commands..."
-cat << EOF | sudo tee /etc/whitelist-agent/allowlist.txt
-/usr/bin/ssh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
-/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh
-/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh
-/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py
-EOF
-
-# Create audit log directory
 echo "Creating audit log directory..."
 sudo mkdir -p /var/log/whitelist-agent
 
-echo "Setting proper permissions for allowlist..."
-sudo chmod 644 /etc/whitelist-agent/allowlist.txt
-sudo chmod 755 /etc/whitelist-agent
-
 echo "Writing the agent script..."
-cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent
+cat << 'EOF_BASE' | sudo tee /usr/local/bin/whitelist-agent
 #!/usr/bin/env bash
 
-ALLOWLIST="/etc/whitelist-agent/allowlist.txt"
+EOF_BASE
+
+# Append the user-specific allowed commands to the whitelist-agent script
+cat << EOF_COMMANDS | sudo tee -a /usr/local/bin/whitelist-agent
+# Define allowed commands directly in the script
+declare -a ALLOWED_COMMANDS=(
+    "/usr/bin/ssh"
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh"
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh"
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh"
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh"
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py"
+    "/usr/bin/sha256sum /home/$restricted_user/tensorprox/tensorprox/core/immutable/traffic_generator.py"
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/initial_setup.sh"
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/challenge.sh"
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/lockdown.sh"
+    "/usr/bin/bash /home/$restricted_user/tensorprox/tensorprox/core/immutable/revert.sh"
+    "/usr/bin/python3.10 /home/$restricted_user/tensorprox/tensorprox/core/immutable/gre_setup.py"
+)
+EOF_COMMANDS
+
+# Append the rest of the script
+cat << 'EOF_REST' | sudo tee -a /usr/local/bin/whitelist-agent
 
 # Function to normalize path
 normalize_path() {
@@ -109,7 +106,7 @@ is_command_allowed() {
     # Extract the base command and its arguments
     read -ra cmd_parts <<< "$full_cmd"
 
-    # Extract main parts (first two should be sudo + command, third should be script path)
+    # Extract main parts
     local base_cmd="${cmd_parts[0]}"   # bash or python3
     local script_path="${cmd_parts[1]}"  # The actual script being executed
 
@@ -121,18 +118,16 @@ is_command_allowed() {
         script_path=$(realpath "$script_path")
     fi
 
-    # Validate command against allowlist (ignoring additional arguments)
-    while IFS= read -r allowed_cmd; do
-        # Normalize multiple spaces and compare with base commands
+    # Validate command against allowed commands array (ignoring additional arguments)
+    for allowed_cmd in "${ALLOWED_COMMANDS[@]}"; do
+        # Compare with base commands
         if [[ "$allowed_cmd" == "$base_cmd $script_path"* ]]; then
             return 0  # Allowed
         fi
-    done < "/etc/whitelist-agent/allowlist.txt"
+    done
 
     return 1  # Not allowed
 }
-
-
 
 # Execute the command safely
 execute_command() {
@@ -183,13 +178,11 @@ else
     echo "Command '$full_cmd' not allowed."
     exit 1
 fi
-
-EOF
+EOF_REST
 
 echo "Writing the agent wrapper..."
 cat << 'EOF' | sudo tee /usr/local/bin/whitelist-agent-wrapper
 #!/bin/bash
-
 
 if [ -n "$SSH_ORIGINAL_COMMAND" ]; then
     /usr/local/bin/whitelist-agent "$SSH_ORIGINAL_COMMAND"
