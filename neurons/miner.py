@@ -117,6 +117,8 @@ class Miner(BaseMinerNeuron):
         self._model = joblib.load(os.path.join(base_path, "decision_tree.pkl"))
         self._imputer = joblib.load(os.path.join(base_path, "imputer.pkl"))
         self._scaler = joblib.load(os.path.join(base_path, "scaler.pkl"))
+        self.ddos_manager = None
+        self.gre_setup_done = False
 
 
     async def forward(self, synapse: PingSynapse) -> PingSynapse:
@@ -191,32 +193,52 @@ class Miner(BaseMinerNeuron):
         try:
             # Extract challenge information from the synapse
             task = synapse.task
-            state=synapse.state
+            state = synapse.state
 
-
-            logger.debug(f"📧 Task {task} received from {synapse.dendrite.hotkey}. State : {state}.")
+            logger.debug(f"📧 Synapse received from {synapse.dendrite.hotkey}. Task : {task} | State : {state}.")
 
             if state == "GET_READY":
+                # Import the DDoS manager
+                from tensorprox.core.ddos_manager import get_instance
+
+                if not hasattr(self, "ddos_manager"):
+                    # Initialize DDoS manager on first use
+                    self.ddos_manager = get_instance()
+                    
+                    # Make sure GRE tunnels are set up
+                    if not hasattr(self, "gre_setup_done") or not self.gre_setup_done:
+                        logger.info("Setting up GRE tunnels...")
+                        self.ddos_manager.setup_moat()
+                        self.gre_setup_done = True
+
+                # Start the DDoS protection system
                 if not self.firewall_active:
                     self.firewall_active = True
-                    self.stop_firewall_event.clear()  # Reset stop event
-                    # Start sniffing in a separate thread to avoid blocking
-                    self.firewall_thread = Thread(target=self.run_packet_stream, args=(KING_OVERLAY_IP, "ipip-to-king"))
-                    self.firewall_thread.daemon = True  # Set the thread to daemon mode to allow termination
-                    self.firewall_thread.start()
-                    logger.info("🔥 Moat firewall activated.")
+                    
+                    # Initialize and start DDoS manager
+                    if not self.ddos_manager.running:
+                        logger.info("Starting DDoS protection system...")
+                        self.ddos_manager.initialize()
+                        self.ddos_manager.start()
+                    
+                    logger.info("🔥 Moat firewall activated with DDoS protection.")
                 else:
                     logger.info("💥 Moat firewall already activated.")
-    
+
             elif state == "END_ROUND":
                 if self.firewall_active:
                     self.firewall_active = False
-                    self.stop_firewall_event.set()  # Signal firewall to stop
+                    
+                    # Stop DDoS protection if running
+                    if hasattr(self, "ddos_manager") and self.ddos_manager.running:
+                        logger.info("Stopping DDoS protection system...")
+                        self.ddos_manager.stop()
+                    
                     logger.info("🛑 Moat firewall deactivated.")
                 else:
                     logger.info("💥 Moat firewall already deactivated.")
 
-                logger.warning("🚨 Round finished, waiting for next one...")    
+                logger.warning("🚨 Round finished, waiting for next one...")
 
         except Exception as e:
             logger.exception(e)
