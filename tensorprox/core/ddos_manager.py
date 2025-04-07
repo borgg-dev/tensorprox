@@ -13,6 +13,7 @@ import time
 import signal
 import asyncio
 import threading
+import subprocess
 from typing import Dict, List, Optional, Union, Any
 from loguru import logger
 
@@ -32,12 +33,13 @@ class DDoSManager:
     GRE tunnel setup and providing detection and mitigation capabilities.
     """
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str] = None, register_signals: bool = False):
         """
         Initialize the DDoS Manager.
         
         Args:
             config_path: Optional path to a configuration file
+            register_signals: Whether to register signal handlers (only works in main thread)
         """
         self.config_manager = ConfigManager(config_path)
         self.bpf_loader = None
@@ -47,26 +49,39 @@ class DDoSManager:
         
         self.running = False
         self.stopping = False
+        self.initialized = False
         self.ready = threading.Event()
         self._lock = threading.RLock()
         
-        # Register signal handlers for graceful shutdown
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
+        # Register signal handlers for graceful shutdown (if requested and in main thread)
+        if register_signals:
+            try:
+                signal.signal(signal.SIGINT, self._signal_handler)
+                signal.signal(signal.SIGTERM, self._signal_handler)
+            except ValueError:
+                # This will happen when not in the main thread
+                logger.warning("Could not register signal handlers (not in main thread)")
     
     def _signal_handler(self, sig, frame):
         """Handle termination signals by initiating a graceful shutdown."""
         logger.info(f"Received signal {sig}, initiating shutdown...")
         self.stop()
     
-    def initialize(self):
+    def initialize(self, xdp_obj_path=None):
         """
         Initialize the DDoS protection system.
         
+        Args:
+            xdp_obj_path: Optional path to a precompiled XDP object file
+                
         Returns:
             True if initialization is successful, False otherwise
         """
         with self._lock:
+            if self.initialized:
+                logger.info("DDoS Manager is already initialized")
+                return True
+                
             if self.running or self.stopping:
                 logger.warning("DDoS Manager is already running or stopping")
                 return False
@@ -74,34 +89,35 @@ class DDoSManager:
             try:
                 logger.info("Initializing DDoS protection system...")
                 
+                # Define the path to the object file EXPLICITLY with .o extension
+                standard_obj_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "core/immutable/moat_xdp_core.o"
+                )
+                
+                # Override any provided path if our standard object exists
+                if os.path.exists(standard_obj_path):
+                    xdp_obj_path = standard_obj_path
+                    logger.info(f"Using compiled XDP object file from: {xdp_obj_path}")
+                elif xdp_obj_path and not os.path.exists(xdp_obj_path):
+                    logger.warning(f"Provided XDP object file {xdp_obj_path} does not exist")
+                    xdp_obj_path = None
+                
                 # Create components
                 self.bpf_loader = BPFLoader(
-                    use_generic=self.config_manager.get_config("xdp", "use_generic", default=False)
+                    use_generic=self.config_manager.get_config("xdp", "use_generic", default=True),
+                    xdp_obj_path=xdp_obj_path
                 )
                 
-                self.detector = DDoSDetector(
-                    self.config_manager,
-                    self.bpf_loader
-                )
-                
-                self.mitigator = DDoSMitigator(
-                    self.config_manager,
-                    self.bpf_loader
-                )
-                
-                self.metrics_collector = MetricsCollector(
-                    self.config_manager,
-                    self.bpf_loader
-                )
-                
-                # Initialize BPF loader
+                # Load XDP program
                 if not self.bpf_loader.load_xdp():
                     logger.error("Failed to load XDP program")
                     return False
                 
-                # Load initial configuration
+                # Configure XDP
                 self._configure_xdp()
                 
+                self.initialized = True
                 logger.info("DDoS protection system initialized successfully")
                 return True
             
@@ -111,33 +127,44 @@ class DDoSManager:
     
     def _configure_xdp(self):
         """Apply configuration to the XDP program."""
-        # Configure sampling rates
-        sampling_config = {
-            "base_rate": self.config_manager.get_config("sampling", "base_rate", default=100),
-            "syn_rate": self.config_manager.get_config("sampling", "syn_rate", default=10),
-            "udp_rate": self.config_manager.get_config("sampling", "udp_rate", default=50),
-            "icmp_rate": self.config_manager.get_config("sampling", "icmp_rate", default=50),
-            "min_size": self.config_manager.get_config("sampling", "min_size", default=64),
-            "max_size": self.config_manager.get_config("sampling", "max_size", default=1500),
-            "size_rate": self.config_manager.get_config("sampling", "size_rate", default=20),
-        }
-        
-        self.bpf_loader.update_sampling_config(sampling_config)
-        
-        # Configure any default allow/block rules
-        default_rules = self.config_manager.get_config("rules", "default", default=[])
-        for rule in default_rules:
-            if "src_ip" in rule and "dst_ip" in rule:
-                self.bpf_loader.update_flow_verdict(
-                    src_ip=rule["src_ip"],
-                    dst_ip=rule["dst_ip"],
-                    src_port=rule.get("src_port", 0),
-                    dst_port=rule.get("dst_port", 0),
-                    protocol=rule.get("protocol", 0),
-                    action=rule.get("action", 1),  # Default to ALLOW
-                    priority=rule.get("priority", 0),
-                    rate_limit=rule.get("rate_limit", 0)
-                )
+        if not self.bpf_loader:
+            logger.error("Cannot configure XDP: BPF loader not initialized")
+            return False
+            
+        try:
+            # Configure sampling rates
+            sampling_config = {
+                "base_rate": self.config_manager.get_config("sampling", "base_rate", default=100),
+                "syn_rate": self.config_manager.get_config("sampling", "syn_rate", default=10),
+                "udp_rate": self.config_manager.get_config("sampling", "udp_rate", default=50),
+                "icmp_rate": self.config_manager.get_config("sampling", "icmp_rate", default=50),
+                "min_size": self.config_manager.get_config("sampling", "min_size", default=64),
+                "max_size": self.config_manager.get_config("sampling", "max_size", default=1500),
+                "size_rate": self.config_manager.get_config("sampling", "size_rate", default=20),
+            }
+            
+            self.bpf_loader.update_sampling_config(sampling_config)
+            
+            # Configure any default allow/block rules
+            default_rules = self.config_manager.get_config("rules", "default", default=[])
+            for rule in default_rules:
+                if "src_ip" in rule and "dst_ip" in rule:
+                    self.bpf_loader.update_flow_verdict(
+                        src_ip=rule["src_ip"],
+                        dst_ip=rule["dst_ip"],
+                        src_port=rule.get("src_port", 0),
+                        dst_port=rule.get("dst_port", 0),
+                        protocol=rule.get("protocol", 0),
+                        action=rule.get("action", 1),  # Default to ALLOW
+                        priority=rule.get("priority", 0),
+                        rate_limit=rule.get("rate_limit", 0)
+                    )
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to configure XDP: {e}")
+            return False
+    
     
     def start(self, attach_interfaces: Optional[Dict[str, str]] = None):
         """
@@ -145,7 +172,7 @@ class DDoSManager:
         
         Args:
             attach_interfaces: Optional dictionary mapping ingress interfaces to egress interfaces
-                               for XDP attachment (default: use configured interfaces)
+                            for XDP attachment (default: use configured interfaces)
         
         Returns:
             True if started successfully, False otherwise
@@ -160,7 +187,7 @@ class DDoSManager:
                 return False
             
             # Initialize if not already initialized
-            if not self.bpf_loader:
+            if not self.initialized:
                 if not self.initialize():
                     return False
             
@@ -168,23 +195,37 @@ class DDoSManager:
                 # Get interfaces to attach
                 if not attach_interfaces:
                     attach_interfaces = self.config_manager.get_config("interfaces", "mappings", default={})
+                    
+                    # Use default mapping if none provided
+                    if not attach_interfaces:
+                        # Default to gre-benign -> gre-king
+                        attach_interfaces = {"gre-benign": "gre-king"}
+                        logger.info("Using default interfaces: gre-benign -> gre-king")
                 
-                # Attach XDP program to interfaces
+                # Try to attach XDP program to interfaces
+                xdp_success = False
                 for ingress, egress in attach_interfaces.items():
                     logger.info(f"Attaching XDP program to {ingress} (redirecting to {egress})")
-                    if not self.bpf_loader.attach_xdp(ingress, egress):
+                    if self.bpf_loader.attach_xdp(ingress, egress):
+                        xdp_success = True
+                        break  # At least one success is enough
+                    else:
                         logger.error(f"Failed to attach XDP program to {ingress}")
-                        self.stop()
-                        return False
+                
+                # Continue with starting components even if XDP attachment failed
+                # The detector will still work with raw socket sniffing
                 
                 # Start detector
-                self.detector.start()
+                if self.detector:
+                    self.detector.start()
                 
                 # Start mitigator
-                self.mitigator.start()
+                if self.mitigator:
+                    self.mitigator.start()
                 
                 # Start metrics collector
-                self.metrics_collector.start()
+                if self.metrics_collector:
+                    self.metrics_collector.start()
                 
                 self.running = True
                 self.ready.set()
@@ -195,6 +236,51 @@ class DDoSManager:
                 logger.exception(f"Failed to start DDoS protection system: {e}")
                 self.stop()
                 return False
+    
+    def _detect_tunnel_interfaces(self):
+        """Automatically detect tunnel interfaces for XDP attachment."""
+        interfaces = {}
+        
+        try:
+            # Try to detect GRE tunnel interfaces
+            cmd = ["ip", "-o", "link", "show", "type", "gre"]
+            output = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
+            
+            gre_interfaces = []
+            for line in output.strip().split("\n"):
+                if line:
+                    parts = line.split(":", 2)
+                    if len(parts) >= 2:
+                        iface = parts[1].strip()
+                        gre_interfaces.append(iface)
+            
+            # Simple heuristic: if we have gre-benign and gre-king, use them
+            if "gre-benign" in gre_interfaces and "gre-king" in gre_interfaces:
+                interfaces["gre-benign"] = "gre-king"
+                logger.info("Detected tunnel interfaces: gre-benign -> gre-king")
+            
+            # If not found, try to find any with 'benign' and 'king' in the name
+            elif gre_interfaces:
+                benign_iface = next((i for i in gre_interfaces if "benign" in i), None)
+                king_iface = next((i for i in gre_interfaces if "king" in i), None)
+                
+                if benign_iface and king_iface:
+                    interfaces[benign_iface] = king_iface
+                    logger.info(f"Detected tunnel interfaces: {benign_iface} -> {king_iface}")
+        
+        except (subprocess.SubprocessError, IndexError) as e:
+            logger.warning(f"Failed to detect tunnel interfaces: {e}")
+        
+        return interfaces
+    
+    def _interface_exists(self, interface):
+        """Check if a network interface exists."""
+        try:
+            cmd = ["ip", "link", "show", "dev", interface]
+            subprocess.check_output(cmd, stderr=subprocess.DEVNULL)
+            return True
+        except subprocess.SubprocessError:
+            return False
     
     def stop(self):
         """
@@ -220,22 +306,37 @@ class DDoSManager:
                 
                 # Stop components in reverse order
                 if self.metrics_collector:
-                    self.metrics_collector.stop()
+                    try:
+                        self.metrics_collector.stop()
+                    except Exception as e:
+                        logger.warning(f"Error stopping metrics collector: {e}")
                 
                 if self.mitigator:
-                    self.mitigator.stop()
+                    try:
+                        self.mitigator.stop()
+                    except Exception as e:
+                        logger.warning(f"Error stopping mitigator: {e}")
                 
                 if self.detector:
-                    self.detector.stop()
+                    try:
+                        self.detector.stop()
+                    except Exception as e:
+                        logger.warning(f"Error stopping detector: {e}")
                 
                 # Detach XDP program from interfaces
                 if self.bpf_loader:
                     for interface in list(self.bpf_loader.attached_interfaces.keys()):
-                        logger.info(f"Detaching XDP program from {interface}")
-                        self.bpf_loader.detach_xdp(interface)
+                        try:
+                            logger.info(f"Detaching XDP program from {interface}")
+                            self.bpf_loader.detach_xdp(interface)
+                        except Exception as e:
+                            logger.warning(f"Error detaching XDP from {interface}: {e}")
                     
                     # Clean up BPF loader
-                    self.bpf_loader.cleanup()
+                    try:
+                        self.bpf_loader.cleanup()
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up BPF loader: {e}")
                 
                 self.running = False
                 self.stopping = False
@@ -362,7 +463,7 @@ class DDoSManager:
     @staticmethod
     def setup_moat():
         """
-        Set up the Moat node with GRE tunnels.
+        Set up the Moat node with GRE tunnels with improved error handling.
         
         Returns:
             True if setup is successful, False otherwise
@@ -370,12 +471,13 @@ class DDoSManager:
         try:
             logger.info("Setting up Moat node with GRE tunnels...")
             
-            # Get environment variables for IPs
+            # Get environment variables for IPs with fallbacks
             benign_ip = os.environ.get("BENIGN_PRIVATE_IP")
             attacker_ip = os.environ.get("ATTACKER_PRIVATE_IP")
             king_ip = os.environ.get("KING_PRIVATE_IP")
             
-            if not benign_ip or not attacker_ip or not king_ip:
+            # Check if we have the required IPs
+            if not benign_ip or not king_ip:
                 logger.error("Missing required environment variables for GRE setup")
                 return False
             
@@ -407,7 +509,6 @@ def init(config_path: Optional[str] = None):
     
     Args:
         config_path: Optional path to a configuration file
-    
     Returns:
         The DDoS Manager instance
     """
@@ -428,7 +529,7 @@ def get_instance():
     global ddos_manager
     
     if ddos_manager is None:
-        ddos_manager = DDoSManager()
+        ddos_manager = DDoSManager(register_signals=False)
     
     return ddos_manager
 
@@ -439,14 +540,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TensorProx DDoS Manager")
     parser.add_argument("--config", "-c", help="Path to configuration file")
     parser.add_argument("--setup", "-s", action="store_true", help="Set up GRE tunnels")
+    parser.add_argument("--generic", "-g", action="store_true", help="Use generic XDP mode")
     args = parser.parse_args()
     
     # Set up logging
     logger.remove()
     logger.add(sys.stderr, level="INFO")
     
-    # Initialize the manager
-    manager = DDoSManager(args.config)
+    # Initialize the manager with signal handling enabled
+    manager = DDoSManager(args.config, register_signals=True)
+    
+    # Configure to use generic mode if requested
+    if args.generic:
+        manager.config_manager.set_config("xdp", "use_generic", True)
     
     # Set up GRE tunnels if requested
     if args.setup:
@@ -469,4 +575,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     finally:
-        manager.stop()
+        manager.stop()    

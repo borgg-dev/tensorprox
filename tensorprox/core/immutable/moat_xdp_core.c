@@ -174,12 +174,14 @@
  
  /* Get pseudo-random value between 0 and max-1 */
  static __always_inline __u32 bpf_random(__u32 max) {
+     if (max == 0)
+         return 0;
      return bpf_get_prandom_u32() % max;
  }
  
  /* Parse packet and extract flow key */
  static __always_inline int parse_packet(struct xdp_md *ctx, struct flow_key *flow, 
-                                         __u16 *tcp_flags, __u16 *pkt_size) {
+                                        __u16 *tcp_flags, __u16 *pkt_size) {
      void *data_end = (void *)(long)ctx->data_end;
      void *data = (void *)(long)ctx->data;
      struct ethhdr *eth = data;
@@ -213,7 +215,7 @@
          flow->src_port = bpf_ntohs(tcph->source);
          flow->dst_port = bpf_ntohs(tcph->dest);
          *tcp_flags = tcph->fin | (tcph->syn << 1) | (tcph->rst << 2) | 
-                      (tcph->psh << 3) | (tcph->ack << 4) | (tcph->urg << 5);
+                     (tcph->psh << 3) | (tcph->ack << 4) | (tcph->urg << 5);
      } else if (iph->protocol == IPPROTO_UDP) {
          struct udphdr *udph = (struct udphdr *)(iph + 1);
          if (udph + 1 > data_end)
@@ -228,34 +230,6 @@
          flow->dst_port = 0;
          *tcp_flags = 0;
      }
-     
-     return 0;
- }
- 
- /* Check if packet should be sampled based on characteristics */
- static __always_inline int should_sample(struct flow_key *flow, __u16 tcp_flags, 
-                                          __u16 pkt_size, struct sampling_config *config) {
-     /* Base random sampling - always check */
-     if (bpf_random(config->base_rate) == 0)
-         return 1;
-     
-     /* TCP SYN packet sampling (potential SYN flood detection) */
-     if (flow->protocol == IPPROTO_TCP && (tcp_flags & 0x02) && 
-         bpf_random(config->syn_rate) == 0)
-         return 1;
-     
-     /* UDP packet sampling (potential UDP flood / amplification attack detection) */
-     if (flow->protocol == IPPROTO_UDP && bpf_random(config->udp_rate) == 0)
-         return 1;
-     
-     /* ICMP packet sampling */
-     if (flow->protocol == IPPROTO_ICMP && bpf_random(config->icmp_rate) == 0)
-         return 1;
-     
-     /* Suspicious packet size sampling (potential amplification attacks) */
-     if (pkt_size > config->min_size && pkt_size < config->max_size && 
-         bpf_random(config->size_rate) == 0)
-         return 1;
      
      return 0;
  }
@@ -304,22 +278,43 @@
      /* Get the sampling configuration */
      __u32 key = 0;
      struct sampling_config *config = bpf_map_lookup_elem(&sampling_config_map, &key);
-     if (!config) {
-         /* No config, use safe defaults */
-         struct sampling_config default_config = {
-             .base_rate = DEFAULT_SAMPLE_RATE,
-             .syn_rate = DEFAULT_SYN_RATE,
-             .udp_rate = DEFAULT_UDP_RATE,
-             .icmp_rate = DEFAULT_UDP_RATE,
-             .min_size = 64,
-             .max_size = 1500,
-             .size_rate = DEFAULT_SUSPICIOUS_SIZE
-         };
-         config = &default_config;
-     }
+     
+     /* Basic sampling - use safe defaults if no config available */
+     __u32 base_rate = config ? config->base_rate : DEFAULT_SAMPLE_RATE;
+     __u32 syn_rate = config ? config->syn_rate : DEFAULT_SYN_RATE;
+     __u32 udp_rate = config ? config->udp_rate : DEFAULT_UDP_RATE;
+     __u32 icmp_rate = config ? config->icmp_rate : DEFAULT_UDP_RATE;
+     __u32 min_size = config ? config->min_size : 64;
+     __u32 max_size = config ? config->max_size : 1500;
+     __u32 size_rate = config ? config->size_rate : DEFAULT_SUSPICIOUS_SIZE;
      
      /* Check if this packet should be sampled for analysis */
-     if (should_sample(&flow, tcp_flags, pkt_size, config)) {
+     __u32 should_sample = 0;
+     
+     /* Base random sampling - always check */
+     if (base_rate > 0 && bpf_random(base_rate) == 0)
+         should_sample = 1;
+     
+     /* TCP SYN packet sampling (potential SYN flood detection) */
+     if (flow.protocol == IPPROTO_TCP && (tcp_flags & 0x02) && 
+         syn_rate > 0 && bpf_random(syn_rate) == 0)
+         should_sample = 1;
+     
+     /* UDP packet sampling (potential UDP flood / amplification attack detection) */
+     if (flow.protocol == IPPROTO_UDP && udp_rate > 0 && bpf_random(udp_rate) == 0)
+         should_sample = 1;
+     
+     /* ICMP packet sampling */
+     if (flow.protocol == IPPROTO_ICMP && icmp_rate > 0 && bpf_random(icmp_rate) == 0)
+         should_sample = 1;
+     
+     /* Suspicious packet size sampling (potential amplification attacks) */
+     if (pkt_size > min_size && pkt_size < max_size && 
+         size_rate > 0 && bpf_random(size_rate) == 0)
+         should_sample = 1;
+     
+     /* Sample if required */
+     if (should_sample) {
          /* Mark packet as sampled in metrics */
          count_sampled_packet();
          

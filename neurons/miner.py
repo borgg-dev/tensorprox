@@ -101,6 +101,10 @@ class Miner(BaseMinerNeuron):
     stop_firewall_event: Event = Field(default_factory=Event)
     packet_buffer: List[Tuple[bytes, int]] = Field(default_factory=list)
     batch_interval: int = 10
+    
+    # Add these two field definitions:
+    ddos_manager: Any = None
+    gre_setup_done: bool = False
             
     _lock: asyncio.Lock = PrivateAttr()
     _model: DecisionTreeClassifier = PrivateAttr()
@@ -117,8 +121,37 @@ class Miner(BaseMinerNeuron):
         self._model = joblib.load(os.path.join(base_path, "decision_tree.pkl"))
         self._imputer = joblib.load(os.path.join(base_path, "imputer.pkl"))
         self._scaler = joblib.load(os.path.join(base_path, "scaler.pkl"))
-        self.ddos_manager = None
-        self.gre_setup_done = False
+
+        # Set up GRE tunnels directly at initialization
+        # This ensures network infrastructure is ready before any synapse requests
+        try:
+            if not self.gre_setup_done:
+                logger.info("Setting up GRE tunnels during miner initialization...")
+                gre = GRESetup(node_type="moat")
+                
+                if BENIGN_PRIVATE_IP and KING_PRIVATE_IP:
+                    success = gre.moat(
+                        benign_private_ip=BENIGN_PRIVATE_IP,
+                        attacker_private_ip=ATTACKER_PRIVATE_IP,
+                        king_private_ip=KING_PRIVATE_IP
+                    )
+                    
+                    if success:
+                        logger.info("GRE setup successfully completed during initialization")
+                        self.gre_setup_done = True
+                    else:
+                        logger.error("GRE setup failed during initialization")
+                else:
+                    logger.error("Missing required environment variables for GRE setup")
+        except Exception as e:
+            logger.exception(f"Error during GRE setup in initialization: {e}")
+
+        # Pre-import the DDoS manager to avoid issues during challenge handling
+        try:
+            from tensorprox.core.ddos_manager import get_instance
+            logger.info("Pre-importing DDoS manager components")
+        except Exception as e:
+            logger.warning(f"Could not pre-import DDoS manager components: {e}")
 
 
     async def forward(self, synapse: PingSynapse) -> PingSynapse:
@@ -180,16 +213,6 @@ class Miner(BaseMinerNeuron):
 
 
     def handle_challenge(self, synapse: ChallengeSynapse) -> ChallengeSynapse:
-        """
-        Handles challenge requests, including firewall activation and deactivation based on the challenge state.
-
-        Args:
-            synapse (ChallengeSynapse): The received challenge synapse containing task details and state information.
-
-        Returns:
-            ChallengeSynapse: The same `synapse` object after processing the challenge.
-        """
-
         try:
             # Extract challenge information from the synapse
             task = synapse.task
@@ -201,12 +224,12 @@ class Miner(BaseMinerNeuron):
                 # Import the DDoS manager
                 from tensorprox.core.ddos_manager import get_instance
 
-                if not hasattr(self, "ddos_manager"):
-                    # Initialize DDoS manager on first use
+                # Initialize DDoS manager if not already done
+                if not hasattr(self, "ddos_manager") or self.ddos_manager is None:
                     self.ddos_manager = get_instance()
                     
                     # Make sure GRE tunnels are set up
-                    if not hasattr(self, "gre_setup_done") or not self.gre_setup_done:
+                    if not self.gre_setup_done:
                         logger.info("Setting up GRE tunnels...")
                         self.ddos_manager.setup_moat()
                         self.gre_setup_done = True
@@ -216,10 +239,21 @@ class Miner(BaseMinerNeuron):
                     self.firewall_active = True
                     
                     # Initialize and start DDoS manager
-                    if not self.ddos_manager.running:
+                    if self.ddos_manager is not None:
                         logger.info("Starting DDoS protection system...")
-                        self.ddos_manager.initialize()
-                        self.ddos_manager.start()
+                        
+                        # Use existing XDP object if available
+                        xdp_obj_path = "/root/tensorprox/tensorprox/core/immutable/moat_xdp_core.c"
+                        if os.path.exists(xdp_obj_path):
+                            # Initialize the manager with precompiled XDP
+                            self.ddos_manager.initialize(xdp_obj_path=xdp_obj_path)
+                        else:
+                            # Initialize without precompiled XDP
+                            self.ddos_manager.initialize()
+                            
+                        # Define interface mapping
+                        interfaces = {"gre-benign": "gre-king"}
+                        self.ddos_manager.start(attach_interfaces=interfaces)
                     
                     logger.info("🔥 Moat firewall activated with DDoS protection.")
                 else:
@@ -230,8 +264,7 @@ class Miner(BaseMinerNeuron):
                     self.firewall_active = False
                     
                     # Stop DDoS protection if running
-                    if hasattr(self, "ddos_manager") and self.ddos_manager.running:
-                        logger.info("Stopping DDoS protection system...")
+                    if hasattr(self, "ddos_manager") and self.ddos_manager is not None:
                         self.ddos_manager.stop()
                     
                     logger.info("🛑 Moat firewall deactivated.")
@@ -849,7 +882,7 @@ if __name__ == "__main__":
 
     logger.info("Miner Instance started.")
 
-    # run_gre_setup()
+    run_gre_setup()
 
     machines = [
         (BENIGN_PUBLIC_IP, BENIGN_USERNAME), 
