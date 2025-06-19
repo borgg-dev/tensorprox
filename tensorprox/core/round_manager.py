@@ -694,8 +694,6 @@ class RoundManager(BaseModel):
         await ssh_connect_execute(ip, key_path, ssh_user, f"bash {remote_script_path}")
 
         # 4. Run the challenge inside the enclave
-        remote_challenge_script = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.sh")
-        remote_traffic_gen = get_immutable_path(remote_base_directory, "challenge_gramine/traffic_generator.py")
         playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
         label_hashes_json = json.dumps(label_hashes)
 
@@ -707,7 +705,6 @@ class RoundManager(BaseModel):
             str(label_hashes_json),
             str(playlist),
             KING_OVERLAY_IP,
-            remote_traffic_gen,
             self.validator_ip
         ]
 

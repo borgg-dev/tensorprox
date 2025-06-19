@@ -5,8 +5,7 @@ challenge_duration="$2"
 label_hashes="$3"
 playlist_json=$(echo "$4" | jq '.' 2>/dev/null)
 king_ip="$5"
-traffic_gen_path="$6"
-validator_ip="$7"
+validator_ip="$6"
 
 # Build grep patterns for counting occurrences of each label
 benign_pattern=$(echo "$label_hashes" | jq -r '.BENIGN | join("|")')
