@@ -27,7 +27,11 @@ fi
 
 # Install missing packages
 echo "Checking and installing missing packages..."
-needed=("net-tools" "iptables-persistent" "psmisc" "python3" "python3-pip" "tcpdump" "jq" "ethtool")
+needed=("net-tools" "iptables-persistent" "psmisc" "python3" "python3-pip" "tcpdump" "jq" "ethtool" "gramine")
+
+if ! grep -q gramine /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+    add-apt-repository -y ppa:gramine/gramine
+fi
 
 # Update package list first
 DEBIAN_FRONTEND=noninteractive apt-get update -qq
