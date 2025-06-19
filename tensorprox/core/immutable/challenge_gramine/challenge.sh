@@ -21,7 +21,7 @@ rtt_avg=1000000000
 if [[ "$machine_name" == tgen* ]]; then
 
     # Start traffic generator with playlist
-    nohup bash -c "python3 /usr/local/bin/traffic_generator.py --playlist /dev/stdin --receiver-ips $king_ip --interface ipip-$machine_name" > /tmp/traffic_generator.log 2>&1 <<< "$playlist_json" &
+    nohup bash -c "python3 traffic_generator.py --playlist /dev/stdin --receiver-ips $king_ip --interface ipip-$machine_name" > /tmp/traffic_generator.log 2>&1 <<< "$playlist_json" &
     
     # Start continuous ping in background
     nohup ping -I "$INTERFACE_IP" -c "$challenge_duration" "$king_ip" > /tmp/rtt.txt 2>&1 &

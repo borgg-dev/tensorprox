@@ -74,6 +74,7 @@ import asyncio
 import os
 import json
 import random
+import time
 from tensorprox import *
 from typing import List, Dict, Tuple, Union, Callable
 from loguru import logger
@@ -92,7 +93,7 @@ from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad
 import base64
 import subprocess
-import re
+
 
 ######################################################################
 # LOGGING and ENVIRONMENT SETUP
@@ -646,8 +647,7 @@ class RoundManager(BaseModel):
         """
 
         # Create encrypted round nonce and get the decryption key
-        round_nonce = hashlib.sha256(str(time.time()).encode()).hexdigest()
-        os.environ["ROUND_NONCE"] = round_nonce
+        os.environ["ROUND_NONCE"] = hashlib.sha256(str(time.time()).encode()).hexdigest()
 
         # Prepare remote challenge_gramine directory and files
         remote_script_path = get_immutable_path(remote_base_directory, f"challenge_gramine/{script_name}")
@@ -701,7 +701,7 @@ class RoundManager(BaseModel):
 
         args = [
             "gramine-sgx",
-            remote_challenge_script,
+            "./challenge.sh",
             machine_name,
             str(challenge_duration),
             str(label_hashes_json),
