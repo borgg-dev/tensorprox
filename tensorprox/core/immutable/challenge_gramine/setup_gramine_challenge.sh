@@ -14,9 +14,7 @@ for bin in python3 jq ip grep ping tcpdump timeout gawk awk nohup tc; do
 done
 
 # Install Python dependencies into ./lib
+pip3 install --upgrade pip --quiet
 pip3 install --target=./lib faker scapy pycryptodome --quiet
 
-# Build Gramine manifest
-gramine-manifest -Dlog_level=error challenge.manifest.template challenge.manifest
-
-echo "Setup complete. You can now sign and run the enclave." 
+echo "Setup complete. You can now run the enclave." 

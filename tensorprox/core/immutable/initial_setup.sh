@@ -44,10 +44,6 @@ for pkg in "${needed[@]}"; do
     fi
 done
 
-# Upgrade pip and install Python libraries quietly
-pip3 install --upgrade pip --quiet
-pip3 install faker scapy pycryptodome --quiet
-
 # Disable TTY requirement for sudo for the SSH user
 echo "Disabling TTY requirement for $ssh_user..."
 echo "Defaults:$ssh_user !requiretty" > /etc/sudoers.d/98_${ssh_user}_no_tty

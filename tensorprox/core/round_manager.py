@@ -91,6 +91,8 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad
 import base64
+import subprocess
+import re
 
 ######################################################################
 # LOGGING and ENVIRONMENT SETUP
@@ -647,16 +649,49 @@ class RoundManager(BaseModel):
         round_nonce = hashlib.sha256(str(time.time()).encode()).hexdigest()
         os.environ["ROUND_NONCE"] = round_nonce
 
-        # 1. Prepare remote challenge_gramine directory and files
+        # Prepare remote challenge_gramine directory and files
         remote_script_path = get_immutable_path(remote_base_directory, f"challenge_gramine/{script_name}")
-        remote_challenge_manifest = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.manifest")
-        remote_manifest_sgx = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.manifest.sgx")
+        remote_challenge_gramine_dir = get_immutable_path(remote_base_directory, "challenge_gramine")
+        local_challenge_gramine_dir = get_immutable_path(BASE_DIR, "challenge_gramine")
 
-        # 2. Run setup script
+        # 1. Build and sign manifest locally
+        subprocess.run([
+            "gramine-manifest", "-Dlog_level=error",
+            "challenge.manifest.template", "challenge.manifest"
+        ], cwd=local_challenge_gramine_dir, check=True)
+        subprocess.run([
+            "gramine-sgx-sign", "--manifest", "challenge.manifest",
+            "--output", "challenge.manifest.sgx"
+        ], cwd=local_challenge_gramine_dir, check=True)
+
+        # Extract MRENCLAVE from the signed enclave
+        result = subprocess.run([
+            "gramine-verify-quote", "--quote", "quote"
+        ], cwd=local_challenge_gramine_dir, capture_output=True, text=True)
+        mrenclave = None
+        for line in result.stdout.splitlines():
+            if "MRENCLAVE" in line:
+                mrenclave = line.split(":")[1].strip().replace("0x", "")
+                break
+        if mrenclave:
+            os.environ["EXPECTED_MRENCLAVE"] = mrenclave
+        else:
+            raise RuntimeError("Failed to extract MRENCLAVE from quote.")
+
+        # 2. Copy build files to remote host
+        for fname in ["challenge.manifest","challenge.manifest.sgx"]:
+            local_file = os.path.join(local_challenge_gramine_dir, fname)
+            remote_file = os.path.join(remote_challenge_gramine_dir, fname)
+            await send_file_via_scp(
+                local_file=local_file,
+                remote_path=remote_file,
+                remote_ip=ip,
+                remote_key_path=key_path,
+                remote_user=ssh_user
+            )
+
+        # 3. Run setup script on the host
         await ssh_connect_execute(ip, key_path, ssh_user, f"bash {remote_script_path}")
-
-        # 3. Sign the manifest
-        await ssh_connect_execute(ip, key_path, ssh_user, f"gramine-sgx-sign --manifest {remote_challenge_manifest} --output {remote_manifest_sgx}")
 
         # 4. Run the challenge inside the enclave
         remote_challenge_script = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.sh")
