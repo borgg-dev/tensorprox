@@ -709,9 +709,8 @@ class RoundManager(BaseModel):
         ]
 
         gramine_cmd = ' '.join(shlex.quote(arg) for arg in args)
-        result = await ssh_connect_execute(ip, key_path, ssh_user, gramine_cmd)
 
-        return result
+        return await ssh_connect_execute(ip, key_path, ssh_user, gramine_cmd)
 
 
     async def check_machines_availability(self, uids: List[int], timeout: float = QUERY_AVAILABILITY_TIMEOUT) -> Tuple[List[PingSynapse], List[dict]]:
