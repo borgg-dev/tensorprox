@@ -1,0 +1,15 @@
+lib/
+tmp/
+*.sgx
+*.manifest
+python3
+jq
+ip
+grep
+ping
+tcpdump
+timeout
+gawk
+awk
+nohup
+tc 

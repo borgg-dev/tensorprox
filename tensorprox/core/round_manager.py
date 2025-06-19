@@ -9,7 +9,7 @@ secure access control through key management.
 
 --------------------------------------------------------------------------------
 FEATURES:
-- **Logging & Debugging:** Provides structured logging via Loguru and Python’s 
+- **Logging & Debugging:** Provides structured logging via Loguru and Python's 
   built-in logging module.
 - **SSH Session Management:** Supports key-based authentication, session key 
   generation, and automated secure key insertion.
@@ -87,6 +87,10 @@ import logging
 from functools import partial
 import shlex
 import traceback
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Util.Padding import pad
+import base64
 
 ######################################################################
 # LOGGING and ENVIRONMENT SETUP
@@ -122,6 +126,30 @@ class RoundManager(BaseModel):
     validator_ip: str = get_public_ip()
     king_ips: Dict[int, str] = {}
     moat_private_ips: Dict[int, str] = {}
+
+    def _create_encrypted_round_nonce(self, round_nonce_value: str) -> tuple:
+        """
+        Create an encrypted round_nonce.enc file and return the decryption key.
+        
+        Args:
+            round_nonce_value (str): The round nonce value to encrypt
+            
+        Returns:
+            tuple: (encryption_key_base64, encrypted_data_base64)
+        """
+        try:
+            key = get_random_bytes(32)  # 256-bit key
+            cipher = AES.new(key, AES.MODE_ECB)
+            padded_nonce = pad(round_nonce_value.encode('utf-8'), AES.block_size)
+            encrypted_data = cipher.encrypt(padded_nonce)
+
+            key_base64 = base64.b64encode(key).decode()
+            encrypted_base64 = base64.b64encode(encrypted_data).decode()
+
+            return key_base64, encrypted_base64
+        except Exception as e:
+            logger.error(f"Encryption failed: {e}")
+            raise
 
     def check_machine_availability(self, machine_name: str = None, uid: int = None) -> bool:
         """
@@ -608,57 +636,50 @@ class RoundManager(BaseModel):
         challenge_duration: int,
         label_hashes: Dict[str, list],
         playlists: List[dict],
-        script_name: str = "challenge.sh",
+        script_name: str = "setup_gramine_challenge.sh",
         linked_files: list = ["traffic_generator.py"]
     ) -> tuple:
         """
-        Runs the challenge script on the remote server.
-
-        This method prepares the arguments for running the challenge script and calls the `run` method
-        to execute it on the remote server.
-
-        Args:
-            ip (str): The IP address of the remote server.
-            ssh_user (str): The SSH username to access the server.
-            key_path (str): The path to the SSH private key for authentication.
-            remote_base_directory (str): The base directory on the remote server.
-            machine_name (str): The name of the machine running the challenge.
-            challenge_duration (int): The duration of the challenge in seconds.
-            label_hashes (Dict[str, list]): A dictionary mapping labels to their corresponding hash values.
-            playlists (List[dict]): A list of playlists to be used for the challenge.
-            script_name (str, optional): The name of the script to execute (default is "challenge.sh").
-            linked_files (list, optional): List of linked files to verify along with the script (default includes "traffic_generator.py" and "tcp_server.py").
-
-        Returns:
-            tuple: The result of the challenge execution.
+        Runs the challenge script inside a Gramine SGX enclave on the remote server.
         """
 
-        remote_script_path = get_immutable_path(remote_base_directory, script_name)
-        remote_traffic_gen = get_immutable_path(remote_base_directory, "traffic_generator.py")
-        files_to_verify = [script_name] + linked_files
+        # Create encrypted round nonce and get the decryption key
+        round_nonce = hashlib.sha256(str(time.time()).encode()).hexdigest()
+        os.environ["ROUND_NONCE"] = round_nonce
 
+        # 1. Prepare remote challenge_gramine directory and files
+        remote_script_path = get_immutable_path(remote_base_directory, f"challenge_gramine/{script_name}")
+        remote_challenge_manifest = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.manifest")
+        remote_manifest_sgx = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.manifest.sgx")
+
+        # 2. Run setup script
+        await ssh_connect_execute(ip, key_path, ssh_user, f"bash {remote_script_path}")
+
+        # 3. Sign the manifest
+        await ssh_connect_execute(ip, key_path, ssh_user, f"gramine-sgx-sign --manifest {remote_challenge_manifest} --output {remote_manifest_sgx}")
+
+        # 4. Run the challenge inside the enclave
+        remote_challenge_script = get_immutable_path(remote_base_directory, "challenge_gramine/challenge.sh")
+        remote_traffic_gen = get_immutable_path(remote_base_directory, "challenge_gramine/traffic_generator.py")
         playlist = json.dumps(playlists[machine_name]) if machine_name != "king" else "null"
-        label_hashes = json.dumps(label_hashes)
-        
+        label_hashes_json = json.dumps(label_hashes)
+
         args = [
-            "/usr/bin/bash",
-            remote_script_path,
+            "gramine-sgx",
+            remote_challenge_script,
             machine_name,
             str(challenge_duration),
-            str(label_hashes),  
-            str(playlist),    
+            str(label_hashes_json),
+            str(playlist),
             KING_OVERLAY_IP,
             remote_traffic_gen,
+            self.validator_ip
         ]
 
-        return await self.run(
-            ip=ip,
-            ssh_user=ssh_user,
-            key_path=key_path,
-            args=args,
-            files_to_verify=files_to_verify,
-            remote_base_directory=remote_base_directory
-        )
+        gramine_cmd = ' '.join(shlex.quote(arg) for arg in args)
+        result = await ssh_connect_execute(ip, key_path, ssh_user, gramine_cmd)
+
+        return result
 
 
     async def check_machines_availability(self, uids: List[int], timeout: float = QUERY_AVAILABILITY_TIMEOUT) -> Tuple[List[PingSynapse], List[dict]]:
@@ -796,7 +817,6 @@ class RoundManager(BaseModel):
                 authorized_keys_path = f"{ssh_dir}/authorized_keys"  # Path to the authorized keys file
                 key_path = f"/var/tmp/original_key_{uid}.pem" if task == "initial_setup" else os.path.join(SESSION_KEY_DIR, f"session_key_{uid}_{ip}")  # Set key path based on the task type
                 authorized_keys_bak = f"{ssh_dir}/authorized_keys.bak_{backup_suffix}"  # Backup path for authorized keys
-                revert_log = f"/tmp/revert_log_{uid}_{backup_suffix}.log"  # Log path for revert operations
                 revert_timeout = LOCKDOWN_TIMEOUT + CHALLENGE_TIMEOUT #duration of the lockdown
 
                 # Get machine-specific details like private IP and default directories

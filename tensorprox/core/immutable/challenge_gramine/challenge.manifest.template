@@ -1,0 +1,11 @@
+loader.preload = ""
+loader.env.LD_LIBRARY_PATH = "/lib:/lib/x86_64-linux-gnu"
+loader.env.PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:."
+fs.mounts = [
+    { path = "/", uri = "file:./", type = "chroot" },
+    { path = "/tmp", uri = "file:./tmp", type = "chroot" }
+]
+sgx.enclave_size = "1G"
+sys.allow_suid = true
+sys.allow_execstack = true
+sys.no_new_privs = false 

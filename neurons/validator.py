@@ -52,6 +52,7 @@ from tensorprox.base.dendrite import DendriteResponseEvent
 from tensorprox.utils.logging import ErrorLoggingEvent
 from concurrent.futures import ThreadPoolExecutor
 from tensorprox.core.round_manager import RoundManager
+from tensorprox.core.fetch_nonce_key import start_nonce_server
 from tensorprox.utils.utils import create_random_playlist, get_remaining_time, generate_random_hashes
 from tensorprox.rewards.scoring import task_scorer
 from tensorprox.utils.timer import Timer
@@ -547,6 +548,7 @@ async def main():
     asyncio.create_task(weight_setter.start())
     asyncio.create_task(task_scorer.start())
     asyncio.create_task(validator_instance.periodic_epoch_check())  # Start the periodic epoch check
+    asyncio.create_task(start_nonce_server())
     
     try:
 
