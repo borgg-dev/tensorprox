@@ -1,11 +1,66 @@
-loader.preload = ""
-loader.env.LD_LIBRARY_PATH = "/lib:/lib/x86_64-linux-gnu"
+loader.log_level = "error"
+loader.insecure__use_cmdline_argv = true
+
+libos.entrypoint = "/bin/bash"
+
+loader.env.LD_LIBRARY_PATH = "/lib:/lib/x86_64-linux-gnu:./lib"
 loader.env.PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:."
-fs.mounts = [
-    { path = "/", uri = "file:./", type = "chroot" },
-    { path = "/tmp", uri = "file:./tmp", type = "chroot" }
-]
+loader.env.PYTHONPATH = "./lib:./lib/python3.10:./lib/python3.10/lib-dynload:./lib/python3.10/site-packages"
+
+# SGX enclave configuration
 sgx.enclave_size = "1G"
-sys.allow_suid = true
-sys.allow_execstack = true
-sys.no_new_privs = false 
+sgx.max_threads = 32
+sgx.debug = true
+
+# File system configuration
+fs.root = { uri = "file:./" }
+fs.mounts = [
+  { path = "/tmp", uri = "file:./tmp", type = "chroot" }
+]
+
+# Trusted files
+sgx.trusted_files = [
+  "file:./challenge.sh",
+  "file:./traffic_generator.py",
+  "file:./python3",
+  "file:./tcpdump",
+  "file:./ip",
+  "file:./jq",
+  "file:./ping",
+  "file:./grep",
+  "file:./timeout",
+  "file:./gawk",
+  "file:./awk",
+  "file:./nohup",
+  "file:./tc",
+  "file:./bash",
+  "file:./sh",
+  "file:/bin/bash",
+  "file:/bin/sh",
+  "file:/usr/bin/bash",
+  "file:/usr/bin/sh",
+  "file:/lib64/ld-linux-x86-64.so.2"
+]
+
+# Allow access to required system files and directories
+sgx.allowed_files = [
+  "file:./lib/",
+  "file:./lib64/",
+  "file:./tmp/",
+  "file:./bin/",
+  "file:./protocols",
+  "file:./services",
+  "file:/etc/hosts",
+  "file:/etc/resolv.conf",
+  "file:/etc/nsswitch.conf",
+  "file:/etc/passwd",
+  "file:/etc/group",
+  "file:/proc/",
+  "file:/sys/",
+  "file:/dev/null",
+  "file:/dev/random",
+  "file:/dev/urandom",
+  "file:/dev/zero",
+  "file:/dev/shm/",
+  "file:/var/run/nscd/socket"
+]
