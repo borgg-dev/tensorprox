@@ -1,0 +1,23 @@
+[Unit]
+Description=ECP Agent - Health Reporter for Scrubbers
+Documentation=https://github.com/shugo-labs/tensorprox
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ecp-agent
+ExecStart=/usr/bin/python3 /opt/ecp-agent/ecp-agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Environment (MUST be overridden during deployment)
+# EMN_URL should be set to the miner control plane IP during scrubber provisioning
+Environment="EMN_URL=http://MINER_IP_PLACEHOLDER:8000"
+Environment="REPORT_INTERVAL=5"
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,44 @@
+defaults:
+  tcp_ports:
+    echo: 7011
+    http: 7022
+    custom: 7033
+  udp_ports:
+    echo: 7111
+    dgram: 7112
+    custom: 7113
+
+service_weights:
+  tcp_http: 60
+  tcp_echo: 15
+  tcp_custom: 10
+  udp_echo: 5
+  udp_dgram: 5
+  udp_custom: 5
+
+patterns:
+  burst:
+    requests: "3-10"
+    interval_ms: "100-500"
+    pause_s: "5-30"
+  steady:
+    interval_s: "1-3"
+    duration_m: "5-15"
+  idle:
+    duration_s: "60-300"
+    probability: 0.1
+
+time_of_day:
+  "00-06": 0.3
+  "06-09": 0.7
+  "09-17": 1.0
+  "17-21": 0.8
+  "21-24": 0.5
+
+origins:
+  - ip: 203.0.113.50   # RFC 5737 TEST-NET-3 - replace with your origin IP
+  - ip: 192.0.2.55     # RFC 5737 TEST-NET-1 - replace with your origin IP
+    tcp_ports:
+      echo: 8080
+      http: 8081
+      custom: 8082
