@@ -1,6 +1,6 @@
 # Running a TensorProx Validator
 
-Validators audit miner performance and set on-chain weights to distribute ALPHA rewards on the TensorProx subnet (netuid=91).
+Validators audit miner performance and set on-chain weights to distribute ALPHA rewards on the TensorProx subnet (netuid set via TP_NETUID).
 
 ## Requirements
 
@@ -109,8 +109,8 @@ btcli wallet new_coldkey --wallet.name <your_wallet_name>
 # Create a new hotkey
 btcli wallet new_hotkey --wallet.name <your_wallet_name> --wallet.hotkey <your_hotkey_name>
 
-# Register on subnet 91 (mainnet)
-btcli subnet register --wallet.name <your_wallet_name> --wallet.hotkey <your_hotkey_name> --netuid 91
+# Register on the subnet (mainnet)
+btcli subnet register --wallet.name <your_wallet_name> --wallet.hotkey <your_hotkey_name> --netuid <netuid>
 ```
 
 > **Note:** Registration requires TAO. Check current registration costs with `btcli subnet list`.
@@ -145,8 +145,8 @@ TP_WALLET_PATH=~/.bittensor/wallets
 # Network: "finney" for mainnet, "test" for testnet
 TP_SUBTENSOR_NETWORK=finney
 
-# Subnet UID (91 for TensorProx mainnet)
-TP_NETUID=91
+# Subnet UID (set to your subnet's netuid)
+TP_NETUID=<netuid>
 ```
 
 #### Network Ports
@@ -301,7 +301,7 @@ TP_WALLET_NAME=validator
 TP_WALLET_HOTKEY=default
 TP_WALLET_PATH=~/.bittensor/wallets
 TP_SUBTENSOR_NETWORK=finney
-TP_NETUID=91
+TP_NETUID=<netuid>
 
 # === PORTS ===
 TP_AXON_PORT=8191
@@ -380,7 +380,7 @@ pm2 start .venv/bin/python \
   --wallet.name validator \
   --wallet.hotkey default \
   --subtensor.network finney \
-  --netuid 91 \
+  --netuid <netuid> \
   --tpm-port 5001
 
 # Save for auto-restart

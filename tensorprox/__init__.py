@@ -5,11 +5,13 @@ A Bittensor subnet for incentivized, distributed DDoS mitigation
 using eBPF/XDP-based scrubbers competing on performance metrics.
 """
 
+import os
+
 __version__ = "1.0.0"
 __version_as_int__ = 10000
 
 # Network constants
-NETUID = 91  # TensorProx subnet ID
+NETUID = int(os.getenv("TP_NETUID"))  # TensorProx subnet netuid — set via the TP_NETUID env var
 SPEC_VERSION = 1
 
 # Timing constants (in seconds)

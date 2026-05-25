@@ -1,7 +1,7 @@
 """
 Subnet API Endpoints
 
-REST API endpoints for Bittensor subnet (SN91) integration.
+REST API endpoints for Bittensor subnet integration.
 Used by validators and miners to interact with TPM.
 
 Endpoints:

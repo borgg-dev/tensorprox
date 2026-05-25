@@ -2,7 +2,7 @@
 -- TensorProx Subnet Integration Schema
 -- ============================================================================
 -- Adds validator scoring and miner assignment tables to support the
--- Bittensor subnet (SN91) integration with TPM.
+-- Bittensor subnet integration with TPM.
 --
 -- This schema extends the existing TPM state database (tp_state) with:
 -- - Validator score storage

@@ -1,21 +1,21 @@
 
 <div align="center">
 
-# τensorprox SN91 | Bittensor
+# τensorprox | Bittensor
 
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-orange.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Bittensor](https://img.shields.io/badge/Bittensor-Subnet%2091-green.svg)](https://bittensor.com)
+[![Bittensor](https://img.shields.io/badge/Bittensor-Subnet-green.svg)](https://bittensor.com)
 
 <br/>
 
 ## The Incentivized DDoS Scrubbing Center <!-- omit in toc -->
 
-[Discord](https://discord.gg/kaUT68P336) • [Taostats](https://taostats.io/subnets/91) • [Linkedin](https://www.linkedin.com/company/shugo-io/) • [Twitter](https://x.com/shugoio)
+[Discord](https://discord.gg/kaUT68P336) • [Taostats](https://taostats.io) • [Linkedin](https://www.linkedin.com/company/shugo-io/) • [Twitter](https://x.com/shugoio)
 
 
-τensorprox is a Bittensor subnet (netuid=91) that provides decentralized DDoS protection through a network of incentivized scrubbers. Miners deploy eBPF/XDP-based traffic filtering infrastructure, while validators continuously audit their performance and set on-chain weights to distribute ALPHA rewards.
+τensorprox is a Bittensor subnet (netuid set via the TP_NETUID env var) that provides decentralized DDoS protection through a network of incentivized scrubbers. Miners deploy eBPF/XDP-based traffic filtering infrastructure, while validators continuously audit their performance and set on-chain weights to distribute ALPHA rewards.
 
 <br/>
 

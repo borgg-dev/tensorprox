@@ -5,6 +5,7 @@ Provides argument parsing and configuration helpers.
 """
 
 import argparse
+import os
 from typing import Any, Dict, Optional
 
 import bittensor as bt
@@ -30,8 +31,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--netuid",
         type=int,
-        default=91,
-        help="Subnet network UID",
+        default=int(os.getenv("TP_NETUID")) if os.getenv("TP_NETUID") else None,
+        help="Subnet network UID (defaults to the TP_NETUID env var)",
     )
     parser.add_argument(
         "--log-level",
@@ -75,7 +76,7 @@ def validate_config(cfg: "bt.Config") -> bool:
     if not hasattr(cfg, "wallet") or not cfg.wallet.name:
         raise ValueError("Wallet name is required")
 
-    if not hasattr(cfg, "netuid") or cfg.netuid < 0:
+    if not hasattr(cfg, "netuid") or cfg.netuid is None or cfg.netuid < 0:
         raise ValueError("Valid netuid is required")
 
     return True
